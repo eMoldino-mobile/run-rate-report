@@ -23,8 +23,8 @@ def calculate_run_rate_excel_like(df):
 
     # STOP flag
     df["STOP_FLAG"] = np.where(
-        (df["CT_diff_sec"].notna()) & 
-        ((df["CT_diff_sec"] < lower_limit) | (df["CT_diff_sec"] > upper_limit)) & 
+        (df["CT_diff_sec"].notna()) &
+        ((df["CT_diff_sec"] < lower_limit) | (df["CT_diff_sec"] > upper_limit)) &
         (df["CT_diff_sec"] <= 28800),  # 8 hours
         1, 0
     )
@@ -52,18 +52,20 @@ def calculate_run_rate_excel_like(df):
 
     # Time bucket analysis
     df["RUN_DURATION"] = np.where(df["STOP_ADJ"] == 1, df["CT_diff_sec"]/60, np.nan)
-    df["TIME_BUCKET"] = pd.cut(df["RUN_DURATION"], 
-                               bins=[0,1,2,3,5,10,20,30,60,120,999999],
-                               labels=["<1","1-2","2-3","3-5","5-10","10-20","20-30","30-60","60-120",">120"])
+    df["TIME_BUCKET"] = pd.cut(
+        df["RUN_DURATION"],
+        bins=[0,1,2,3,5,10,20,30,60,120,999999],
+        labels=["<1","1-2","2-3","3-5","5-10","10-20","20-30","30-60","60-120",">120"]
+    )
     bucket_counts = df["TIME_BUCKET"].value_counts().sort_index().fillna(0).astype(int)
     bucket_counts.loc["Grand Total"] = bucket_counts.sum()
 
     # Per-hour aggregation for MTTR / MTBF
     df["HOUR"] = df["SHOT TIME"].dt.hour
     hourly = df.groupby("HOUR").agg(
-        stops=("STOP_EVENT","sum"),
-        mttr=("CT_diff_sec", lambda x: np.nanmean(x) if len(x)>0 else np.nan),
-        mtbf=("CT_diff_sec", lambda x: np.nanmean(x) if len(x)>0 else np.nan)
+        stops=("STOP_EVENT", "sum"),
+        mttr=("CT_diff_sec", lambda x: np.nanmean(x) if len(x) > 0 else np.nan),
+        mtbf=("CT_diff_sec", lambda x: np.nanmean(x) if len(x) > 0 else np.nan)
     ).reset_index()
     hourly["mttr"] = hourly["mttr"] / 60
     hourly["mtbf"] = hourly["mtbf"] / 60
@@ -112,43 +114,43 @@ if uploaded_file:
             # --- Summary Tables ---
             st.markdown("### Shot Counts & Efficiency")
             st.table(pd.DataFrame({
-                "Total Shot Count":[results['total_shots']],
-                "Normal Shot Count":[results['normal_shots']],
-                "Efficiency":[f"{results['efficiency']*100:.2f}%"],
-                "Stop Count":[results['stop_events']]
+                "Total Shot Count": [results['total_shots']],
+                "Normal Shot Count": [results['normal_shots']],
+                "Efficiency": [f"{results['efficiency']*100:.2f}%"],
+                "Stop Count": [results['stop_events']]
             }))
 
             st.markdown("### Reliability Metrics")
             st.table(pd.DataFrame({
-                "Metric":["MTTR (Avg)", "MTBF (Avg)", "Time to First DT (Avg)", "Avg Cycle Time (Avg)"],
-                "Value":["0.55", "6.06", "5.06", "28.21"]
+                "Metric": ["MTTR (Avg)", "MTBF (Avg)", "Time to First DT (Avg)", "Avg Cycle Time (Avg)"],
+                "Value": ["0.55", "6.06", "5.06", "28.21"]
             }))
 
             st.markdown("### Time Bucket Analysis (Table)")
-            st.table(results['bucket_counts'].reset_index().rename(columns={"index":"Time Bucket",0:"Occurrences"}))
+            st.table(results['bucket_counts'].reset_index().rename(columns={"index": "Time Bucket", 0: "Occurrences"}))
 
             st.markdown("### Readable Time Display")
             st.table(pd.DataFrame({
-                "Metric":["Mode Cycle Time","Lower Limit","Upper Limit",
-                          "Total Production Time","Total Downtime","Production Run","MTTR","MTBF"],
-                "Value":[f"{results['mode_ct']:.0f} sec",
-                         f"{results['lower_limit']:.0f} sec",
-                         f"{results['upper_limit']:.0f} sec",
-                         format_time(results['production_time']),
-                         format_time(results['downtime']),
-                         format_time(results['total_runtime']),
-                         "33 sec","6 min 4 sec"]
+                "Metric": ["Mode Cycle Time", "Lower Limit", "Upper Limit",
+                           "Total Production Time", "Total Downtime", "Production Run", "MTTR", "MTBF"],
+                "Value": [f"{results['mode_ct']:.0f} sec",
+                          f"{results['lower_limit']:.0f} sec",
+                          f"{results['upper_limit']:.0f} sec",
+                          format_time(results['production_time']),
+                          format_time(results['downtime']),
+                          format_time(results['total_runtime']),
+                          "33 sec", "6 min 4 sec"]
             }))
 
             st.markdown("### Outside L1 / L2 Summary")
             st.table(pd.DataFrame({
-                "Mode CT":[f"{results['mode_ct']:.2f}"],
-                "Lower Limit":[f"{results['lower_limit']:.2f}"],
-                "Upper Limit":[f"{results['upper_limit']:.2f}"],
-                "Production Time %":[f"{results['production_time']/results['total_runtime']*100:.2f}%"],
-                "Downtime %":[f"{results['downtime']/results['total_runtime']*100:.2f}%"],
-                "Total Run Time (hrs)":[f"{results['run_hours']:.2f}"],
-                "Total Stops":[results['stop_events']]
+                "Mode CT": [f"{results['mode_ct']:.2f}"],
+                "Lower Limit": [f"{results['lower_limit']:.2f}"],
+                "Upper Limit": [f"{results['upper_limit']:.2f}"],
+                "Production Time %": [f"{results['production_time']/results['total_runtime']*100:.2f}%"],
+                "Downtime %": [f"{results['downtime']/results['total_runtime']*100:.2f}%"],
+                "Total Run Time (hrs)": [f"{results['run_hours']:.2f}"],
+                "Total Stops": [results['stop_events']]
             }))
 
             # --- Graphs ---
@@ -160,7 +162,6 @@ if uploaded_file:
             df_vis["CT_diff_sec"] = df_vis["SHOT TIME"].diff().dt.total_seconds()
 
             # Use same limits as the summary
-            mode_ct_sec = results["mode_ct"]
             lower_limit = results["lower_limit"]
             upper_limit = results["upper_limit"]
 
@@ -215,7 +216,7 @@ if uploaded_file:
             )
             st.plotly_chart(fig_bucket, use_container_width=True)
 
-            # ---------- 2) Time Bucket Trend by Hour (0–23) ----------
+            # ---------- 2) Time Bucket Trend by Hour ----------
             src = df_vis.loc[df_vis["STOP_EVENT"] & df_vis["TIME_BUCKET"].notna(), ["HOUR", "TIME_BUCKET"]].copy()
 
             if src.empty:
@@ -240,16 +241,14 @@ if uploaded_file:
                 )
                 st.plotly_chart(fig_tb_trend, use_container_width=True)
 
-            # ---------- 3) MTTR & MTBF Trend by Hour (0–23) – Dual-Axis Line Chart ----------
+            # ---------- 3) MTTR & MTBF Trend by Hour ----------
             hourly = results["hourly"].copy()
-
-            # Ensure all 24 hours are represented
             all_hours = pd.DataFrame({"HOUR": list(range(24))})
             hourly = all_hours.merge(hourly, on="HOUR", how="left").fillna(method="ffill").fillna(0)
 
             fig_mt = go.Figure()
 
-            # MTTR line (left y-axis)
+            # MTTR line
             fig_mt.add_trace(go.Scatter(
                 x=hourly["HOUR"], y=hourly["mttr"],
                 mode="lines+markers",
@@ -258,7 +257,7 @@ if uploaded_file:
                 yaxis="y1"
             ))
 
-            # MTBF line (right y-axis)
+            # MTBF line
             fig_mt.add_trace(go.Scatter(
                 x=hourly["HOUR"], y=hourly["mtbf"],
                 mode="lines+markers",
@@ -267,7 +266,6 @@ if uploaded_file:
                 yaxis="y2"
             ))
 
-            # Layout with dual y-axes
             fig_mt.update_layout(
                 title="MTTR & MTBF Trend by Hour",
                 xaxis=dict(
@@ -290,7 +288,11 @@ if uploaded_file:
                     side="right"
                 ),
                 margin=dict(l=60, r=60, t=60, b=40),
-                legend=dict(x=0.5, y=-0.2, orientation="h", xanchor="center")
+                legend=dict(
+                    x=0.5, y=-0.2,
+                    orientation="h",
+                    xanchor="center"
+                )
             )
 
             st.plotly_chart(fig_mt, use_container_width=True)
