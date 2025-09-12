@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import timedelta
 
-# --- Helper Functions ---
+# --- Functions ---
 def format_time(minutes):
     """Convert minutes (float) to hh:mm:ss string."""
     seconds = int(minutes * 60)
@@ -43,18 +43,10 @@ def calculate_run_rate_excel_like(df):
     net_rate = normal_shots / run_hours if run_hours else None
     efficiency = normal_shots / total_shots if total_shots else None
     
-    # Extra metrics
+    # Extra metrics for summary table
     production_time = df["PRODUCTION TIME"].iloc[0]
     downtime = df["TOTAL DOWN TIME"].iloc[0]
     total_runtime = df["TOTAL RUN TIME"].iloc[0]
-
-    # Time bucket analysis
-    df["RUN_DURATION"] = np.where(df["STOP_ADJ"] == 1, df["CT_diff_sec"]/60, np.nan)
-    df["TIME_BUCKET"] = pd.cut(df["RUN_DURATION"], 
-                               bins=[0,20,30,40,50,60,70,80,90,100,999999],
-                               labels=[1,2,3,4,5,6,7,8,9,10])
-    bucket_counts = df["TIME_BUCKET"].value_counts().sort_index().fillna(0).astype(int)
-    bucket_counts.loc["Grand Total"] = bucket_counts.sum()
 
     return {
         "mode_ct": mode_ct,
@@ -69,8 +61,7 @@ def calculate_run_rate_excel_like(df):
         "efficiency": efficiency,
         "production_time": production_time,
         "downtime": downtime,
-        "total_runtime": total_runtime,
-        "bucket_counts": bucket_counts
+        "total_runtime": total_runtime
     }
 
 # --- Streamlit UI ---
@@ -95,61 +86,24 @@ if uploaded_file:
             st.title("📊 Run Rate Report")
             st.subheader(f"Tool: {tool} | Date: {date.strftime('%Y-%m-%d')}")
             
-            # --- Block 1: Shot Counts & Efficiency ---
-            st.markdown("### Shot Counts & Efficiency")
-            shot_data = {
-                "Total Shot Count": [results['total_shots']],
-                "Normal Shot Count": [results['normal_shots']],
-                "Efficiency": [f"{results['efficiency']*100:.2f}%"],
-                "Stop Count": [results['stop_events']]
+            # --- Summary Table ---
+            summary_data = {
+                "Tooling ID": [tool],
+                "Period": ["1 Day"],
+                "Total Production Run": [format_time(results['total_runtime'])],
+                "Production Time": [format_time(results['production_time']) + f" ({results['production_time']/results['total_runtime']*100:.2f}%)"],
+                "Run Rate Downtime": [format_time(results['downtime']) + f" ({results['downtime']/results['total_runtime']*100:.2f}%)"],
+                "Stops": [results['stop_events']],
+                "MTTR (avg.)": ["00:00:33"],  # placeholder
+                "MTBF (avg.)": ["00:06:04"],  # placeholder
+                "Mode CT": [f"{results['mode_ct']:.1f} sec"],
+                "Lower Limit CT": [f"{results['lower_limit']:.1f} sec"],
+                "Upper Limit CT": [f"{results['upper_limit']:.1f} sec"],
             }
-            st.table(pd.DataFrame(shot_data))
-            
-            # --- Block 2: Reliability Metrics (placeholders) ---
-            st.markdown("### Reliability Metrics")
-            reliability_data = {
-                "Metric": ["MTTR (Avg)", "MTBF (Avg)", "Time to First DT (Avg)", "Avg Cycle Time (Avg)"],
-                "Value": ["0.55", "6.06", "5.06", "28.21"]
-            }
-            st.table(pd.DataFrame(reliability_data))
-            
-            # --- Block 3: Time Bucket Analysis ---
-            st.markdown("### Time Bucket Analysis")
-            bucket_df = results['bucket_counts'].reset_index()
-            bucket_df.columns = ["Time Bucket", "Occurrence Count"]
-            st.table(bucket_df)
-            
-            # --- Block 4: Readable Time Display ---
-            st.markdown("### Readable Time Display")
-            time_display = {
-                "Metric": ["Mode Cycle Time", "Lower Limit", "Upper Limit", 
-                           "Total Production Time", "Total Downtime", "Production Run", "MTTR", "MTBF"],
-                "Value": [f"{results['mode_ct']:.0f} sec",
-                          f"{results['lower_limit']:.0f} sec",
-                          f"{results['upper_limit']:.0f} sec",
-                          format_time(results['production_time']),
-                          format_time(results['downtime']),
-                          format_time(results['total_runtime']),
-                          "33 sec",
-                          "6 min 4 sec"]
-            }
-            st.table(pd.DataFrame(time_display))
-            
-            # --- Block 5: Outside Limits Summary ---
-            st.markdown("### Outside L1 / L2 Summary")
-            outside_data = {
-                "Mode CT": [f"{results['mode_ct']:.2f}"],
-                "Lower Limit": [f"{results['lower_limit']:.2f}"],
-                "Upper Limit": [f"{results['upper_limit']:.2f}"],
-                "Production Time %": [f"{results['production_time']/results['total_runtime']*100:.2f}%"],
-                "Downtime %": [f"{results['downtime']/results['total_runtime']*100:.2f}%"],
-                "Total Run Time (hrs)": [f"{results['run_hours']:.2f}"],
-                "Total Stops": [results['stop_events']]
-            }
-            st.table(pd.DataFrame(outside_data))
+            summary_df = pd.DataFrame(summary_data)
+            st.dataframe(summary_df, use_container_width=True)
             
             # --- KPI Metrics ---
-            st.markdown("### KPI Metrics")
             col1, col2, col3 = st.columns(3)
             col1.metric("Total Shots", f"{results['total_shots']:,}")
             col2.metric("Normal Shots", f"{results['normal_shots']:,}")
@@ -159,6 +113,8 @@ if uploaded_file:
             col4.metric("Gross Run Rate", f"{results['gross_rate']:.1f} cycles/hr")
             col5.metric("Net Run Rate", f"{results['net_rate']:.1f} cycles/hr")
             col6.metric("Efficiency", f"{results['efficiency']*100:.1f}%")
+            
+            st.caption(f"Run Hours: {results['run_hours']:.2f} h | Mode CT: {results['mode_ct']:.1f} sec")
 
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin.")
