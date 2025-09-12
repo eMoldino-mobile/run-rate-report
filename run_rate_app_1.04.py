@@ -14,7 +14,7 @@ def format_time(minutes):
 
 def calculate_run_rate_excel_like(df):
     df = df.copy()
-    df["SHOT TIME"] = pd.to_datetime(df["SHOT TIME"], errors="coerce")
+    df["SHOT TIME"] = pd.to_datetime(df["SHOT TIME"])
     df["CT_diff_sec"] = df["SHOT TIME"].diff().dt.total_seconds()
 
     # Mode CT (seconds)
@@ -94,15 +94,13 @@ st.sidebar.title("Run Rate Report Generator")
 uploaded_file = st.sidebar.file_uploader("Upload Run Rate Excel (clean table)", type=["xlsx"])
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
-    df["SHOT TIME"] = pd.to_datetime(df["SHOT TIME"], errors="coerce")
     tool = st.sidebar.selectbox("Select Tool / Equipment Code", df["EQUIPMENT CODE"].unique())
     date = st.sidebar.date_input("Select Date", pd.to_datetime(df["SHOT TIME"]).dt.date.min())
 
     if st.sidebar.button("Generate Report"):
         # Filter data for tool + date
         mask = (df["EQUIPMENT CODE"] == tool) & (pd.to_datetime(df["SHOT TIME"]).dt.date == date)
-        df_filtered = df.loc[mask].copy()
-        df_filtered["SHOT TIME"] = pd.to_datetime(df_filtered["SHOT TIME"], errors="coerce")
+        df_filtered = df.loc[mask]
 
         if df_filtered.empty:
             st.warning("No data found for this selection.")
