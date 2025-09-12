@@ -182,3 +182,78 @@ fig.update_layout(
 )
 
 st.plotly_chart(fig, use_container_width=True)
+
+# === VISUAL #2: Time Bucket Trend by Hour (0–23) - STACKED BAR ===
+# Paste this below your first "Time Bucket Analysis" chart.
+
+# 1) Locate the columns the same way the summary does
+shot_time_col = next((c for c in df_filtered.columns
+                      if "SHOT" in c.upper() and "TIME" in c.upper()), None)
+stop_col = next((c for c in df_filtered.columns
+                 if c.upper() in ["STOP", "STOP_EVENT", "IS_STOP", "DT_FLAG"]), None)
+time_bucket_col = next((c for c in df_filtered.columns
+                        if c.upper().replace(" ", "_") in ["TIME_BUCKET", "TIMEBUCKET", "BUCKET"]), None)
+
+if not shot_time_col or not stop_col or not time_bucket_col:
+    st.info("Missing SHOT TIME / STOP / TIME_BUCKET column(s); cannot render Time Bucket Trend chart.")
+else:
+    # 2) Use the same rows you used for the bucket analysis: STOP events with a valid bucket
+    src = df_filtered.loc[
+        (df_filtered[stop_col] == 1) & df_filtered[time_bucket_col].notna(),
+        [shot_time_col, time_bucket_col]
+    ].copy()
+
+    if src.empty:
+        st.info("No stop events with valid TIME_BUCKET for the selected tool/date.")
+    else:
+        # 3) Parse timestamps and compute local hour-of-day
+        #    If your timestamps are already TZ-aware, we just convert to LOCAL_TZ.
+        #    If they are naive, we treat them as LOCAL_TZ directly.
+        LOCAL_TZ = "UTC"  # <-- change this to your plant local timezone if needed, e.g., "Asia/Seoul"
+        ts = pd.to_datetime(src[shot_time_col], errors="coerce")
+        # Handle tz: if naive → localize; if aware → convert
+        if ts.dt.tz is None:
+            ts = ts.dt.tz_localize(LOCAL_TZ)
+        else:
+            ts = ts.dt.tz_convert(LOCAL_TZ)
+        src["HOUR"] = ts.dt.hour
+
+        # 4) Normalized label set for buckets (ensure same order you use in the basic bucket table)
+        default_bucket_order = ["<1", "1-2", "2-3", "3-5", "5-10", "10-20", "20-30", "30-60", "60-120", ">120"]
+        # Keep only those present, preserve desired order
+        present = [b for b in default_bucket_order if b in src[time_bucket_col].astype(str).unique().tolist()]
+        # If the file uses numeric codes or other labels, fall back to the existing order in data
+        if not present:
+            present = list(pd.Series(src[time_bucket_col].astype(str)).dropna().unique())
+
+        # 5) Build complete 24h × bucket grid and fill counts (so every hour shows even with zero)
+        from itertools import product
+        grid = pd.DataFrame(product(range(24), present), columns=["HOUR", "TIME_BUCKET"])
+
+        counts = (
+            src.assign(TIME_BUCKET=src[time_bucket_col].astype(str))
+               .groupby(["HOUR", "TIME_BUCKET"])
+               .size()
+               .reset_index(name="count")
+        )
+
+        trend = (
+            grid.merge(counts, on=["HOUR", "TIME_BUCKET"], how="left")
+                .fillna({"count": 0})
+        )
+
+        # 6) Plot stacked by bucket
+        fig_tb_trend = px.bar(
+            trend,
+            x="HOUR", y="count", color="TIME_BUCKET",
+            category_orders={"TIME_BUCKET": present, "HOUR": list(range(24))},
+            title="Time Bucket Trend by Hour (0–23)",
+            labels={"HOUR": "Hour of Day (0–23)", "count": "Occurrences", "TIME_BUCKET": "Time Bucket"},
+        )
+        fig_tb_trend.update_layout(
+            barmode="stack",
+            xaxis=dict(tickmode="linear", dtick=1, range=[-0.5, 23.5]),
+            margin=dict(l=60, r=20, t=60, b=40),
+            legend_title="Time Bucket",
+        )
+        st.plotly_chart(fig_tb_trend, use_container_width=True)
