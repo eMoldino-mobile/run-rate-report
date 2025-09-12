@@ -186,60 +186,65 @@ st.plotly_chart(fig, use_container_width=True)
 
 # 2) Time Bucket Trend by Hour (Stacked Bar, 0–23 on x-axis)
 
-trend_df = df_filtered.copy()
+# --- find required columns from the current df_filtered ---
+shot_col = next((c for c in df_filtered.columns if "SHOT" in c.upper() and "TIME" in c.upper()), None)
+ct_col   = next((c for c in df_filtered.columns if ("CT" in c.upper()) or ("CYCLE" in c.upper() and "TIME" in c.upper())), None)
 
-# Ensure we have HOUR
-trend_df["HOUR"] = pd.to_datetime(trend_df[shot_time_col], errors="coerce").dt.hour
+if shot_col is not None:
+    trend_df = df_filtered.copy()
 
-# Ensure we have TIME_BUCKET (fallback if not already created)
-if "TIME_BUCKET" not in trend_df.columns:
-    # Ensure DURATION is present
+    # HOUR (0–23)
+    trend_df["HOUR"] = pd.to_datetime(trend_df[shot_col], errors="coerce").dt.hour
+
+    # Ensure DURATION exists (seconds)
     if "DURATION" not in trend_df.columns:
-        trend_df["DURATION"] = pd.to_numeric(trend_df[cycle_time_col], errors="coerce")
+        trend_df["DURATION"] = pd.to_numeric(trend_df[ct_col], errors="coerce") if ct_col else pd.NA
+
+    # Ensure TIME_BUCKET exists
+    if "TIME_BUCKET" not in trend_df.columns:
+        bucket_order = ["<1","1-2","2-3","3-5","5-10","10-20","20-30","30-60","60-120",">120"]
+        trend_df["TIME_BUCKET"] = pd.cut(
+            trend_df["DURATION"],
+            bins=[0,1,2,3,5,10,20,30,60,120,float("inf")],
+            labels=bucket_order
+        )
+
+    # Keep valid rows
+    trend_df = trend_df.dropna(subset=["HOUR", "TIME_BUCKET"])
+
+    # Build full 24×bucket grid so every hour appears
     bucket_order = ["<1","1-2","2-3","3-5","5-10","10-20","20-30","30-60","60-120",">120"]
-    trend_df["TIME_BUCKET"] = pd.cut(
-        trend_df["DURATION"],
-        bins=[0,1,2,3,5,10,20,30,60,120,float("inf")],
-        labels=bucket_order
+    grid = pd.MultiIndex.from_product([range(24), bucket_order], names=["HOUR","TIME_BUCKET"]).to_frame(index=False)
+
+    # Actual counts
+    counts = (
+        trend_df
+        .groupby(["HOUR", "TIME_BUCKET"])
+        .size()
+        .reset_index(name="count")
     )
 
-# Keep only rows with valid hour & bucket
-trend_df = trend_df.dropna(subset=["HOUR", "TIME_BUCKET"])
+    # Join to grid and fill missing with 0
+    trend_counts = grid.merge(counts, on=["HOUR","TIME_BUCKET"], how="left").fillna({"count": 0})
+    trend_counts["TIME_BUCKET"] = pd.Categorical(trend_counts["TIME_BUCKET"], categories=bucket_order, ordered=True)
 
-# Full 24 × bucket grid to guarantee all hours appear
-bucket_order = ["<1","1-2","2-3","3-5","5-10","10-20","20-30","30-60","60-120",">120"]
-grid = pd.MultiIndex.from_product([range(24), bucket_order], names=["HOUR","TIME_BUCKET"]).to_frame(index=False)
+    # Plot stacked bar
+    fig2 = px.bar(
+        trend_counts,
+        x="HOUR",
+        y="count",
+        color="TIME_BUCKET",
+        category_orders={"TIME_BUCKET": bucket_order},
+        title="Time Bucket Trend by Hour (0–23)",
+    )
+    fig2.update_layout(
+        xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5, 23.5]),
+        yaxis_title="Occurrences",
+        barmode="stack",
+        margin=dict(l=60, r=20, t=60, b=40),
+        legend_title="Time Bucket",
+    )
 
-# Actual counts
-counts = (
-    trend_df
-    .groupby(["HOUR", "TIME_BUCKET"])
-    .size()
-    .reset_index(name="count")
-)
-
-# Join to full grid; fill zeros for missing
-trend_counts = grid.merge(counts, on=["HOUR","TIME_BUCKET"], how="left").fillna({"count": 0})
-
-# Category order for consistent stacked colors
-trend_counts["TIME_BUCKET"] = pd.Categorical(trend_counts["TIME_BUCKET"], categories=bucket_order, ordered=True)
-
-# Plot
-fig2 = px.bar(
-    trend_counts,
-    x="HOUR",
-    y="count",
-    color="TIME_BUCKET",
-    category_orders={"TIME_BUCKET": bucket_order},
-    title="Time Bucket Trend by Hour (0–23)",
-)
-
-fig2.update_layout(
-    xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5, 23.5]),
-    yaxis_title="Occurrences",
-    barmode="stack",
-    margin=dict(l=60, r=20, t=60, b=40),
-    legend_title="Time Bucket"
-)
-
-st.plotly_chart(fig2, use_container_width=True)
+    st.plotly_chart(fig2, use_container_width=True)
+else:
+    st.info("Could not locate the Shot Time column to build the hourly trend.")
