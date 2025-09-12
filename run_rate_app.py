@@ -51,7 +51,7 @@ def calculate_run_rate_excel_like(df):
     total_runtime = df["TOTAL RUN TIME"].iloc[0]
 
     # Time bucket analysis
-    df["RUN_DURATION"] = np.where(df["STOP_ADJ"] == 1, df["CT_diff_sec"]/60, np.nan)
+    df["RUN_DURATION"] = np.where(df["STOP_ADJ"] == 1, df["CT_diff_sec"] / 60, np.nan)
     df["TIME_BUCKET"] = pd.cut(
         df["RUN_DURATION"],
         bins=[0,1,2,3,5,10,20,30,60,120,999999],
@@ -161,7 +161,7 @@ if uploaded_file:
             df_vis["SHOT TIME"] = pd.to_datetime(df_vis["SHOT TIME"], errors="coerce")
             df_vis["CT_diff_sec"] = df_vis["SHOT TIME"].diff().dt.total_seconds()
 
-            # Use same limits as the summary
+            mode_ct_sec = results["mode_ct"]
             lower_limit = results["lower_limit"]
             upper_limit = results["upper_limit"]
 
@@ -216,7 +216,7 @@ if uploaded_file:
             )
             st.plotly_chart(fig_bucket, use_container_width=True)
 
-            # ---------- 2) Time Bucket Trend by Hour ----------
+            # ---------- 2) Time Bucket Trend by Hour (0–23) ----------
             src = df_vis.loc[df_vis["STOP_EVENT"] & df_vis["TIME_BUCKET"].notna(), ["HOUR", "TIME_BUCKET"]].copy()
 
             if src.empty:
@@ -241,14 +241,14 @@ if uploaded_file:
                 )
                 st.plotly_chart(fig_tb_trend, use_container_width=True)
 
-            # ---------- 3) MTTR & MTBF Trend by Hour ----------
+            # ---------- 3) MTTR & MTBF Trend by Hour (0–23) – Dual-Axis Line Chart ----------
             hourly = results["hourly"].copy()
             all_hours = pd.DataFrame({"HOUR": list(range(24))})
             hourly = all_hours.merge(hourly, on="HOUR", how="left").fillna(method="ffill").fillna(0)
 
             fig_mt = go.Figure()
 
-            # MTTR line
+            # MTTR line (left y-axis)
             fig_mt.add_trace(go.Scatter(
                 x=hourly["HOUR"], y=hourly["mttr"],
                 mode="lines+markers",
@@ -257,7 +257,7 @@ if uploaded_file:
                 yaxis="y1"
             ))
 
-            # MTBF line
+            # MTBF line (right y-axis)
             fig_mt.add_trace(go.Scatter(
                 x=hourly["HOUR"], y=hourly["mtbf"],
                 mode="lines+markers",
@@ -291,7 +291,8 @@ if uploaded_file:
                 legend=dict(
                     x=0.5, y=-0.2,
                     orientation="h",
-                    xanchor="center"
+                    xanchor="center",
+                    yanchor="top"
                 )
             )
 
