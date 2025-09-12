@@ -155,6 +155,36 @@ if uploaded_file:
             # --- Graphs ---
             st.header("📈 Visual Analysis")
 
+# 1) Time Bucket Analysis (Horizontal Bar)
+bucket_df = results['bucket_counts'].reset_index()
+bucket_df.columns = ['Time Bucket', 'Occurrences']
+
+# drop "Grand Total" row from the chart
+bucket_df = bucket_df[bucket_df['Time Bucket'] != 'Grand Total']
+
+# keep the canonical bucket order
+bucket_order = ["<1","1-2","2-3","3-5","5-10","10-20","20-30","30-60","60-120",">120"]
+bucket_df['Time Bucket'] = pd.Categorical(bucket_df['Time Bucket'], categories=bucket_order, ordered=True)
+bucket_df = bucket_df.sort_values('Time Bucket')
+
+fig = px.bar(
+    bucket_df,
+    x='Occurrences',
+    y='Time Bucket',
+    orientation='h',
+    text='Occurrences',
+    title='Time Bucket Analysis'
+)
+fig.update_traces(textposition='outside')
+fig.update_layout(
+    yaxis_title='',
+    xaxis_title='Occurrences',
+    margin=dict(l=70, r=20, t=60, b=40)
+)
+
+st.plotly_chart(fig, use_container_width=True)
+
+
 
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin.")
