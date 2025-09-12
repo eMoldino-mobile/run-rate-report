@@ -70,7 +70,7 @@ def calculate_run_rate_excel_like(df):
     hourly["mtbf"] = hourly["mtbf"] / 60
     hourly["stability_index"] = (hourly["mtbf"] / (hourly["mtbf"] + hourly["mttr"])) * 100
 
-    results = {
+    return {
         "mode_ct": mode_ct,
         "lower_limit": lower_limit,
         "upper_limit": upper_limit,
@@ -87,8 +87,6 @@ def calculate_run_rate_excel_like(df):
         "bucket_counts": bucket_counts,
         "hourly": hourly
     }
-
-    return results, df
 
 # --- Streamlit UI ---
 st.sidebar.title("Run Rate Report Generator")
@@ -109,7 +107,7 @@ if uploaded_file:
         if df_filtered.empty:
             st.warning("No data found for this selection.")
         else:
-            results, processed_df = calculate_run_rate_excel_like(df_filtered)
+            results = calculate_run_rate_excel_like(df_filtered)
 
             st.title("📊 Run Rate Report")
             st.subheader(f"Tool: {tool} | Date: {date.strftime('%Y-%m-%d')}")
@@ -167,7 +165,8 @@ if uploaded_file:
             st.plotly_chart(fig1, use_container_width=True)
 
             # 2. Time Bucket Trend (Stacked Bar by Hour)
-            trend_df = processed_df.dropna(subset=["TIME_BUCKET"]).groupby(["HOUR","TIME_BUCKET"]).size().reset_index(name="count")
+            df_filtered["HOUR"] = df_filtered["SHOT TIME"].dt.hour
+            trend_df = df_filtered.dropna(subset=["TIME_BUCKET"]).groupby(["HOUR","TIME_BUCKET"]).size().reset_index(name="count")
             fig2 = px.bar(trend_df, x="HOUR", y="count", color="TIME_BUCKET", title="Time Bucket Trend by Hour", barmode="stack")
             st.plotly_chart(fig2, use_container_width=True)
 
