@@ -153,107 +153,104 @@ if uploaded_file:
             }))
 
             # --- Graphs ---
+# --- GRAPHS (place inside the 'if st.sidebar.button("Generate Report"):' block) ---
 
 st.subheader("📈 Visual Analysis")
 
-# 1) Time Bucket Analysis (Horizontal Bar)
-bucket_df = results['bucket_counts'].reset_index()
-bucket_df.columns = ['Time Bucket', 'Occurrences']
+# ---------- Recompute derived columns needed for charts ----------
+df_vis = df_filtered.copy()
+df_vis["SHOT TIME"] = pd.to_datetime(df_vis["SHOT TIME"], errors="coerce")
+df_vis["CT_diff_sec"] = df_vis["SHOT TIME"].diff().dt.total_seconds()
 
-bucket_df = bucket_df[bucket_df['Time Bucket'] != 'Grand Total']
+# Use same limits as the summary to keep everything consistent
+mode_ct_sec = results["mode_ct"]          # seconds
+lower_limit = results["lower_limit"]      # seconds
+upper_limit = results["upper_limit"]      # seconds
 
-bucket_order = ["<1","1-2","2-3","3-5","5-10","10-20","20-30","30-60","60-120",">120"]
-bucket_df['Time Bucket'] = pd.Categorical(bucket_df['Time Bucket'], categories=bucket_order, ordered=True)
-bucket_df = bucket_df.sort_values('Time Bucket')
-
-fig = px.bar(
-    bucket_df,
-    x='Occurrences',
-    y='Time Bucket',
-    orientation='h',
-    text='Occurrences',
-    title='Time Bucket Analysis'
+# STOP flag
+df_vis["STOP_FLAG"] = np.where(
+    (df_vis["CT_diff_sec"].notna()) &
+    ((df_vis["CT_diff_sec"] < lower_limit) | (df_vis["CT_diff_sec"] > upper_limit)) &
+    (df_vis["CT_diff_sec"] <= 28800),   # exclude gaps > 8h
+    1, 0
 )
-fig.update_traces(textposition='outside')
-fig.update_layout(
-    yaxis_title='',
-    xaxis_title='Occurrences',
+if not df_vis.empty:
+    df_vis.loc[df_vis.index[0], "STOP_FLAG"] = 0
+
+# Back-to-back adjustment + STOP_EVENT
+df_vis["STOP_ADJ"] = df_vis["STOP_FLAG"]
+df_vis.loc[
+    (df_vis["STOP_FLAG"] == 1) & (df_vis["STOP_FLAG"].shift(fill_value=0) == 1),
+    "STOP_ADJ"
+] = 0
+df_vis["STOP_EVENT"] = (df_vis["STOP_ADJ"].shift(fill_value=0) == 0) & (df_vis["STOP_ADJ"] == 1)
+
+# Time buckets from the same spec used in the summary
+df_vis["RUN_DURATION_MIN"] = np.where(df_vis["STOP_ADJ"] == 1, df_vis["CT_diff_sec"] / 60.0, np.nan)
+bucket_order = ["<1","1-2","2-3","3-5","5-10","10-20","20-30","30-60","60-120",">120"]
+df_vis["TIME_BUCKET"] = pd.cut(
+    df_vis["RUN_DURATION_MIN"],
+    bins=[0,1,2,3,5,10,20,30,60,120,999999],
+    labels=bucket_order
+)
+df_vis["HOUR"] = df_vis["SHOT TIME"].dt.hour
+
+# ---------- 1) Time Bucket Analysis (Horizontal Bar) ----------
+bucket_counts = (
+    df_vis["TIME_BUCKET"]
+    .value_counts()
+    .reindex(bucket_order)   # ensure logical order
+    .fillna(0)
+    .astype(int)
+)
+bucket_df = bucket_counts.reset_index()
+bucket_df.columns = ["Time Bucket", "Occurrences"]
+
+fig_bucket = px.bar(
+    bucket_df[bucket_df["Time Bucket"].notna()],
+    x="Occurrences", y="Time Bucket",
+    orientation="h", text="Occurrences",
+    title="Time Bucket Analysis"
+)
+fig_bucket.update_traces(textposition="outside")
+fig_bucket.update_layout(
+    yaxis_title="", xaxis_title="Occurrences",
     margin=dict(l=70, r=20, t=60, b=40)
 )
+st.plotly_chart(fig_bucket, use_container_width=True)
 
-st.plotly_chart(fig, use_container_width=True)
+# ---------- 2) Time Bucket Trend by Hour (0–23) – Stacked Bar ----------
+# Use only STOP events that have a valid time bucket
+src = df_vis.loc[df_vis["STOP_EVENT"] & df_vis["TIME_BUCKET"].notna(), ["HOUR", "TIME_BUCKET"]].copy()
 
-# === VISUAL #2: Time Bucket Trend by Hour (0–23) - STACKED BAR ===
-# Paste this below your first "Time Bucket Analysis" chart.
-
-# 1) Locate the columns the same way the summary does
-shot_time_col = next((c for c in df_filtered.columns
-                      if "SHOT" in c.upper() and "TIME" in c.upper()), None)
-stop_col = next((c for c in df_filtered.columns
-                 if c.upper() in ["STOP", "STOP_EVENT", "IS_STOP", "DT_FLAG"]), None)
-time_bucket_col = next((c for c in df_filtered.columns
-                        if c.upper().replace(" ", "_") in ["TIME_BUCKET", "TIMEBUCKET", "BUCKET"]), None)
-
-if not shot_time_col or not stop_col or not time_bucket_col:
-    st.info("Missing SHOT TIME / STOP / TIME_BUCKET column(s); cannot render Time Bucket Trend chart.")
+if src.empty:
+    st.info("No stop events with valid TIME_BUCKET for the selected tool/date.")
 else:
-    # 2) Use the same rows you used for the bucket analysis: STOP events with a valid bucket
-    src = df_filtered.loc[
-        (df_filtered[stop_col] == 1) & df_filtered[time_bucket_col].notna(),
-        [shot_time_col, time_bucket_col]
-    ].copy()
+    # build complete 24×bucket grid so every hour shows (even if 0)
+    hours = list(range(24))
+    grid = pd.MultiIndex.from_product([hours, bucket_order], names=["HOUR","TIME_BUCKET"]).to_frame(index=False)
 
-    if src.empty:
-        st.info("No stop events with valid TIME_BUCKET for the selected tool/date.")
-    else:
-        # 3) Parse timestamps and compute local hour-of-day
-        #    If your timestamps are already TZ-aware, we just convert to LOCAL_TZ.
-        #    If they are naive, we treat them as LOCAL_TZ directly.
-        LOCAL_TZ = "UTC"  # <-- change this to your plant local timezone if needed, e.g., "Asia/Seoul"
-        ts = pd.to_datetime(src[shot_time_col], errors="coerce")
-        # Handle tz: if naive → localize; if aware → convert
-        if ts.dt.tz is None:
-            ts = ts.dt.tz_localize(LOCAL_TZ)
-        else:
-            ts = ts.dt.tz_convert(LOCAL_TZ)
-        src["HOUR"] = ts.dt.hour
+    counts = (
+        src.groupby(["HOUR", "TIME_BUCKET"])
+           .size()
+           .reset_index(name="count")
+    )
 
-        # 4) Normalized label set for buckets (ensure same order you use in the basic bucket table)
-        default_bucket_order = ["<1", "1-2", "2-3", "3-5", "5-10", "10-20", "20-30", "30-60", "60-120", ">120"]
-        # Keep only those present, preserve desired order
-        present = [b for b in default_bucket_order if b in src[time_bucket_col].astype(str).unique().tolist()]
-        # If the file uses numeric codes or other labels, fall back to the existing order in data
-        if not present:
-            present = list(pd.Series(src[time_bucket_col].astype(str)).dropna().unique())
+    trend = (
+        grid.merge(counts, on=["HOUR","TIME_BUCKET"], how="left")
+            .fillna({"count": 0})
+    )
 
-        # 5) Build complete 24h × bucket grid and fill counts (so every hour shows even with zero)
-        from itertools import product
-        grid = pd.DataFrame(product(range(24), present), columns=["HOUR", "TIME_BUCKET"])
-
-        counts = (
-            src.assign(TIME_BUCKET=src[time_bucket_col].astype(str))
-               .groupby(["HOUR", "TIME_BUCKET"])
-               .size()
-               .reset_index(name="count")
-        )
-
-        trend = (
-            grid.merge(counts, on=["HOUR", "TIME_BUCKET"], how="left")
-                .fillna({"count": 0})
-        )
-
-        # 6) Plot stacked by bucket
-        fig_tb_trend = px.bar(
-            trend,
-            x="HOUR", y="count", color="TIME_BUCKET",
-            category_orders={"TIME_BUCKET": present, "HOUR": list(range(24))},
-            title="Time Bucket Trend by Hour (0–23)",
-            labels={"HOUR": "Hour of Day (0–23)", "count": "Occurrences", "TIME_BUCKET": "Time Bucket"},
-        )
-        fig_tb_trend.update_layout(
-            barmode="stack",
-            xaxis=dict(tickmode="linear", dtick=1, range=[-0.5, 23.5]),
-            margin=dict(l=60, r=20, t=60, b=40),
-            legend_title="Time Bucket",
-        )
-        st.plotly_chart(fig_tb_trend, use_container_width=True)
+    fig_tb_trend = px.bar(
+        trend, x="HOUR", y="count", color="TIME_BUCKET",
+        category_orders={"HOUR": hours, "TIME_BUCKET": bucket_order},
+        title="Time Bucket Trend by Hour (0–23)",
+        labels={"HOUR": "Hour of Day (0–23)", "count": "Occurrences", "TIME_BUCKET": "Time Bucket"}
+    )
+    fig_tb_trend.update_layout(
+        barmode="stack",
+        xaxis=dict(tickmode="linear", dtick=1, range=[-0.5, 23.5]),
+        margin=dict(l=60, r=20, t=60, b=40),
+        legend_title="Time Bucket",
+    )
+    st.plotly_chart(fig_tb_trend, use_container_width=True)
