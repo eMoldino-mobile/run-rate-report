@@ -240,41 +240,58 @@ if uploaded_file:
                     legend_title="Time Bucket",
                 )
                 st.plotly_chart(fig_tb_trend, use_container_width=True)
-		            # ---------- 3) MTTR / MTBF Trend by Hour ----------
-            hourly = (
-                df_vis.groupby("HOUR")
-                .agg(
-                    mttr=("CT_diff_sec", lambda x: np.nanmean(x) if len(x) > 0 else np.nan),
-                    stops=("STOP_EVENT", "sum")
-                )
-                .reset_index()
-            )
-            # Convert seconds → minutes
-            hourly["MTTR (min)"] = hourly["mttr"] / 60
-            hourly["MTBF (min)"] = np.where(
-                hourly["stops"] > 0,
-                (3600 - hourly["mttr"]) / 60,   # crude approx: 1 hour minus avg repair time
-                np.nan
-            )
+		
+		# ---------- 3) MTTR & MTBF Trend by Hour (0–23) – Dual-Axis Line Chart ----------
+hourly = results["hourly"].copy()
 
-            fig_mttr = go.Figure()
-            fig_mttr.add_trace(go.Bar(
-                x=hourly["HOUR"], y=hourly["MTTR (min)"],
-                name="MTTR (min)", marker_color="indianred"
-            ))
-            fig_mttr.add_trace(go.Bar(
-                x=hourly["HOUR"], y=hourly["MTBF (min)"],
-                name="MTBF (min)", marker_color="seagreen"
-            ))
+# Ensure all 24 hours are represented
+all_hours = pd.DataFrame({"HOUR": list(range(24))})
+hourly = all_hours.merge(hourly, on="HOUR", how="left").fillna(method="ffill").fillna(0)
 
-            fig_mttr.update_layout(
-                barmode="group",
-                title="MTTR / MTBF Trend by Hour",
-                xaxis=dict(tickmode="linear", dtick=1, range=[-0.5, 23.5]),
-                yaxis_title="Minutes",
-                margin=dict(l=60, r=20, t=60, b=40),
-                legend_title="Metric"
-            )
+fig_mt = go.Figure()
 
-            st.plotly_chart(fig_mttr, use_container_width=True)
+# MTTR line (left y-axis)
+fig_mt.add_trace(go.Scatter(
+    x=hourly["HOUR"], y=hourly["mttr"],
+    mode="lines+markers",
+    name="MTTR (min)",
+    line=dict(color="red", width=2),
+    yaxis="y1"
+))
 
+# MTBF line (right y-axis)
+fig_mt.add_trace(go.Scatter(
+    x=hourly["HOUR"], y=hourly["mtbf"],
+    mode="lines+markers",
+    name="MTBF (min)",
+    line=dict(color="green", width=2, dash="dot"),
+    yaxis="y2"
+))
+
+# Layout with dual y-axes
+fig_mt.update_layout(
+    title="MTTR & MTBF Trend by Hour",
+    xaxis=dict(
+        title="Hour of Day (0–23)",
+        tickmode="linear",
+        dtick=1,
+        range=[-0.5, 23.5]
+    ),
+    yaxis=dict(
+        title="MTTR (min)",
+        titlefont=dict(color="red"),
+        tickfont=dict(color="red"),
+        side="left"
+    ),
+    yaxis2=dict(
+        title="MTBF (min)",
+        titlefont=dict(color="green"),
+        tickfont=dict(color="green"),
+        overlaying="y",
+        side="right"
+    ),
+    margin=dict(l=60, r=60, t=60, b=40),
+    legend=dict(x=0.5, y=-0.2, orientation="h", xanchor="center")
+)
+
+st.plotly_chart(fig_mt, use_container_width=True)
