@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -152,7 +151,7 @@ if uploaded_file:
                 "Total Stops":[results['stop_events']]
             }))
 
-                        # --- Graphs ---
+            # --- Graphs ---
             st.subheader("📈 Visual Analysis")
 
             # ---------- Recompute derived columns needed for charts ----------
@@ -240,58 +239,58 @@ if uploaded_file:
                     legend_title="Time Bucket",
                 )
                 st.plotly_chart(fig_tb_trend, use_container_width=True)
-		
-		# ---------- 3) MTTR & MTBF Trend by Hour (0–23) – Dual-Axis Line Chart 		----------
-		hourly = results["hourly"].copy()
 
-		# Ensure all 24 hours are represented
-		all_hours = pd.DataFrame({"HOUR": list(range(24))})
-		hourly = all_hours.merge(hourly, on="HOUR", how="left").fillna(method="ffill").fillna(0)
+            # ---------- 3) MTTR & MTBF Trend by Hour (0–23) – Dual-Axis Line Chart ----------
+            hourly = results["hourly"].copy()
 
-		fig_mt = go.Figure()
+            # Ensure all 24 hours are represented
+            all_hours = pd.DataFrame({"HOUR": list(range(24))})
+            hourly = all_hours.merge(hourly, on="HOUR", how="left").fillna(method="ffill").fillna(0)
 
-		# MTTR line (left y-axis)
-		fig_mt.add_trace(go.Scatter(
-   		x=hourly["HOUR"], y=hourly["mttr"],
-  		mode="lines+markers",
-    		name="MTTR (min)",
-    		line=dict(color="red", width=2),
-    		yaxis="y1"
-))
+            fig_mt = go.Figure()
 
-		# MTBF line (right y-axis)
-		fig_mt.add_trace(go.Scatter(
-    		x=hourly["HOUR"], y=hourly["mtbf"],
-    		mode="lines+markers",
-    		name="MTBF (min)",
-    		line=dict(color="green", width=2, dash="dot"),
-    		yaxis="y2"
-))
+            # MTTR line (left y-axis)
+            fig_mt.add_trace(go.Scatter(
+                x=hourly["HOUR"], y=hourly["mttr"],
+                mode="lines+markers",
+                name="MTTR (min)",
+                line=dict(color="red", width=2),
+                yaxis="y1"
+            ))
 
-		# Layout with dual y-axes
-		fig_mt.update_layout(
-    		title="MTTR & MTBF Trend by Hour",
-    		xaxis=dict(
-        	title="Hour of Day (0–23)",
-        	tickmode="linear",
-        	dtick=1,
-        	range=[-0.5, 23.5]
-    ),
-    		yaxis=dict(
-        	title="MTTR (min)",
-        	titlefont=dict(color="red"),
-        	tickfont=dict(color="red"),
-        	side="left"
-    ),
-    		yaxis2=dict(
-        	title="MTBF (min)",
-        	titlefont=dict(color="green"),
-        	tickfont=dict(color="green"),
-        	overlaying="y",
-        	side="right"
-    ),
-    		margin=dict(l=60, r=60, t=60, b=40),
-    		legend=dict(x=0.5, y=-0.2, orientation="h", xanchor="center")
-)
+            # MTBF line (right y-axis)
+            fig_mt.add_trace(go.Scatter(
+                x=hourly["HOUR"], y=hourly["mtbf"],
+                mode="lines+markers",
+                name="MTBF (min)",
+                line=dict(color="green", width=2, dash="dot"),
+                yaxis="y2"
+            ))
 
-st.plotly_chart(fig_mt, use_container_width=True)
+            # Layout with dual y-axes
+            fig_mt.update_layout(
+                title="MTTR & MTBF Trend by Hour",
+                xaxis=dict(
+                    title="Hour of Day (0–23)",
+                    tickmode="linear",
+                    dtick=1,
+                    range=[-0.5, 23.5]
+                ),
+                yaxis=dict(
+                    title="MTTR (min)",
+                    titlefont=dict(color="red"),
+                    tickfont=dict(color="red"),
+                    side="left"
+                ),
+                yaxis2=dict(
+                    title="MTBF (min)",
+                    titlefont=dict(color="green"),
+                    tickfont=dict(color="green"),
+                    overlaying="y",
+                    side="right"
+                ),
+                margin=dict(l=60, r=60, t=60, b=40),
+                legend=dict(x=0.5, y=-0.2, orientation="h", xanchor="center")
+            )
+
+            st.plotly_chart(fig_mt, use_container_width=True)
