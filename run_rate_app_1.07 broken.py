@@ -119,15 +119,11 @@ if uploaded_file:
             fig1.update_layout(title="Time Bucket Analysis", xaxis_title="Time Bucket", yaxis_title="Occurrences")
             st.plotly_chart(fig1, use_container_width=True)
 
-            # 2. Time Bucket Trend (Stacked Bar by Hour, full 24h grid)
+            # 2. Time Bucket Trend (Stacked Bar by Hour, 0-23 always shown)
             trend_df = processed_df.dropna(subset=["TIME_BUCKET"]).groupby(["HOUR","TIME_BUCKET"]).size().reset_index(name="count")
-            # Full grid of hours × buckets
             all_hours = pd.DataFrame({"HOUR": range(24)})
-            all_buckets = pd.DataFrame({"TIME_BUCKET": processed_df["TIME_BUCKET"].cat.categories})
-            grid = all_hours.merge(all_buckets, how="cross")
-            trend_df = grid.merge(trend_df, on=["HOUR","TIME_BUCKET"], how="left").fillna(0)
-            fig2 = px.bar(trend_df, x="HOUR", y="count", color="TIME_BUCKET",
-                          title="Time Bucket Trend by Hour", barmode="stack")
+            trend_df = all_hours.merge(trend_df, on="HOUR", how="left").fillna(0)
+            fig2 = px.bar(trend_df, x="HOUR", y="count", color="TIME_BUCKET", title="Time Bucket Trend by Hour", barmode="stack")
             st.plotly_chart(fig2, use_container_width=True)
 
             # 3. MTTR & MTBF Trend (Line)
