@@ -183,44 +183,47 @@ fig.update_layout(
 
 st.plotly_chart(fig, use_container_width=True)
 
-# --- VISUAL #2: Time Bucket Trend by Hour (0–23) ---
-# Detect Shot Time column (e.g., "SHOT TIME", "SHOT_TIME", etc.)
+# --- VISUAL #2 (Reverted): Time Bucket Trend by Hour (0–23) ---
+
+# Detect columns as before
 shot_col = next((c for c in df_filtered.columns
                  if "SHOT" in c.upper() and "TIME" in c.upper()), None)
-
 time_bucket_col = next((c for c in df_filtered.columns
                         if c.upper().replace(" ", "_") in ["TIME_BUCKET","TIMEBUCKET"]), None)
-
-bucket_order = ["<1","1-2","2-3","3-5","5-10","10-20","20-30","30-60","60-120",">120"]
 
 if shot_col is None or time_bucket_col is None:
     st.info("Missing SHOT TIME or TIME_BUCKET column; cannot render hourly time-bucket trend.")
 else:
+    # Build hour (no coercion to category here — match the first working approach)
     trend_df = df_filtered[[shot_col, time_bucket_col]].copy()
     trend_df["HOUR"] = pd.to_datetime(trend_df[shot_col], errors="coerce").dt.hour
-    trend_df = trend_df.dropna(subset=["HOUR", time_bucket_col])
+
+    # Keep rows where hour is known; do NOT drop rows just because TIME_BUCKET might be NaN
+    trend_df = trend_df.dropna(subset=["HOUR"])
     trend_df["HOUR"] = trend_df["HOUR"].astype(int)
-    trend_df[time_bucket_col] = pd.Categorical(trend_df[time_bucket_col],
-                                               categories=bucket_order, ordered=True)
 
-    # Build full 0–23 x-axis and all bucket categories
-    grid = pd.MultiIndex.from_product([range(24), bucket_order],
-                                      names=["HOUR", "TIME_BUCKET"]).to_frame(index=False)
+    # Group exactly like the first version
+    trend_counts = (
+        trend_df.groupby(["HOUR", time_bucket_col])
+        .size()
+        .reset_index(name="count")
+        .rename(columns={time_bucket_col: "TIME_BUCKET"})
+    )
 
-    counts = (trend_df
-              .groupby(["HOUR", time_bucket_col])
-              .size()
-              .reset_index(name="count")
-              .rename(columns={time_bucket_col: "TIME_BUCKET"}))
-
-    trend_counts = (grid
-                    .merge(counts, on=["HOUR", "TIME_BUCKET"], how="left")
-                    .fillna({"count": 0}))
+    # Ensure we always show 0–23 (fill missing hours with count=0 so the axis is complete)
+    all_hours = pd.DataFrame({"HOUR": list(range(24))})
+    if not trend_counts.empty:
+        trend_counts = (
+            all_hours.merge(trend_counts, on="HOUR", how="left")
+                     .fillna({"count": 0})
+        )
+    else:
+        # nothing grouped → still show the 24-hour axis with zeros
+        trend_counts = all_hours.assign(TIME_BUCKET="", count=0)
 
     fig_tb_trend = px.bar(
         trend_counts,
         x="HOUR", y="count", color="TIME_BUCKET",
-        category_orders={"TIME_BUCKET": bucket_order},
         title="Time Bucket Trend by Hour (0–23)",
         labels={"HOUR": "Hour of Day (0–23)", "count": "Occurrences", "TIME_BUCKET": "Time Bucket"},
     )
