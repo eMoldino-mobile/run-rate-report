@@ -113,7 +113,6 @@ if uploaded_file:
 
         with visual_tab:
             st.subheader("Time Bucket Analysis (Chart)")
-            bucket_df = bucket_counts.reset_index()
-            bucket_df.columns = ["Time Bucket", "Occurrences"]
-            fig = px.bar(bucket_df, x="Time Bucket", y="Occurrences", title="Time Bucket Analysis")
-            st.plotly_chart(fig, use_container_width=True)
+            fig1 = px.bar(bucket_counts.reset_index(), x="index", y="TIME_BUCKET",
+                          labels={"index":"Time Bucket","TIME_BUCKET":"Occurrences"})
+            st.plotly_chart(fig1, use_container_width=True)
