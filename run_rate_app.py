@@ -182,3 +182,41 @@ fig.update_layout(
 )
 
 st.plotly_chart(fig, use_container_width=True)
+
+# 2) Time Bucket Trend by Hour (Stacked Bar)
+trend_df = df_filtered.copy()
+trend_df["HOUR"] = pd.to_datetime(trend_df["SHOT TIME"]).dt.hour
+
+# Drop rows without a valid stop event
+trend_df = trend_df.dropna(subset=["TIME_BUCKET"])
+
+# Group by hour + bucket
+trend_counts = trend_df.groupby(["HOUR", "TIME_BUCKET"]).size().reset_index(name="count")
+
+# Ensure all 24 hours exist
+all_hours = pd.DataFrame({"HOUR": range(24)})
+trend_counts = all_hours.merge(trend_counts, on="HOUR", how="left").fillna(0)
+
+# Keep bucket order consistent
+bucket_order = ["<1","1-2","2-3","3-5","5-10","10-20","20-30","30-60","60-120",">120"]
+trend_counts["TIME_BUCKET"] = pd.Categorical(trend_counts["TIME_BUCKET"], categories=bucket_order, ordered=True)
+
+# Plot stacked bar
+fig2 = px.bar(
+    trend_counts,
+    x="HOUR",
+    y="count",
+    color="TIME_BUCKET",
+    category_orders={"TIME_BUCKET": bucket_order},
+    title="Time Bucket Trend by Hour (0–23)",
+)
+
+fig2.update_layout(
+    xaxis=dict(dtick=1, title="Hour of Day (0–23)"),
+    yaxis_title="Occurrences",
+    barmode="stack",
+    margin=dict(l=60, r=20, t=60, b=40)
+)
+
+st.plotly_chart(fig2, use_container_width=True)
+
