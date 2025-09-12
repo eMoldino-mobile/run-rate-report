@@ -1,14 +1,8 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from datetime import timedelta
 
 # --- Functions ---
-def format_time(minutes):
-    """Convert minutes (float) to hh:mm:ss string."""
-    seconds = int(minutes * 60)
-    return str(timedelta(seconds=seconds))
-
 def calculate_run_rate_excel_like(df):
     df = df.copy()
     df["SHOT TIME"] = pd.to_datetime(df["SHOT TIME"])
@@ -43,25 +37,15 @@ def calculate_run_rate_excel_like(df):
     net_rate = normal_shots / run_hours if run_hours else None
     efficiency = normal_shots / total_shots if total_shots else None
     
-    # Extra metrics for summary table
-    production_time = df["PRODUCTION TIME"].iloc[0]
-    downtime = df["TOTAL DOWN TIME"].iloc[0]
-    total_runtime = df["TOTAL RUN TIME"].iloc[0]
-
     return {
         "mode_ct": mode_ct,
-        "lower_limit": lower_limit,
-        "upper_limit": upper_limit,
         "total_shots": total_shots,
         "normal_shots": normal_shots,
         "stop_events": stop_events,
         "run_hours": run_hours,
         "gross_rate": gross_rate,
         "net_rate": net_rate,
-        "efficiency": efficiency,
-        "production_time": production_time,
-        "downtime": downtime,
-        "total_runtime": total_runtime
+        "efficiency": efficiency
     }
 
 # --- Streamlit UI ---
@@ -86,32 +70,14 @@ if uploaded_file:
             st.title("📊 Run Rate Report")
             st.subheader(f"Tool: {tool} | Date: {date.strftime('%Y-%m-%d')}")
             
-            # --- Summary Table ---
-            summary_data = {
-                "Tooling ID": [tool],
-                "Period": ["1 Day"],
-                "Total Production Run": [format_time(results['total_runtime'])],
-                "Production Time": [format_time(results['production_time']) + f" ({results['production_time']/results['total_runtime']*100:.2f}%)"],
-                "Run Rate Downtime": [format_time(results['downtime']) + f" ({results['downtime']/results['total_runtime']*100:.2f}%)"],
-                "Stops": [results['stop_events']],
-                "MTTR (avg.)": ["00:00:33"],  # placeholder
-                "MTBF (avg.)": ["00:06:04"],  # placeholder
-                "Mode CT": [f"{results['mode_ct']:.1f} sec"],
-                "Lower Limit CT": [f"{results['lower_limit']:.1f} sec"],
-                "Upper Limit CT": [f"{results['upper_limit']:.1f} sec"],
-            }
-            summary_df = pd.DataFrame(summary_data)
-            st.dataframe(summary_df, use_container_width=True)
-            
-            # --- KPI Metrics ---
             col1, col2, col3 = st.columns(3)
             col1.metric("Total Shots", f"{results['total_shots']:,}")
             col2.metric("Normal Shots", f"{results['normal_shots']:,}")
             col3.metric("Stop Events", f"{results['stop_events']:,}")
             
             col4, col5, col6 = st.columns(3)
-            col4.metric("Gross Run Rate", f"{results['gross_rate']:.1f} cycles/hr")
-            col5.metric("Net Run Rate", f"{results['net_rate']:.1f} cycles/hr")
+            col4.metric("Gross Run Rate", f"{results['gross_rate']:.1f} shots/hr")
+            col5.metric("Net Run Rate", f"{results['net_rate']:.1f} shots/hr")
             col6.metric("Efficiency", f"{results['efficiency']*100:.1f}%")
             
             st.caption(f"Run Hours: {results['run_hours']:.2f} h | Mode CT: {results['mode_ct']:.1f} sec")
