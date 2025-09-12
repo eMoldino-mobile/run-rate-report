@@ -240,3 +240,41 @@ if uploaded_file:
                     legend_title="Time Bucket",
                 )
                 st.plotly_chart(fig_tb_trend, use_container_width=True)
+		            # ---------- 3) MTTR / MTBF Trend by Hour ----------
+            hourly = (
+                df_vis.groupby("HOUR")
+                .agg(
+                    mttr=("CT_diff_sec", lambda x: np.nanmean(x) if len(x) > 0 else np.nan),
+                    stops=("STOP_EVENT", "sum")
+                )
+                .reset_index()
+            )
+            # Convert seconds → minutes
+            hourly["MTTR (min)"] = hourly["mttr"] / 60
+            hourly["MTBF (min)"] = np.where(
+                hourly["stops"] > 0,
+                (3600 - hourly["mttr"]) / 60,   # crude approx: 1 hour minus avg repair time
+                np.nan
+            )
+
+            fig_mttr = go.Figure()
+            fig_mttr.add_trace(go.Bar(
+                x=hourly["HOUR"], y=hourly["MTTR (min)"],
+                name="MTTR (min)", marker_color="indianred"
+            ))
+            fig_mttr.add_trace(go.Bar(
+                x=hourly["HOUR"], y=hourly["MTBF (min)"],
+                name="MTBF (min)", marker_color="seagreen"
+            ))
+
+            fig_mttr.update_layout(
+                barmode="group",
+                title="MTTR / MTBF Trend by Hour",
+                xaxis=dict(tickmode="linear", dtick=1, range=[-0.5, 23.5]),
+                yaxis_title="Minutes",
+                margin=dict(l=60, r=20, t=60, b=40),
+                legend_title="Metric"
+            )
+
+            st.plotly_chart(fig_mttr, use_container_width=True)
+
