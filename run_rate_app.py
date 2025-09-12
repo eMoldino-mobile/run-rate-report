@@ -183,32 +183,3 @@ fig.update_layout(
 
 st.plotly_chart(fig, use_container_width=True)
 
-
-   # 2. Time Bucket Trend (Stacked Bar by Hour)
-            trend_df = processed_df.dropna(subset=["TIME_BUCKET"]).groupby(["HOUR","TIME_BUCKET"]).size().reset_index(name="count")
-            fig2 = px.bar(trend_df, x="HOUR", y="count", color="TIME_BUCKET", title="Time Bucket Trend by Hour", barmode="stack")
-            st.plotly_chart(fig2, use_container_width=True)
-
-            # 3. MTTR & MTBF Trend (Line)
-            hourly = results['hourly']
-            fig3 = go.Figure()
-            fig3.add_trace(go.Scatter(x=hourly["HOUR"], y=hourly["mttr"], mode="lines+markers", name="MTTR",
-                                      line=dict(color="red", width=4)))
-            fig3.add_trace(go.Scatter(x=hourly["HOUR"], y=hourly["mtbf"], mode="lines+markers", name="MTBF",
-                                      line=dict(color="green", width=4)))
-            fig3.update_layout(title="MTTR & MTBF Trend per Hour", xaxis_title="Hour of Day", yaxis_title="Minutes")
-            st.plotly_chart(fig3, use_container_width=True)
-
-            # 4. Stability Index (Line with Zones)
-            fig4 = go.Figure()
-            # add colored zones
-            fig4.add_hrect(y0=70, y1=90, fillcolor="lightgreen", opacity=0.3, line_width=0)
-            fig4.add_hrect(y0=30, y1=50, fillcolor="yellow", opacity=0.3, line_width=0)
-            fig4.add_hrect(y0=0, y1=30, fillcolor="red", opacity=0.3, line_width=0)
-            # add line
-            fig4.add_trace(go.Scatter(x=hourly["HOUR"], y=hourly["stability_index"], mode="lines+markers",
-                                      name="Stability Index", line=dict(color="blue", width=4)))
-            fig4.update_layout(title="Stability Index per Hour", xaxis_title="Hour of Day", yaxis_title="Index (0-100)")
-            st.plotly_chart(fig4, use_container_width=True)
-else:
-    st.info("👈 Upload a cleaned run rate Excel file to begin.")
