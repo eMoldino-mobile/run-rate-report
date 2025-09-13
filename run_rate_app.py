@@ -306,53 +306,43 @@ if uploaded_file:
 
             # ---------- Stoppage Alert Reporting (≥ Mode CT × 2) ----------
             df_vis = results["df"].copy()
-            threshold = results["mode_ct"] * 2
+            threshold = results["mode_ct"] * 2  # Mode CT × 2 threshold
+            
+            # Filter gaps exceeding threshold
             stoppage_alerts = df_vis[df_vis["CT_diff_sec"] >= threshold].copy()
             
-            st.markdown("### 🚨 Stoppage Alert Reporting (≥ Mode CT × 2)")
-            
             if stoppage_alerts.empty:
-                st.info("✅ No stoppage alerts found.")
+                st.info("✅ No stoppage alerts found (≥ Mode CT × 2).")
             else:
                 stoppage_alerts["Gap (min)"] = (stoppage_alerts["CT_diff_sec"] / 60).round(2)
                 stoppage_alerts["Alert"] = "🔴"
             
-                # Add blank columns for user inputs
+                # Add editable fields
                 stoppage_alerts["Reason"] = ""
                 stoppage_alerts["Details"] = ""
             
-                # Configure editable grid
+                st.markdown("### 🚨 Stoppage Alert Reporting (≥ Mode CT × 2)")
+            
                 edited_table = st.data_editor(
-                    stoppage_alerts.rename(columns={
+                    stoppage_alerts[["SHOT TIME", "CT_diff_sec", "HOUR", "Gap (min)", "Alert", "Reason", "Details"]].rename(columns={
                         "SHOT TIME": "Event Time",
                         "CT_diff_sec": "Gap (sec)",
                         "HOUR": "Hour"
                     }),
+                    use_container_width=True,
                     column_config={
                         "Reason": st.column_config.SelectboxColumn(
                             "Reason",
-                            options=[
-                                "", "⚙️ Equipment Failure", "🔄 Changeover Delay",
-                                "🧹 Cleaning / Setup", "📦 Material Shortage", "❓ Other"
-                            ],
-                            required=False
+                            help="Select reason for stoppage",
+                            options=["", "⚙️ Equipment Failure", "🔄 Changeover Delay", "🧹 Cleaning / Setup", "📦 Material Shortage", "❓ Other"]
                         ),
-                        "Details": st.column_config.TextColumn("Details", max_chars=200),
-                    },
-                    hide_index=True,
-                    use_container_width=True,
+                        "Details": st.column_config.TextColumn("Details", help="Add additional details")
+                    }
                 )
             
-                # Show summary
                 st.markdown("#### 📋 Recorded Reports (Temporary)")
                 st.dataframe(edited_table, use_container_width=True)
-            
-                st.markdown(f"""
-                **Summary**
-                - Total Stoppage Alerts: {len(stoppage_alerts)}
-                - Threshold Applied: {results['mode_ct']:.2f} sec × 2 = {threshold:.2f} sec
-                - ⚠️ Note: Reasons & details entered here are **not saved** (temporary only for demo purpose).
-                """)
+
 
 
 
