@@ -218,7 +218,7 @@ if uploaded_file:
             ))
 
             fig_mt.update_layout(
-                title=dict(text="MTTR & MTBF Trend by Hour"),
+                title="MTTR & MTBF Trend by Hour",
                 xaxis=dict(
                     title="Hour of Day (0–23)",
                     tickmode="linear",
@@ -241,12 +241,13 @@ if uploaded_file:
                 margin=dict(l=60, r=60, t=60, b=40),
                 legend=dict(
                     orientation="h",
-                    yanchor="top",
+                    x=0.5,
                     y=-0.2,
                     xanchor="center",
-                    x=0.5
+                    yanchor="top"
                 )
             )
+
 
             st.plotly_chart(fig_mt, use_container_width=True)
 
