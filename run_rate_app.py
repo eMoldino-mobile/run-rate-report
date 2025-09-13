@@ -310,44 +310,42 @@ if uploaded_file:
               - 🟩 70–100% → Low Risk (stable operation)
             """)
             
-            # ---------- 5) Downtime Event Log (Mode CT × 2 Rule) ----------
-
-            # Identify downtime candidates where cycle > 2 × Mode CT
-            mode_ct = results["mode_ct"]
-            downtime_candidates = results["df"].copy()
-            downtime_candidates = downtime_candidates[downtime_candidates["CT_diff_sec"] >= (2 * mode_ct)]
+            # ---------- Downtime Candidates Log (≥ Mode CT × 2) ----------
+            df_vis = results["df"].copy()
+            threshold = results["mode_ct"] * 2  # Mode CT × 2 threshold
             
-            # Build table with relevant fields
+            # Filter gaps exceeding threshold
+            downtime_candidates = df_vis[df_vis["CT_diff_sec"] >= threshold].copy()
+            
             if downtime_candidates.empty:
-                st.info("✅ No downtime events detected beyond Mode CT × 2 threshold.")
+                st.info("✅ No downtime candidates found (≥ Mode CT × 2).")
             else:
-                downtime_log = downtime_candidates[[
-                    "SHOT TIME", "CT_diff_sec", "STOP_EVENT", "STOP_FLAG", "HOUR"
-                ]].copy()
-                downtime_log["CT_diff_min"] = downtime_log["CT_diff_sec"] / 60
-                downtime_log.rename(columns={
+                downtime_candidates["Gap (min)"] = (downtime_candidates["CT_diff_sec"] / 60).round(2)
+            
+                # Use STOP_FLAG (all candidates) instead of STOP_EVENT
+                downtime_candidates["Alert"] = np.where(downtime_candidates["STOP_FLAG"] == 1, "🔴", "")
+            
+                # Select and format columns for display
+                table = downtime_candidates[[
+                    "SHOT TIME", "CT_diff_sec", "Alert", "STOP_FLAG", "HOUR", "Gap (min)"
+                ]].rename(columns={
                     "SHOT TIME": "Event Time",
-                    "HOUR": "Hour",
                     "CT_diff_sec": "Gap (sec)",
-                    "CT_diff_min": "Gap (min)",
-                    "STOP_EVENT": "Stop Event?",
-                    "STOP_FLAG": "Stop Flag"
-                }, inplace=True)
+                    "STOP_FLAG": "Stop Flag",
+                    "HOUR": "Hour"
+                })
             
-                st.markdown("### 🛑 Downtime Event Log (≥ Mode CT × 2)")
-                st.dataframe(
-                    downtime_log.style.format({
-                        "Gap (sec)": "{:.0f}",
-                        "Gap (min)": "{:.2f}"
-                    })
-                )
+                # Display table
+                st.markdown("### 🔴 Downtime Candidates (≥ Mode CT × 2)")
+                st.dataframe(table, use_container_width=True)
             
-                # Optional summary counts
+                # Summary
                 st.markdown(f"""
                 **Summary**
-                - Total Downtime Candidates: **{len(downtime_log)}**
-                - Threshold Applied: **{mode_ct:.2f} sec × 2 = {2*mode_ct:.2f} sec**
+                - Total Downtime Candidates: {len(downtime_candidates)}
+                - Threshold Applied: {results['mode_ct']:.2f} sec × 2 = {threshold:.2f} sec
                 """)
+
 
 
 
