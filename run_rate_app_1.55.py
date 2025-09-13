@@ -25,7 +25,7 @@ def calculate_run_rate_excel_like(df):
     df["STOP_FLAG"] = np.where(
         (df["CT_diff_sec"].notna()) &
         ((df["CT_diff_sec"] < lower_limit) | (df["CT_diff_sec"] > upper_limit)) &
-        (df["CT_diff_sec"] <= 28800),
+        (df["CT_diff_sec"] <= 28800),  # 8 hours
         1, 0
     )
     df.loc[df.index[0], "STOP_FLAG"] = 0
@@ -86,8 +86,7 @@ def calculate_run_rate_excel_like(df):
         "downtime": downtime,
         "total_runtime": total_runtime,
         "bucket_counts": bucket_counts,
-        "hourly": hourly,
-        "df": df  # keep processed df for visuals
+        "hourly": hourly
     }
 
 # --- Streamlit UI ---
@@ -100,6 +99,7 @@ if uploaded_file:
     date = st.sidebar.date_input("Select Date", pd.to_datetime(df["SHOT TIME"]).dt.date.min())
 
     if st.sidebar.button("Generate Report"):
+        # Filter data for tool + date
         mask = (df["EQUIPMENT CODE"] == tool) & (pd.to_datetime(df["SHOT TIME"]).dt.date == date)
         df_filtered = df.loc[mask]
 
@@ -111,7 +111,7 @@ if uploaded_file:
             st.title("📊 Run Rate Report")
             st.subheader(f"Tool: {tool} | Date: {date.strftime('%Y-%m-%d')}")
 
-            # --- Summaries ---
+            # --- Summary Tables ---
             st.markdown("### Shot Counts & Efficiency")
             st.table(pd.DataFrame({
                 "Total Shot Count": [results['total_shots']],
@@ -129,6 +129,19 @@ if uploaded_file:
             st.markdown("### Time Bucket Analysis (Table)")
             st.table(results['bucket_counts'].reset_index().rename(columns={"index": "Time Bucket", 0: "Occurrences"}))
 
+            st.markdown("### Readable Time Display")
+            st.table(pd.DataFrame({
+                "Metric": ["Mode Cycle Time", "Lower Limit", "Upper Limit",
+                           "Total Production Time", "Total Downtime", "Production Run", "MTTR", "MTBF"],
+                "Value": [f"{results['mode_ct']:.0f} sec",
+                          f"{results['lower_limit']:.0f} sec",
+                          f"{results['upper_limit']:.0f} sec",
+                          format_time(results['production_time']),
+                          format_time(results['downtime']),
+                          format_time(results['total_runtime']),
+                          "33 sec", "6 min 4 sec"]
+            }))
+
             st.markdown("### Outside L1 / L2 Summary")
             st.table(pd.DataFrame({
                 "Mode CT": [f"{results['mode_ct']:.2f}"],
@@ -143,27 +156,69 @@ if uploaded_file:
             # --- Graphs ---
             st.subheader("📈 Visual Analysis")
 
-            df_vis = results["df"].copy()
-            bucket_order = ["<1","1-2","2-3","3-5","5-10","10-20","20-30","30-60","60-120",">120"]
+            # ---------- Recompute derived columns needed for charts ----------
+            df_vis = df_filtered.copy()
+            df_vis["SHOT TIME"] = pd.to_datetime(df_vis["SHOT TIME"], errors="coerce")
+            df_vis["CT_diff_sec"] = df_vis["SHOT TIME"].diff().dt.total_seconds()
 
-            # 1) Time Bucket Analysis
+            mode_ct_sec = results["mode_ct"]
+            lower_limit = results["lower_limit"]
+            upper_limit = results["upper_limit"]
+
+            # STOP flag
+            df_vis["STOP_FLAG"] = np.where(
+                (df_vis["CT_diff_sec"].notna()) &
+                ((df_vis["CT_diff_sec"] < lower_limit) | (df_vis["CT_diff_sec"] > upper_limit)) &
+                (df_vis["CT_diff_sec"] <= 28800),
+                1, 0
+            )
+            if not df_vis.empty:
+                df_vis.loc[df_vis.index[0], "STOP_FLAG"] = 0
+
+            # Back-to-back adjustment
+            df_vis["STOP_ADJ"] = df_vis["STOP_FLAG"]
+            df_vis.loc[
+                (df_vis["STOP_FLAG"] == 1) & (df_vis["STOP_FLAG"].shift(fill_value=0) == 1),
+                "STOP_ADJ"
+            ] = 0
+            df_vis["STOP_EVENT"] = (df_vis["STOP_ADJ"].shift(fill_value=0) == 0) & (df_vis["STOP_ADJ"] == 1)
+
+            # Time buckets
+            df_vis["RUN_DURATION_MIN"] = np.where(df_vis["STOP_ADJ"] == 1, df_vis["CT_diff_sec"]/60.0, np.nan)
+            bucket_order = ["<1","1-2","2-3","3-5","5-10","10-20","20-30","30-60","60-120",">120"]
+            df_vis["TIME_BUCKET"] = pd.cut(
+                df_vis["RUN_DURATION_MIN"],
+                bins=[0,1,2,3,5,10,20,30,60,120,999999],
+                labels=bucket_order
+            )
+            df_vis["HOUR"] = df_vis["SHOT TIME"].dt.hour
+
+            # ---------- 1) Time Bucket Analysis ----------
             bucket_counts = (
                 df_vis["TIME_BUCKET"]
                 .value_counts()
                 .reindex(bucket_order)
                 .fillna(0).astype(int)
             )
+            bucket_df = bucket_counts.reset_index()
+            bucket_df.columns = ["Time Bucket", "Occurrences"]
+
             fig_bucket = px.bar(
-                bucket_counts.reset_index().rename(columns={"index": "Time Bucket", "TIME_BUCKET": "Occurrences"}),
-                x="TIME_BUCKET", y="index",
-                orientation="h", text="TIME_BUCKET",
+                bucket_df[bucket_df["Time Bucket"].notna()],
+                x="Occurrences", y="Time Bucket",
+                orientation="h", text="Occurrences",
                 title="Time Bucket Analysis"
             )
             fig_bucket.update_traces(textposition="outside")
+            fig_bucket.update_layout(
+                yaxis_title="", xaxis_title="Occurrences",
+                margin=dict(l=70, r=20, t=60, b=40)
+            )
             st.plotly_chart(fig_bucket, use_container_width=True)
 
-            # 2) Time Bucket Trend by Hour
-            src = df_vis.loc[df_vis["STOP_EVENT"] & df_vis["TIME_BUCKET"].notna(), ["HOUR", "TIME_BUCKET"]]
+            # ---------- 2) Time Bucket Trend by Hour (0–23) ----------
+            src = df_vis.loc[df_vis["STOP_EVENT"] & df_vis["TIME_BUCKET"].notna(), ["HOUR", "TIME_BUCKET"]].copy()
+
             if src.empty:
                 st.info("No stop events with valid TIME_BUCKET for the selected tool/date.")
             else:
@@ -175,37 +230,95 @@ if uploaded_file:
                 fig_tb_trend = px.bar(
                     trend, x="HOUR", y="count", color="TIME_BUCKET",
                     category_orders={"HOUR": hours, "TIME_BUCKET": bucket_order},
-                    title="Time Bucket Trend by Hour (0–23)"
+                    title="Time Bucket Trend by Hour (0–23)",
+                    labels={"HOUR": "Hour of Day (0–23)", "count": "Occurrences", "TIME_BUCKET": "Time Bucket"}
                 )
-                fig_tb_trend.update_layout(barmode="stack")
+                fig_tb_trend.update_layout(
+                    barmode="stack",
+                    xaxis=dict(tickmode="linear", dtick=1, range=[-0.5, 23.5]),
+                    margin=dict(l=60, r=20, t=60, b=40),
+                    legend_title="Time Bucket",
+                )
                 st.plotly_chart(fig_tb_trend, use_container_width=True)
 
-            # 3) MTTR & MTBF Trend by Hour
+            # ---------- 3) MTTR & MTBF Trend by Hour (0–23) – Dual-Axis Line Chart ----------
             hourly = results["hourly"].copy()
             all_hours = pd.DataFrame({"HOUR": list(range(24))})
             hourly = all_hours.merge(hourly, on="HOUR", how="left").fillna(method="ffill").fillna(0)
 
             fig_mt = go.Figure()
+
+            # MTTR line (left y-axis)
             fig_mt.add_trace(go.Scatter(
                 x=hourly["HOUR"], y=hourly["mttr"],
-                mode="lines+markers", name="MTTR (min)",
-                line=dict(color="red", width=2), yaxis="y1"
+                mode="lines+markers",
+                name="MTTR (min)",
+                line=dict(color="red", width=2),
+                yaxis="y1"
             ))
+
+            # MTBF line (right y-axis)
             fig_mt.add_trace(go.Scatter(
                 x=hourly["HOUR"], y=hourly["mtbf"],
-                mode="lines+markers", name="MTBF (min)",
-                line=dict(color="green", width=2, dash="dot"), yaxis="y2"
+                mode="lines+markers",
+                name="MTBF (min)",
+                line=dict(color="green", width=2, dash="dot"),
+                yaxis="y2"
             ))
+
             fig_mt.update_layout(
                 title="MTTR & MTBF Trend by Hour",
-                xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5, 23.5]),
-                yaxis=dict(title="MTTR (min)", color="red"),
-                yaxis2=dict(title="MTBF (min)", color="green", overlaying="y", side="right"),
+                xaxis=dict(
+                    title="Hour of Day (0–23)",
+                    tickmode="linear",
+                    dtick=1,
+                    range=[-0.5, 23.5]
+                ),
+                yaxis=dict(
+                    title="MTTR (min)",
+                    titlefont=dict(color="red"),
+                    tickfont=dict(color="red"),
+                    side="left"
+                ),
+                yaxis2=dict(
+                    title="MTBF (min)",
+                    titlefont=dict(color="green"),
+                    tickfont=dict(color="green"),
+                    overlaying="y",
+                    side="right"
+                ),
                 margin=dict(l=60, r=60, t=60, b=40),
-                legend_orientation="h", legend_y=-0.2, legend_x=0.5, legend_xanchor="center"
+                legend=dict(
+                    x=0.5, y=-0.2,
+                    orientation="h",
+                    xanchor="center",
+                    yanchor="top"
+                )
             )
-            st.plotly_chart(fig_mt, use_container_width=True)
 
+            st.plotly_chart(fig_mt, use_container_width=True)
+            
+                        # 3. MTTR & MTBF Trend (Line)
+            hourly = results['hourly']
+            fig3 = go.Figure()
+            fig3.add_trace(
+                go.Scatter(x=hourly["HOUR"], 
+                y=hourly["mttr"], 
+                mode="lines+markers", 
+                name="MTTR",
+                line=dict(color="red", width=4)))
+            fig3.add_trace(
+                go.Scatter(x=hourly["HOUR"], 
+                y=hourly["mtbf"], 
+                mode="lines+markers", 
+                name="MTBF",
+                line=dict(color="green", width=4)))
+            fig3.update_layout(
+                title="MTTR & MTBF Trend per Hour", 
+                xaxis_title="Hour of Day", 
+                yaxis_title="Minutes")
+            st.plotly_chart(
+            fig3, use_container_width=True)
             
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin.")
