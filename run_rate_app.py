@@ -385,20 +385,69 @@ if uploaded_file:
                 - Operators are expected to log a **reason** for each alert.
                 """)
             
-                # Fake reporting flow
-                st.markdown("""
-                ---
-                #### 📋 Reporting Flow (Simulation)
-                1. Alerts are flagged automatically based on `Mode CT × 2`.
-                2. Each flagged event requires operator input for **reason classification**.
-                3. Example categories:
-                   - ⚙️ Equipment Failure  
-                   - 🔄 Changeover Delay  
-                   - 🧹 Cleaning / Setup  
-                   - 📦 Material Shortage  
-                   - ❓ Other (free text)  
-                4. Once reported, the table can be exported for maintenance review.
-                """)
+                # ---------- Stoppage Alert Reporting (≥ Mode CT × 2) ----------
+                df_vis = results["df"].copy()
+                threshold = results["mode_ct"] * 2  # Mode CT × 2 threshold
+                
+                # Filter gaps exceeding threshold
+                stoppage_alerts = df_vis[df_vis["CT_diff_sec"] >= threshold].copy()
+                
+                st.markdown("### 🚨 Stoppage Alert Reporting (≥ Mode CT × 2)")
+                
+                if stoppage_alerts.empty:
+                    st.info("✅ No stoppage alerts found (≥ Mode CT × 2).")
+                else:
+                    stoppage_alerts["Gap (min)"] = (stoppage_alerts["CT_diff_sec"] / 60).round(2)
+                    stoppage_alerts["Alert"] = "🔴"
+                
+                    # Clean table for display
+                    table = stoppage_alerts[[
+                        "SHOT TIME", "CT_diff_sec", "HOUR", "Gap (min)", "Alert"
+                    ]].rename(columns={
+                        "SHOT TIME": "Event Time",
+                        "CT_diff_sec": "Gap (sec)",
+                        "HOUR": "Hour"
+                    })
+                
+                    st.dataframe(table, use_container_width=True)
+                
+                    st.markdown("#### 📝 Report Stoppage Reasons")
+                
+                    reported_reasons = []
+                
+                    with st.form("reporting_form"):
+                        for i, row in table.iterrows():
+                            st.markdown(f"**Event: {row['Event Time']} | Gap: {row['Gap (min)']} min**")
+                
+                            reason = st.selectbox(
+                                f"Select reason for event at {row['Event Time']}",
+                                ["⚙️ Equipment Failure", "🔄 Changeover Delay", 
+                                 "🧹 Cleaning / Setup", "📦 Material Shortage", "❓ Other"],
+                                key=f"reason_{i}"
+                            )
+                
+                            details = st.text_input(
+                                f"Additional details for event at {row['Event Time']}",
+                                key=f"details_{i}"
+                            )
+                
+                            reported_reasons.append({
+                                "Event Time": row["Event Time"],
+                                "Hour": row["Hour"],
+                                "Gap (min)": row["Gap (min)"],
+                                "Reason": reason,
+                                "Details": details
+                            })
+                
+                            st.markdown("---")
+                
+                        submitted = st.form_submit_button("Save Reports")
+                
+                    if submitted:
+                        st.success("✅ Stoppage reasons recorded.")
+                        st.markdown("#### 📋 Recorded Reports")
+                        st.dataframe(pd.DataFrame(reported_reasons), use_container_width=True)
+
 
 
 
