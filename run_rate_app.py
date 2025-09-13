@@ -4,8 +4,8 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import timedelta
-st.set_page_config(layout="wide")
 
+st.set_page_config(layout="wide")
 
 # --- Helper Functions ---
 def format_time(minutes):
@@ -13,17 +13,49 @@ def format_time(minutes):
     seconds = int(minutes * 60)
     return str(timedelta(seconds=seconds))
 
+def prepare_dataframe(df):
+    """Normalize dataframe to ensure EQUIPMENT and SHOT TIME columns exist."""
+    # Normalize equipment column
+    if "EQUIPMENT CODE" in df.columns:
+        df.rename(columns={"EQUIPMENT CODE": "EQUIPMENT"}, inplace=True)
+    elif "Tooling ID" in df.columns:
+        df.rename(columns={"Tooling ID": "EQUIPMENT"}, inplace=True)
+    else:
+        st.error("❌ File must contain either 'EQUIPMENT CODE' or 'Tooling ID'.")
+        st.stop()
+
+    # Normalize SHOT TIME
+    if "SHOT TIME" in df.columns:
+        df["SHOT TIME"] = pd.to_datetime(df["SHOT TIME"])
+    elif {"Month", "Day", "Time"}.issubset(df.columns):
+        current_year = pd.Timestamp.today().year
+        df["SHOT TIME"] = pd.to_datetime(
+            df["Month"].astype(str).str.zfill(2) + "-" +
+            df["Day"].astype(str).str.zfill(2) + " " +
+            df["Time"].astype(str),
+            format="%m-%d %H:%M:%S"
+        ).apply(lambda x: x.replace(year=current_year))
+    else:
+        st.error("❌ File must contain either 'SHOT TIME' or ('Month','Day','Time').")
+        st.stop()
+
+    # Must have Actual CT
+    if "ACTUAL CT" not in df.columns:
+        st.error("❌ File must contain an 'ACTUAL CT' column.")
+        st.stop()
+
+    return df
+
 def calculate_run_rate_excel_like(df):
     df = df.copy()
-    df["SHOT TIME"] = pd.to_datetime(df["SHOT TIME"])
     df["CT_diff_sec"] = df["SHOT TIME"].diff().dt.total_seconds()
 
-    # Mode CT (seconds)
+    # Mode CT
     mode_ct = df["ACTUAL CT"].mode().iloc[0]
     lower_limit = mode_ct * 0.95
     upper_limit = mode_ct * 1.05
 
-    # STOP flag
+    # Stop flag
     df["STOP_FLAG"] = np.where(
         (df["CT_diff_sec"].notna()) &
         ((df["CT_diff_sec"] < lower_limit) | (df["CT_diff_sec"] > upper_limit)) &
@@ -32,7 +64,7 @@ def calculate_run_rate_excel_like(df):
     )
     df.loc[df.index[0], "STOP_FLAG"] = 0
 
-    # Adjust for back-to-back stops
+    # Back-to-back adjustment
     df["STOP_ADJ"] = df["STOP_FLAG"]
     df.loc[(df["STOP_FLAG"] == 1) & (df["STOP_FLAG"].shift(fill_value=0) == 1), "STOP_ADJ"] = 0
 
@@ -42,17 +74,17 @@ def calculate_run_rate_excel_like(df):
     df["STOP_EVENT"] = (df["STOP_ADJ"].shift(fill_value=0) == 0) & (df["STOP_ADJ"] == 1)
     stop_events = df["STOP_EVENT"].sum()
 
-    run_hours = df["TOTAL RUN TIME"].iloc[0] / 60
+    # Runtime
+    run_hours = df["TOTAL RUN TIME"].iloc[0] / 60 if "TOTAL RUN TIME" in df.columns else total_shots / 3600
     gross_rate = total_shots / run_hours if run_hours else None
     net_rate = normal_shots / run_hours if run_hours else None
     efficiency = normal_shots / total_shots if total_shots else None
 
-    # Extra metrics
-    production_time = df["PRODUCTION TIME"].iloc[0]
-    downtime = df["TOTAL DOWN TIME"].iloc[0]
-    total_runtime = df["TOTAL RUN TIME"].iloc[0]
+    production_time = df["PRODUCTION TIME"].iloc[0] if "PRODUCTION TIME" in df.columns else None
+    downtime = df["TOTAL DOWN TIME"].iloc[0] if "TOTAL DOWN TIME" in df.columns else None
+    total_runtime = df["TOTAL RUN TIME"].iloc[0] if "TOTAL RUN TIME" in df.columns else None
 
-    # Time bucket analysis
+    # Time bucket
     df["RUN_DURATION"] = np.where(df["STOP_ADJ"] == 1, df["CT_diff_sec"] / 60, np.nan)
     df["TIME_BUCKET"] = pd.cut(
         df["RUN_DURATION"],
@@ -62,17 +94,17 @@ def calculate_run_rate_excel_like(df):
     bucket_counts = df["TIME_BUCKET"].value_counts().sort_index().fillna(0).astype(int)
     bucket_counts.loc["Grand Total"] = bucket_counts.sum()
 
-    # --- Per-hour aggregation for MTTR / MTBF ---
+    # Hourly MTTR / MTBF
     df["HOUR"] = df["SHOT TIME"].dt.hour
     df["DOWNTIME_MIN"] = np.where(df["STOP_EVENT"], df["CT_diff_sec"]/60, np.nan)
     df["UPTIME_MIN"] = np.where(~df["STOP_EVENT"], df["CT_diff_sec"]/60, np.nan)
-    
+
     def safe_mtbf(uptime_series, stop_count):
         if stop_count > 0 and uptime_series.notna().any():
             return np.nanmean(uptime_series)
         else:
             return np.nan
-    
+
     hourly = (
         df.groupby("HOUR")
           .apply(lambda g: pd.Series({
@@ -82,8 +114,6 @@ def calculate_run_rate_excel_like(df):
           }))
           .reset_index()
     )
-
-    # Stability index
     hourly["stability_index"] = (hourly["mtbf"] / (hourly["mtbf"] + hourly["mttr"])) * 100
 
     return {
@@ -108,14 +138,16 @@ def calculate_run_rate_excel_like(df):
 # --- Streamlit UI ---
 st.sidebar.title("Run Rate Report Generator")
 
-uploaded_file = st.sidebar.file_uploader("Upload Run Rate Excel (clean table)", type=["xlsx"])
+uploaded_file = st.sidebar.file_uploader("Upload Run Rate Excel", type=["xlsx"])
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
-    tool = st.sidebar.selectbox("Select Tool / Equipment Code", df["EQUIPMENT CODE"].unique())
+    df = prepare_dataframe(df)
+
+    tool = st.sidebar.selectbox("Select Tool / Equipment", df["EQUIPMENT"].unique())
     date = st.sidebar.date_input("Select Date", pd.to_datetime(df["SHOT TIME"]).dt.date.min())
 
     if st.sidebar.button("Generate Report"):
-        mask = (df["EQUIPMENT CODE"] == tool) & (pd.to_datetime(df["SHOT TIME"]).dt.date == date)
+        mask = (df["EQUIPMENT"] == tool) & (pd.to_datetime(df["SHOT TIME"]).dt.date == date)
         df_filtered = df.loc[mask]
 
         if df_filtered.empty:
@@ -126,7 +158,7 @@ if uploaded_file:
             st.title("📊 Run Rate Report")
             st.subheader(f"Tool: {tool} | Date: {date.strftime('%Y-%m-%d')}")
 
-            # --- Summaries ---
+            # Shot counts
             st.markdown("### Shot Counts & Efficiency")
             st.table(pd.DataFrame({
                 "Total Shot Count": [results['total_shots']],
@@ -135,33 +167,35 @@ if uploaded_file:
                 "Stop Count": [results['stop_events']]
             }))
 
+            # Reliability
             st.markdown("### Reliability Metrics")
             st.table(pd.DataFrame({
                 "Metric": ["MTTR", "MTBF", "Time to First DT (Avg)", "Avg Cycle Time"],
                 "Value": ["0.55", "6.06", "5.06", "28.21"]
             }))
 
+            # Time Bucket Analysis
             st.markdown("### Time Bucket Analysis (Table)")
             st.table(results['bucket_counts'].reset_index().rename(columns={"index": "Time Bucket", 0: "Occurrences"}))
 
+            # Production & Downtime
             st.markdown("### Production & Downtime Summary")
             st.table(pd.DataFrame({
                 "Mode CT": [f"{results['mode_ct']:.2f}"],
                 "Lower Limit": [f"{results['lower_limit']:.2f}"],
                 "Upper Limit": [f"{results['upper_limit']:.2f}"],
-                "Production Time %": [f"{results['production_time']/results['total_runtime']*100:.2f}%"],
-                "Downtime %": [f"{results['downtime']/results['total_runtime']*100:.2f}%"],
+                "Production Time %": [f"{results['production_time']/results['total_runtime']*100:.2f}%"] if results['production_time'] else ["N/A"],
+                "Downtime %": [f"{results['downtime']/results['total_runtime']*100:.2f}%"] if results['downtime'] else ["N/A"],
                 "Total Run Time (hrs)": [f"{results['run_hours']:.2f}"],
                 "Total Stops": [results['stop_events']]
             }))
 
-            # --- Graphs ---
+            # Visual Analysis
             st.subheader("📈 Visual Analysis")
-
             df_vis = results["df"].copy()
             bucket_order = ["<1","1-2","2-3","3-5","5-10","10-20","20-30","30-60","60-120",">120"]
 
-            # 1) Time Bucket Analysis
+            # Time Bucket Analysis Bar
             bucket_counts = (
                 df_vis["TIME_BUCKET"]
                 .value_counts()
@@ -171,7 +205,6 @@ if uploaded_file:
             )
             bucket_df = bucket_counts.reset_index()
             bucket_df.columns = ["Time Bucket", "Occurrences"]
-
             fig_bucket = px.bar(
                 bucket_df[bucket_df["Time Bucket"].notna()],
                 x="Occurrences", y="Time Bucket",
@@ -181,60 +214,7 @@ if uploaded_file:
             fig_bucket.update_traces(textposition="outside")
             st.plotly_chart(fig_bucket, use_container_width=True)
 
-
-
-            # 2) Time Bucket Trend by Hour
-            src = df_vis.loc[df_vis["STOP_EVENT"] & df_vis["TIME_BUCKET"].notna(), ["HOUR", "TIME_BUCKET"]]
-            if src.empty:
-                st.info("No stop events with valid TIME_BUCKET for the selected tool/date.")
-            else:
-                hours = list(range(24))
-                grid = pd.MultiIndex.from_product([hours, bucket_order], names=["HOUR","TIME_BUCKET"]).to_frame(index=False)
-                counts = src.groupby(["HOUR", "TIME_BUCKET"]).size().reset_index(name="count")
-                trend = grid.merge(counts, on=["HOUR","TIME_BUCKET"], how="left").fillna({"count":0})
-
-                fig_tb_trend = px.bar(
-                    trend, x="HOUR", y="count", color="TIME_BUCKET",
-                    category_orders={"HOUR": hours, "TIME_BUCKET": bucket_order},
-                    title="Time Bucket Trend by Hour (0–23)"
-                )
-                fig_tb_trend.update_layout(barmode="stack")
-                st.plotly_chart(fig_tb_trend, use_container_width=True)
-
-
-
-            # 3) MTTR & MTBF Trend by Hour
-            hourly = results["hourly"].copy()
-            all_hours = pd.DataFrame({"HOUR": list(range(24))})
-            hourly = all_hours.merge(hourly, on="HOUR", how="left")
-
-            fig_mt = go.Figure()
-
-            fig_mt.add_trace(go.Scatter(
-                x=hourly["HOUR"], y=hourly["mttr"],
-                mode="lines+markers", name="MTTR (min)",
-                line=dict(color="red", width=2), yaxis="y"
-            ))
-
-            fig_mt.add_trace(go.Scatter(
-                x=hourly["HOUR"], y=hourly["mtbf"],
-                mode="lines+markers", name="MTBF (min)",
-                line=dict(color="green", width=2, dash="dot"), yaxis="y2"
-            ))
-
-            fig_mt.update_layout(
-                title="MTTR & MTBF Trend by Hour",
-                xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5, 23.5]),
-                yaxis=dict(title="MTTR (min)", tickfont=dict(color="red"), side="left"),
-                yaxis2=dict(title="MTBF (min)", tickfont=dict(color="green"), overlaying="y", side="right"),
-                margin=dict(l=60, r=60, t=60, b=40),
-                legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center")
-            )
-            st.plotly_chart(fig_mt, use_container_width=True)
-
-
-
-            # 4) Stability Index
+            # Stability Index
             hourly = results["hourly"].copy()
             hourly["stability_index"] = np.where(
                 (hourly["stops"] == 0) & (hourly["mtbf"].isna()),
@@ -260,18 +240,10 @@ if uploaded_file:
                 mode="lines+markers", name="Stability Index (%)",
                 line=dict(color="blue", width=2), marker=dict(color=colors, size=8)
             ))
-            fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=0, y1=50,
-                fillcolor="red", opacity=0.1, line_width=0, yref="y")
-            fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=50, y1=70,
-                fillcolor="yellow", opacity=0.1, line_width=0, yref="y")
-            fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=70, y1=100,
-                fillcolor="green", opacity=0.1, line_width=0, yref="y")
             fig_stability.update_layout(
                 title="Stability Index by Hour",
-                xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5, 23.5]),
-                yaxis=dict(title="Stability Index (%)", range=[0, 100], side="left"),
-                margin=dict(l=60, r=60, t=60, b=40),
-                legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center")
+                xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1),
+                yaxis=dict(title="Stability Index (%)", range=[0, 100], side="left")
             )
             st.plotly_chart(fig_stability, use_container_width=True)
 
@@ -302,33 +274,18 @@ if uploaded_file:
               - 🟩 70–100% → Low Risk (stable operation)
             """)
 
-
-
-            # ---------- Stoppage Alert Reporting (≥ Mode CT × 2) ----------
+            # Stoppage Alerts
             df_vis = results["df"].copy()
-            threshold = results["mode_ct"] * 2  # Mode CT × 2 threshold
-            
-            # Filter gaps exceeding threshold
+            threshold = results["mode_ct"] * 2
             stoppage_alerts = df_vis[df_vis["CT_diff_sec"] >= threshold].copy()
-            
+
             st.markdown("### 🚨 Stoppage Alert Reporting (≥ Mode CT × 2)")
-            
             if stoppage_alerts.empty:
-                st.info("✅ No stoppage alerts found (≥ Mode CT × 2).")
+                st.info("✅ No stoppage alerts found.")
             else:
                 stoppage_alerts["Gap (min)"] = (stoppage_alerts["CT_diff_sec"] / 60).round(2)
                 stoppage_alerts["Alert"] = "🔴"
-            
-                # Build clean display table
-                table = stoppage_alerts[[
-                    "SHOT TIME", "CT_diff_sec", "HOUR", "Gap (min)", "Alert"
-                ]].rename(columns={
-                    "SHOT TIME": "Event Time",
-                    "CT_diff_sec": "Gap (sec)",
-                    "HOUR": "Hour"
-                })
-            
-                # Initialize with first option of dropdown shown
+
                 reasons_list = [
                     "⚙️ Equipment Failure",
                     "🔄 Changeover Delay",
@@ -336,37 +293,20 @@ if uploaded_file:
                     "📦 Material Shortage",
                     "❓ Other"
                 ]
+                table = stoppage_alerts.rename(columns={"SHOT TIME": "Event Time","CT_diff_sec":"Gap (sec)","HOUR":"Hour"})
                 table = table.assign(
-                    Reason=[reasons_list[0]] * len(table),   # pre-fill with first option
+                    Reason=[reasons_list[0]] * len(table),
                     Details="(input soon…)"
                 )
-            
-                # Display the table with dropdown column (disabled but shows list)
+
                 st.data_editor(
-                    table,
+                    table[["Event Time","Gap (sec)","Hour","Gap (min)","Alert","Reason","Details"]],
                     use_container_width=True,
                     column_config={
-                        "Reason": st.column_config.SelectboxColumn(
-                            "Reason",
-                            help="Dropdown preview (currently disabled)",
-                            options=reasons_list
-                        ),
-                        "Details": st.column_config.TextColumn(
-                            "Details",
-                            help="Free-text details (currently disabled)"
-                        )
+                        "Reason": st.column_config.SelectboxColumn("Reason", options=reasons_list),
+                        "Details": st.column_config.TextColumn("Details")
                     },
-                    disabled=["Reason", "Details"]  # 🔒 locked, but dropdown visible
+                    disabled=["Reason","Details"]
                 )
-            
-                # Summary below the table
-                st.markdown(f"""
-                **Summary**
-                - Total Stoppage Alerts: {len(stoppage_alerts)}
-                - Threshold Applied: {results['mode_ct']:.2f} sec × 2 = {threshold:.2f} sec  
-                - Reporting fields now show dropdown options, but are locked from editing.
-                """)
-
-
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin. Headers in ROW 1 please")
