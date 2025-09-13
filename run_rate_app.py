@@ -221,30 +221,24 @@ if uploaded_file:
                     range=[-0.5, 23.5]
                 ),
                 yaxis=dict(
-                    title="MTTR (min)",
-                    titlefont=dict(color="red"),
+                    title=dict(text="MTTR (min)", font=dict(color="red")),
                     tickfont=dict(color="red"),
                     side="left"
                 ),
                 yaxis2=dict(
-                    title="MTBF (min)",
-                    titlefont=dict(color="green"),
+                    title=dict(text="MTBF (min)", font=dict(color="green")),
                     tickfont=dict(color="green"),
                     overlaying="y",
                     side="right"
                 ),
-                margin=dict(l=60, r=60, t=60, b=40)
-            )
-            
-            # ✅ Separate legend update
-            fig_mt.update_layout(
-                legend=go.layout.Legend(
+                margin=dict(l=60, r=60, t=60, b=40),
+                legend=dict(
                     orientation="h",
-                    x=0.5,
-                    y=-0.25,
+                    x=0.5, y=-0.25,
                     xanchor="center"
                 )
             )
+
 
 
             st.plotly_chart(fig_mt, use_container_width=True)
