@@ -188,31 +188,60 @@ if uploaded_file:
                 fig_tb_trend.update_layout(barmode="stack")
                 st.plotly_chart(fig_tb_trend, use_container_width=True)
 
-            # 3) MTTR & MTBF Trend by Hour
+            # ---------- 3) MTTR & MTBF Trend by Hour ----------
             hourly = results["hourly"].copy()
+            
+            # Ensure all 24 hours exist, but DO NOT forward-fill (keep NaN so gaps show)
             all_hours = pd.DataFrame({"HOUR": list(range(24))})
-            hourly = all_hours.merge(hourly, on="HOUR", how="left").fillna(method="ffill").fillna(0)
-
+            hourly = all_hours.merge(hourly, on="HOUR", how="left")
+            
             fig_mt = go.Figure()
+            
+            # MTTR line (left y-axis)
             fig_mt.add_trace(go.Scatter(
                 x=hourly["HOUR"], y=hourly["mttr"],
                 mode="lines+markers", name="MTTR (min)",
-                line=dict(color="red", width=2), yaxis="y1"
+                line=dict(color="red", width=2),
+                yaxis="y1",
+                connectgaps=False  # <- show breaks where NaN
             ))
+            
+            # MTBF line (right y-axis)
             fig_mt.add_trace(go.Scatter(
                 x=hourly["HOUR"], y=hourly["mtbf"],
                 mode="lines+markers", name="MTBF (min)",
-                line=dict(color="green", width=2, dash="dot"), yaxis="y2"
+                line=dict(color="green", width=2, dash="dot"),
+                yaxis="y2",
+                connectgaps=False
             ))
+            
             fig_mt.update_layout(
                 title="MTTR & MTBF Trend by Hour",
-                xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5, 23.5]),
-                yaxis=dict(title="MTTR (min)", color="red"),
-                yaxis2=dict(title="MTBF (min)", color="green", overlaying="y", side="right"),
+                xaxis=dict(
+                    title="Hour of Day (0–23)",
+                    tickmode="linear",
+                    dtick=1,
+                    range=[-0.5, 23.5]
+                ),
+                yaxis=dict(
+                    title="MTTR (min)",
+                    titlefont=dict(color="red"),
+                    tickfont=dict(color="red"),
+                    side="left"
+                ),
+                yaxis2=dict(
+                    title="MTBF (min)",
+                    titlefont=dict(color="green"),
+                    tickfont=dict(color="green"),
+                    overlaying="y",
+                    side="right"
+                ),
                 margin=dict(l=60, r=60, t=60, b=40),
-                legend_orientation="h", legend_y=-0.2, legend_x=0.5, legend_xanchor="center"
+                legend=dict(x=0.5, y=-0.2, orientation="h", xanchor="center")
             )
+            
             st.plotly_chart(fig_mt, use_container_width=True)
+
 
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin.")
