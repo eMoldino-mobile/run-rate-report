@@ -305,42 +305,35 @@ if uploaded_file:
 
 
             # ---------- Stoppage Alert Reporting (≥ Mode CT × 2) ----------
-            df_vis = results["df"].copy()
-            threshold = results["mode_ct"] * 2  # Mode CT × 2 threshold
-            
-            # Filter gaps exceeding threshold
-            stoppage_alerts = df_vis[df_vis["CT_diff_sec"] >= threshold].copy()
-            
-            if stoppage_alerts.empty:
-                st.info("✅ No stoppage alerts found (≥ Mode CT × 2).")
-            else:
-                stoppage_alerts["Gap (min)"] = (stoppage_alerts["CT_diff_sec"] / 60).round(2)
-                stoppage_alerts["Alert"] = "🔴"
-            
-                # Add placeholder columns
-                stoppage_alerts["Reason"] = ""
-                stoppage_alerts["Details"] = ""
-            
-                st.markdown("### 🚨 Stoppage Alert Reporting (≥ Mode CT × 2)")
-            
-                # Show dropdowns visually but make table read-only
-                st.data_editor(
-                    stoppage_alerts[["SHOT TIME", "CT_diff_sec", "HOUR", "Gap (min)", "Alert", "Reason", "Details"]].rename(columns={
-                        "SHOT TIME": "Event Time",
-                        "CT_diff_sec": "Gap (sec)",
-                        "HOUR": "Hour"
-                    }),
-                    use_container_width=True,
-                    disabled=True,  # 👈 makes it display-only, no interaction
-                    column_config={
-                        "Reason": st.column_config.SelectboxColumn(
-                            "Reason",
-                            help="Dropdown is locked (future step)",
-                            options=["⚙️ Equipment Failure", "🔄 Changeover Delay", "🧹 Cleaning / Setup", "📦 Material Shortage", "❓ Other"]
-                        ),
-                        "Details": st.column_config.TextColumn("Details", help="Details will be editable later")
-                    }
+            st.data_editor(
+            stoppage_alerts[["SHOT TIME", "CT_diff_sec", "HOUR", "Gap (min)", "Alert"]].rename(columns={
+                "SHOT TIME": "Event Time",
+                "CT_diff_sec": "Gap (sec)",
+                "HOUR": "Hour"
+            }).assign(
+                Reason="(selectable soon…)",   # placeholder text
+                Details="(input soon…)"
+            ),
+            use_container_width=True,
+            column_config={
+                "Reason": st.column_config.SelectboxColumn(
+                    "Reason",
+                    help="Dropdown preview (not yet active)",
+                    options=[
+                        "⚙️ Equipment Failure",
+                        "🔄 Changeover Delay",
+                        "🧹 Cleaning / Setup",
+                        "📦 Material Shortage",
+                        "❓ Other"
+                    ]
+                ),
+                "Details": st.column_config.TextColumn(
+                    "Details",
+                    help="Free-text details (disabled for now)"
                 )
+            },
+            disabled=["Reason", "Details"]  # 👈 disables only these columns
+        )
 
 
 
