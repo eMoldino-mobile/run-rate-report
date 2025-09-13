@@ -195,16 +195,16 @@ if uploaded_file:
             
             fig_mt = go.Figure()
             
-            # MTTR line (left y-axis)
+            # MTTR (left y-axis)
             fig_mt.add_trace(go.Scatter(
                 x=hourly["HOUR"], y=hourly["mttr"],
                 mode="lines+markers",
                 name="MTTR (min)",
                 line=dict(color="red", width=2),
-                yaxis="y1"
+                yaxis="y"
             ))
             
-            # MTBF line (right y-axis)
+            # MTBF (right y-axis)
             fig_mt.add_trace(go.Scatter(
                 x=hourly["HOUR"], y=hourly["mtbf"],
                 mode="lines+markers",
@@ -242,10 +242,6 @@ if uploaded_file:
             )
             
             st.plotly_chart(fig_mt, use_container_width=True)
-
-
-
-
 
 
 else:
