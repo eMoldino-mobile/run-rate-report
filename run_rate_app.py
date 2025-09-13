@@ -317,19 +317,23 @@ if uploaded_file:
                 stoppage_alerts["Gap (min)"] = (stoppage_alerts["CT_diff_sec"] / 60).round(2)
                 stoppage_alerts["Alert"] = "🔴"
             
-                # Add editable fields
-                stoppage_alerts["Reason"] = ""
-                stoppage_alerts["Details"] = ""
+                # Add editable fields (initialize if missing)
+                if "Reason" not in stoppage_alerts.columns:
+                    stoppage_alerts["Reason"] = ""
+                if "Details" not in stoppage_alerts.columns:
+                    stoppage_alerts["Details"] = ""
             
                 st.markdown("### 🚨 Stoppage Alert Reporting (≥ Mode CT × 2)")
             
-                edited_table = st.data_editor(
+                # Editable table directly
+                stoppage_alerts = st.data_editor(
                     stoppage_alerts[["SHOT TIME", "CT_diff_sec", "HOUR", "Gap (min)", "Alert", "Reason", "Details"]].rename(columns={
                         "SHOT TIME": "Event Time",
                         "CT_diff_sec": "Gap (sec)",
                         "HOUR": "Hour"
                     }),
                     use_container_width=True,
+                    num_rows="fixed",
                     column_config={
                         "Reason": st.column_config.SelectboxColumn(
                             "Reason",
@@ -339,9 +343,7 @@ if uploaded_file:
                         "Details": st.column_config.TextColumn("Details", help="Add additional details")
                     }
                 )
-            
-                st.markdown("#### 📋 Recorded Reports (Temporary)")
-                st.dataframe(edited_table, use_container_width=True)
+
 
 
 
