@@ -226,7 +226,7 @@ if uploaded_file:
             )
             st.plotly_chart(fig_mt, use_container_width=True)
 
-            # ---------- Stability Index with MTTR & MTBF Overlay ----------
+            # ---------- 4) Stability Index (Clean) ----------
             hourly = results["hourly"].copy()
             
             # Force Stability Index = 100 when production exists but no stoppages
@@ -236,9 +236,10 @@ if uploaded_file:
                 hourly["stability_index"]
             )
             
-            fig_stability = go.Figure()
+            # Calculate percentage change vs previous hour
+            hourly["stability_change_%"] = hourly["stability_index"].pct_change() * 100
             
-            # Stability Index (left axis, main KPI)
+            # Assign color markers based on risk zones
             colors = []
             for v in hourly["stability_index"]:
                 if pd.isna(v):
@@ -250,34 +251,18 @@ if uploaded_file:
                 else:
                     colors.append("green")
             
+            fig_stability = go.Figure()
+            
+            # Stability Index line
             fig_stability.add_trace(go.Scatter(
                 x=hourly["HOUR"], y=hourly["stability_index"],
                 mode="lines+markers",
                 name="Stability Index (%)",
                 line=dict(color="blue", width=2),
-                marker=dict(color=colors, size=8),
-                yaxis="y"
+                marker=dict(color=colors, size=8)
             ))
             
-            # MTTR (right axis)
-            fig_stability.add_trace(go.Scatter(
-                x=hourly["HOUR"], y=hourly["mttr"],
-                mode="lines+markers",
-                name="MTTR (min)",
-                line=dict(color="red", width=2),
-                yaxis="y2"
-            ))
-            
-            # MTBF (right axis)
-            fig_stability.add_trace(go.Scatter(
-                x=hourly["HOUR"], y=hourly["mtbf"],
-                mode="lines+markers",
-                name="MTBF (min)",
-                line=dict(color="green", width=2, dash="dot"),
-                yaxis="y2"
-            ))
-            
-            # Background alert bands for Stability Index (left axis)
+            # Background alert bands
             fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=0, y1=50,
                 fillcolor="red", opacity=0.1, line_width=0, yref="y")
             fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=50, y1=70,
@@ -286,15 +271,33 @@ if uploaded_file:
                 fillcolor="green", opacity=0.1, line_width=0, yref="y")
             
             fig_stability.update_layout(
-                title="Stability Index with MTTR & MTBF Overlay",
+                title="Stability Index by Hour",
                 xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5, 23.5]),
                 yaxis=dict(title="Stability Index (%)", range=[0, 100], side="left"),
-                yaxis2=dict(title="MTTR / MTBF (min)", overlaying="y", side="right"),
                 margin=dict(l=60, r=60, t=60, b=40),
                 legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center")
             )
             
             st.plotly_chart(fig_stability, use_container_width=True)
+            
+            # --- Data Table below chart ---
+            table_data = hourly[["HOUR", "stability_index", "stability_change_%", "mttr", "mtbf", "stops"]].copy()
+            table_data.rename(columns={
+                "HOUR": "Hour",
+                "stability_index": "Stability Index (%)",
+                "stability_change_%": "Change vs Prev Hour (%)",
+                "mttr": "MTTR (min)",
+                "mtbf": "MTBF (min)",
+                "stops": "Stop Count"
+            }, inplace=True)
+            
+            st.markdown("### Stability Index Metrics by Hour")
+            st.dataframe(table_data.style.format({
+                "Stability Index (%)": "{:.2f}",
+                "Change vs Prev Hour (%)": "{:+.2f}%",
+                "MTTR (min)": "{:.2f}",
+                "MTBF (min)": "{:.2f}"
+            }))
             
             # --- Explanation block below the graph ---
             st.markdown("""
@@ -306,6 +309,7 @@ if uploaded_file:
               - 🟨 50–70% → Medium Risk (watch closely)
               - 🟩 70–100% → Low Risk (stable operation)
             """)
+
 
 
 else:
