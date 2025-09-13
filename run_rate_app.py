@@ -305,35 +305,67 @@ if uploaded_file:
 
 
             # ---------- Stoppage Alert Reporting (≥ Mode CT × 2) ----------
-            st.data_editor(
-            stoppage_alerts[["SHOT TIME", "CT_diff_sec", "HOUR", "Gap (min)", "Alert"]].rename(columns={
-                "SHOT TIME": "Event Time",
-                "CT_diff_sec": "Gap (sec)",
-                "HOUR": "Hour"
-            }).assign(
-                Reason="(selectable soon…)",   # placeholder text
-                Details="(input soon…)"
-            ),
-            use_container_width=True,
-            column_config={
-                "Reason": st.column_config.SelectboxColumn(
-                    "Reason",
-                    help="Dropdown preview (not yet active)",
-                    options=[
-                        "⚙️ Equipment Failure",
-                        "🔄 Changeover Delay",
-                        "🧹 Cleaning / Setup",
-                        "📦 Material Shortage",
-                        "❓ Other"
-                    ]
-                ),
-                "Details": st.column_config.TextColumn(
-                    "Details",
-                    help="Free-text details (disabled for now)"
+            df_vis = results["df"].copy()
+            threshold = results["mode_ct"] * 2  # Mode CT × 2 threshold
+            
+            # Filter gaps exceeding threshold
+            stoppage_alerts = df_vis[df_vis["CT_diff_sec"] >= threshold].copy()
+            
+            st.markdown("### 🚨 Stoppage Alert Reporting (≥ Mode CT × 2)")
+            
+            if stoppage_alerts.empty:
+                st.info("✅ No stoppage alerts found (≥ Mode CT × 2).")
+            else:
+                stoppage_alerts["Gap (min)"] = (stoppage_alerts["CT_diff_sec"] / 60).round(2)
+                stoppage_alerts["Alert"] = "🔴"
+            
+                # Build clean display table
+                table = stoppage_alerts[[
+                    "SHOT TIME", "CT_diff_sec", "HOUR", "Gap (min)", "Alert"
+                ]].rename(columns={
+                    "SHOT TIME": "Event Time",
+                    "CT_diff_sec": "Gap (sec)",
+                    "HOUR": "Hour"
+                })
+            
+                # Add placeholder columns for Reason and Details
+                table = table.assign(
+                    Reason="(selectable soon…)",   # placeholder
+                    Details="(input soon…)"        # placeholder
                 )
-            },
-            disabled=["Reason", "Details"]  # 👈 disables only these columns
-        )
+            
+                # Display the table with disabled dropdowns + text input columns
+                st.data_editor(
+                    table,
+                    use_container_width=True,
+                    column_config={
+                        "Reason": st.column_config.SelectboxColumn(
+                            "Reason",
+                            help="Dropdown preview (currently disabled)",
+                            options=[
+                                "⚙️ Equipment Failure",
+                                "🔄 Changeover Delay",
+                                "🧹 Cleaning / Setup",
+                                "📦 Material Shortage",
+                                "❓ Other"
+                            ]
+                        ),
+                        "Details": st.column_config.TextColumn(
+                            "Details",
+                            help="Free-text details (currently disabled)"
+                        )
+                    },
+                    disabled=["Reason", "Details"]  # 🔒 lock these fields
+                )
+            
+                # Summary below the table
+                st.markdown(f"""
+                **Summary**
+                - Total Stoppage Alerts: {len(stoppage_alerts)}
+                - Threshold Applied: {results['mode_ct']:.2f} sec × 2 = {threshold:.2f} sec  
+                - Reporting fields are visible but disabled — will be enabled in the next step.
+                """)
+
 
 
 
