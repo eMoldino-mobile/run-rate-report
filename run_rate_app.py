@@ -74,7 +74,6 @@ def calculate_run_rate_excel_like(df):
     # Stability index
     hourly["stability_index"] = (hourly["mtbf"] / (hourly["mtbf"] + hourly["mttr"])) * 100
 
-    # ✅ Return dictionary with df included
     return {
         "mode_ct": mode_ct,
         "lower_limit": lower_limit,
@@ -192,9 +191,9 @@ if uploaded_file:
             hourly = results["hourly"].copy()
             all_hours = pd.DataFrame({"HOUR": list(range(24))})
             hourly = all_hours.merge(hourly, on="HOUR", how="left")
-            
+
             fig_mt = go.Figure()
-            
+
             # MTTR (left y-axis)
             fig_mt.add_trace(go.Scatter(
                 x=hourly["HOUR"], y=hourly["mttr"],
@@ -203,7 +202,7 @@ if uploaded_file:
                 line=dict(color="red", width=2),
                 yaxis="y"
             ))
-            
+
             # MTBF (right y-axis)
             fig_mt.add_trace(go.Scatter(
                 x=hourly["HOUR"], y=hourly["mtbf"],
@@ -212,9 +211,9 @@ if uploaded_file:
                 line=dict(color="green", width=2, dash="dot"),
                 yaxis="y2"
             ))
-            
+
             fig_mt.update_layout(
-                title="MTTR & MTBF Trend by Hour",   # <-- string, not dict
+                title="MTTR & MTBF Trend by Hour",
                 xaxis=dict(
                     title="Hour of Day (0–23)",
                     tickmode="linear",
@@ -241,10 +240,8 @@ if uploaded_file:
                     xanchor="center"
                 )
             )
-            
+
             st.plotly_chart(fig_mt, use_container_width=True)
-
-
 
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin. Headers in ROW 1 please")
