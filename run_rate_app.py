@@ -317,30 +317,28 @@ if uploaded_file:
                 stoppage_alerts["Gap (min)"] = (stoppage_alerts["CT_diff_sec"] / 60).round(2)
                 stoppage_alerts["Alert"] = "🔴"
             
-                # Add editable fields (initialize if missing)
-                if "Reason" not in stoppage_alerts.columns:
-                    stoppage_alerts["Reason"] = ""
-                if "Details" not in stoppage_alerts.columns:
-                    stoppage_alerts["Details"] = ""
+                # Add placeholder columns
+                stoppage_alerts["Reason"] = ""
+                stoppage_alerts["Details"] = ""
             
                 st.markdown("### 🚨 Stoppage Alert Reporting (≥ Mode CT × 2)")
             
-                # Editable table directly
-                stoppage_alerts = st.data_editor(
+                # Show dropdowns visually but make table read-only
+                st.data_editor(
                     stoppage_alerts[["SHOT TIME", "CT_diff_sec", "HOUR", "Gap (min)", "Alert", "Reason", "Details"]].rename(columns={
                         "SHOT TIME": "Event Time",
                         "CT_diff_sec": "Gap (sec)",
                         "HOUR": "Hour"
                     }),
                     use_container_width=True,
-                    num_rows="fixed",
+                    disabled=True,  # 👈 makes it display-only, no interaction
                     column_config={
                         "Reason": st.column_config.SelectboxColumn(
                             "Reason",
-                            help="Select reason for stoppage",
-                            options=["", "⚙️ Equipment Failure", "🔄 Changeover Delay", "🧹 Cleaning / Setup", "📦 Material Shortage", "❓ Other"]
+                            help="Dropdown is locked (future step)",
+                            options=["⚙️ Equipment Failure", "🔄 Changeover Delay", "🧹 Cleaning / Setup", "📦 Material Shortage", "❓ Other"]
                         ),
-                        "Details": st.column_config.TextColumn("Details", help="Add additional details")
+                        "Details": st.column_config.TextColumn("Details", help="Details will be editable later")
                     }
                 )
 
