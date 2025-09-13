@@ -314,20 +314,26 @@ if uploaded_file:
                 stoppage_alerts["Gap (min)"] = (stoppage_alerts["CT_diff_sec"] / 60).round(2)
                 stoppage_alerts["Alert"] = "🔴"
             
-                # Init session state
+                # Initialize session state on first load
                 if "stoppage_reports" not in st.session_state:
                     stoppage_alerts["Reason"] = ""
                     stoppage_alerts["Details"] = ""
                     st.session_state.stoppage_reports = stoppage_alerts.copy()
             
+                # Always re-sync key columns in case new alerts appear
+                for col in ["Reason", "Details"]:
+                    if col not in st.session_state.stoppage_reports.columns:
+                        st.session_state.stoppage_reports[col] = ""
+            
                 st.write("#### Events requiring reason entry:")
+            
                 # Table header
                 cols = st.columns([2, 1, 1, 1, 2, 2, 1])
-                headers = ["Event Time", "Gap (sec)", "Gap (min)", "Hour", "Reason", "Details", "Action"]
+                headers = ["Event Time", "Gap (sec)", "Gap (min)", "Hour", "Reason", "Details", "Save"]
                 for col, h in zip(cols, headers):
                     col.markdown(f"**{h}**")
             
-                # Render each row with widgets
+                # Render each row interactively
                 for i, row in st.session_state.stoppage_reports.iterrows():
                     c1, c2, c3, c4, c5, c6, c7 = st.columns([2, 1, 1, 1, 2, 2, 1])
             
@@ -336,32 +342,34 @@ if uploaded_file:
                     c3.write(f"{row['Gap (min)']:.2f}")
                     c4.write(int(row["HOUR"]))
             
-                    reason = c5.selectbox(
+                    # Dropdown writes directly to session_state
+                    st.session_state.stoppage_reports.at[i, "Reason"] = c5.selectbox(
                         "Reason",
                         ["", "⚙️ Equipment Failure", "🔄 Changeover Delay",
                          "🧹 Cleaning / Setup", "📦 Material Shortage", "❓ Other"],
                         key=f"reason_{i}",
                         index=0 if row["Reason"] == "" else
-                        ["", "⚙️ Equipment Failure", "🔄 Changeover Delay",
-                         "🧹 Cleaning / Setup", "📦 Material Shortage", "❓ Other"].index(row["Reason"])
+                        ["", "⚙️ Equipment Failure", "🔄 Changeover Delay", "🧹 Cleaning / Setup", "📦 Material Shortage", "❓ Other"].index(row["Reason"])
                     )
-                    details = c6.text_input(
+            
+                    # Text input writes directly to session_state
+                    st.session_state.stoppage_reports.at[i, "Details"] = c6.text_input(
                         "Details",
                         value=row["Details"],
                         key=f"details_{i}"
                     )
             
+                    # Save button just shows confirmation (data already in session_state)
                     if c7.button("💾 Save", key=f"save_{i}"):
-                        st.session_state.stoppage_reports.at[i, "Reason"] = reason
-                        st.session_state.stoppage_reports.at[i, "Details"] = details
                         st.success(f"Saved report for event {row['SHOT TIME']}")
             
                 # Summary
                 st.markdown(f"""
                 **Summary**
-                - Total Stoppage Alerts: {len(stoppage_alerts)}
+                - Total Stoppage Alerts: {len(st.session_state.stoppage_reports)}
                 - Threshold Applied: {results['mode_ct']:.2f} sec × 2 = {threshold:.2f} sec
                 """)
+
 
 
 
