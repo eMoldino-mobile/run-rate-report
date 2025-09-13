@@ -188,21 +188,21 @@ if uploaded_file:
                 fig_tb_trend.update_layout(barmode="stack")
                 st.plotly_chart(fig_tb_trend, use_container_width=True)
 
-                        # ---------- 3) MTTR & MTBF Trend by Hour ----------
+            # ---------- 3) MTTR & MTBF Trend by Hour ----------
             hourly = results["hourly"].copy()
-
+            
             # Ensure all 24 hours exist
             all_hours = pd.DataFrame({"HOUR": list(range(24))})
             hourly = all_hours.merge(hourly, on="HOUR", how="left")
-
+            
             # Guarantee columns exist
             if "mttr" not in hourly.columns:
                 hourly["mttr"] = np.nan
             if "mtbf" not in hourly.columns:
                 hourly["mtbf"] = np.nan
-
+            
             fig_mt = go.Figure()
-
+            
             # MTTR (left y-axis)
             fig_mt.add_trace(go.Scatter(
                 x=hourly["HOUR"], y=hourly["mttr"],
@@ -212,7 +212,7 @@ if uploaded_file:
                 yaxis="y1",
                 connectgaps=False
             ))
-
+            
             # MTBF (right y-axis)
             fig_mt.add_trace(go.Scatter(
                 x=hourly["HOUR"], y=hourly["mtbf"],
@@ -222,8 +222,7 @@ if uploaded_file:
                 yaxis="y2",
                 connectgaps=False
             ))
-
-            # Safe layout
+            
             fig_mt.update_layout(
                 title="MTTR & MTBF Trend by Hour",
                 xaxis=dict(
@@ -254,7 +253,7 @@ if uploaded_file:
                     yanchor="top"
                 )
             )
-
+            
             st.plotly_chart(fig_mt, use_container_width=True)
 
 
