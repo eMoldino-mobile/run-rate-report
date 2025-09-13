@@ -191,36 +191,35 @@ if uploaded_file:
             # ---------- 3) MTTR & MTBF Trend by Hour ----------
             hourly = results["hourly"].copy()
             
-            # Ensure all 24 hours exist
+            # Ensure all 24 hours are represented
             all_hours = pd.DataFrame({"HOUR": list(range(24))})
             hourly = all_hours.merge(hourly, on="HOUR", how="left")
             
-            # Fill NaNs only where appropriate
-            hourly["mttr"] = hourly["mttr"].fillna(np.nan)
-            hourly["mtbf"] = hourly["mtbf"].fillna(np.nan)
+            # Keep NaN for missing values (don't forward fill)
+            hourly["mttr"] = hourly["mttr"]
+            hourly["mtbf"] = hourly["mtbf"]
             
             fig_mt = go.Figure()
             
-            # MTTR (left y-axis)
+            # MTTR line (left y-axis)
             fig_mt.add_trace(go.Scatter(
                 x=hourly["HOUR"], y=hourly["mttr"],
                 mode="lines+markers",
                 name="MTTR (min)",
                 line=dict(color="red", width=2),
-                yaxis="y1",
-                connectgaps=False
+                yaxis="y1"
             ))
             
-            # MTBF (right y-axis)
+            # MTBF line (right y-axis)
             fig_mt.add_trace(go.Scatter(
                 x=hourly["HOUR"], y=hourly["mtbf"],
                 mode="lines+markers",
                 name="MTBF (min)",
                 line=dict(color="green", width=2, dash="dot"),
-                yaxis="y2",
-                connectgaps=False
+                yaxis="y2"
             ))
             
+            # Layout with dual y-axes
             fig_mt.update_layout(
                 title="MTTR & MTBF Trend by Hour",
                 xaxis=dict(
@@ -244,14 +243,13 @@ if uploaded_file:
                 margin=dict(l=60, r=60, t=60, b=40),
                 legend=dict(
                     orientation="h",
-                    x=0.5,
-                    y=-0.2,
-                    xanchor="center",
-                    yanchor="top"
+                    x=0.5, y=-0.25,
+                    xanchor="center"
                 )
             )
             
             st.plotly_chart(fig_mt, use_container_width=True)
+
 
 
 
