@@ -64,12 +64,24 @@ def calculate_run_rate_excel_like(df):
     df["HOUR"] = df["SHOT TIME"].dt.hour
     df["DOWNTIME_MIN"] = np.where(df["STOP_EVENT"], df["CT_diff_sec"]/60, np.nan)
     df["UPTIME_MIN"] = np.where(~df["STOP_EVENT"], df["CT_diff_sec"]/60, np.nan)
+    
+    def safe_mtbf(uptime_series, stop_count):
+        # Only valid if at least 1 stop in that hour
+        if stop_count > 0 and uptime_series.notna().any():
+            return np.nanmean(uptime_series)
+        else:
+            return np.nan
+    
+    hourly = (
+        df.groupby("HOUR")
+          .apply(lambda g: pd.Series({
+              "stops": g["STOP_EVENT"].sum(),
+              "mttr": np.nanmean(g["DOWNTIME_MIN"]) if g["DOWNTIME_MIN"].notna().any() else np.nan,
+              "mtbf": safe_mtbf(g["UPTIME_MIN"], g["STOP_EVENT"].sum())
+          }))
+          .reset_index()
+    )
 
-    hourly = df.groupby("HOUR").agg(
-        stops=("STOP_EVENT", "sum"),
-        mttr=("DOWNTIME_MIN", lambda x: np.nanmean(x) if len(x.dropna()) > 0 else np.nan),
-        mtbf=("UPTIME_MIN", lambda x: np.nanmean(x) if len(x.dropna()) > 0 else np.nan)
-    ).reset_index()
 
     # Stability index
     hourly["stability_index"] = (hourly["mtbf"] / (hourly["mtbf"] + hourly["mttr"])) * 100
