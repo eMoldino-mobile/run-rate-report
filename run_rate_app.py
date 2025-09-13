@@ -306,19 +306,25 @@ if uploaded_file:
             df_vis = results["df"].copy()
             threshold = results["mode_ct"] * 2
             stoppage_alerts = df_vis[df_vis["CT_diff_sec"] >= threshold].copy()
-
+            
             st.markdown("### 🚨 Stoppage Alert Reporting (≥ Mode CT × 2)")
             if stoppage_alerts.empty:
                 st.info("✅ No stoppage alerts found.")
             else:
                 stoppage_alerts["Gap (min)"] = (stoppage_alerts["CT_diff_sec"] / 60).round(2)
                 stoppage_alerts["Alert"] = "🔴"
-
+            
                 if "stoppage_reports" not in st.session_state:
                     stoppage_alerts["Reason"] = ""
                     stoppage_alerts["Details"] = ""
                     st.session_state.stoppage_reports = stoppage_alerts
-
+            
+                # Ensure schema consistency
+                for col in ["Reason", "Details"]:
+                    if col not in st.session_state.stoppage_reports.columns:
+                        st.session_state.stoppage_reports[col] = ""
+            
+                # Always show latest table
                 table = st.session_state.stoppage_reports[[
                     "SHOT TIME","CT_diff_sec","HOUR","Gap (min)","Alert","Reason","Details"
                 ]].rename(columns={
@@ -327,38 +333,45 @@ if uploaded_file:
                     "HOUR": "Hour"
                 })
                 st.dataframe(table, use_container_width=True)
-
+            
+                # Modal state
                 if "report_modal" not in st.session_state:
                     st.session_state.report_modal = None
-
-                for i,row in table.iterrows():
+            
+                # Buttons per row
+                for i, row in table.iterrows():
                     if st.button(f"📝 Report Event {row['Event Time']}", key=f"report_btn_{i}"):
                         st.session_state.report_modal = i
-
+            
+                # Modal content
                 if st.session_state.report_modal is not None:
                     idx = st.session_state.report_modal
                     row = table.loc[idx]
+            
                     st.markdown("### 📝 Report Stoppage Reason")
                     st.info(f"Event: {row['Event Time']} | Gap: {row['Gap (min)']} min")
-
+            
                     reason = st.selectbox(
                         "Select reason:",
                         ["","⚙️ Equipment Failure","🔄 Changeover Delay","🧹 Cleaning / Setup","📦 Material Shortage","❓ Other"],
                         index=0 if row["Reason"] == "" else
-                        ["","⚙️ Equipment Failure","🔄 Changeover Delay","🧹 Cleaning / Setup","📦 Material Shortage","❓ Other"].index(row["Reason"])
+                        ["","⚙️ Equipment Failure","🔄 Changeover Delay","🧹 Cleaning / Setup","📦 Material Shortage","❓ Other"].index(row["Reason"]),
+                        key=f"reason_{idx}"
                     )
-                    details = st.text_area("Additional details:", value=row["Details"])
-
-                    col1,col2 = st.columns(2)
+                    details = st.text_area("Additional details:", value=row["Details"], key=f"details_{idx}")
+            
+                    col1, col2 = st.columns(2)
                     with col1:
                         if st.button("✅ Save Report"):
                             st.session_state.stoppage_reports.at[idx,"Reason"] = reason
                             st.session_state.stoppage_reports.at[idx,"Details"] = details
                             st.session_state.report_modal = None
-                            st.success("Report saved.")
+                            st.experimental_rerun()  # 🔄 forces refresh so table shows immediately
                     with col2:
                         if st.button("❌ Cancel"):
                             st.session_state.report_modal = None
+                            st.experimental_rerun()
+
 
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin. Headers in ROW 1 please")
