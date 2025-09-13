@@ -62,33 +62,21 @@ def calculate_run_rate_excel_like(df):
 
     # Per-hour aggregation for MTTR / MTBF
     df["HOUR"] = df["SHOT TIME"].dt.hour
+    
+    # MTTR: average downtime duration (only STOPs)
+    df["DOWNTIME_MIN"] = np.where(df["STOP_EVENT"], df["CT_diff_sec"]/60, np.nan)
+    
+    # MTBF: average uptime between stops (only when running)
+    df["UPTIME_MIN"] = np.where(~df["STOP_EVENT"], df["CT_diff_sec"]/60, np.nan)
+    
     hourly = df.groupby("HOUR").agg(
         stops=("STOP_EVENT", "sum"),
-        mttr=("CT_diff_sec", lambda x: np.nanmean(x) if len(x) > 0 else np.nan),
-        mtbf=("CT_diff_sec", lambda x: np.nanmean(x) if len(x) > 0 else np.nan)
+        mttr=("DOWNTIME_MIN", lambda x: np.nanmean(x) if len(x) > 0 else np.nan),
+        mtbf=("UPTIME_MIN", lambda x: np.nanmean(x) if len(x) > 0 else np.nan)
     ).reset_index()
-    hourly["mttr"] = hourly["mttr"] / 60
-    hourly["mtbf"] = hourly["mtbf"] / 60
+    
     hourly["stability_index"] = (hourly["mtbf"] / (hourly["mtbf"] + hourly["mttr"])) * 100
 
-    return {
-        "mode_ct": mode_ct,
-        "lower_limit": lower_limit,
-        "upper_limit": upper_limit,
-        "total_shots": total_shots,
-        "normal_shots": normal_shots,
-        "stop_events": stop_events,
-        "run_hours": run_hours,
-        "gross_rate": gross_rate,
-        "net_rate": net_rate,
-        "efficiency": efficiency,
-        "production_time": production_time,
-        "downtime": downtime,
-        "total_runtime": total_runtime,
-        "bucket_counts": bucket_counts,
-        "hourly": hourly,
-        "df": df  # keep processed df for visuals
-    }
 
 # --- Streamlit UI ---
 st.sidebar.title("Run Rate Report Generator")
