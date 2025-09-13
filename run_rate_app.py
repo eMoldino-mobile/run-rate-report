@@ -226,61 +226,77 @@ if uploaded_file:
             )
             st.plotly_chart(fig_mt, use_container_width=True)
 
-            # 4) Stability Index Trend (with background + markers + MTTR/MTBF overlay)
+            # ---------- 4) Stability Index with MTTR & MTBF Overlay ----------
             fig_stability = go.Figure()
-
-            # Risk zones as background
-            fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=0, y1=50,
-                                    fillcolor="red", opacity=0.1, layer="below", line_width=0)
-            fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=50, y1=70,
-                                    fillcolor="yellow", opacity=0.1, layer="below", line_width=0)
-            fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=70, y1=100,
-                                    fillcolor="green", opacity=0.1, layer="below", line_width=0)
-
-            # MTTR & MTBF lines
+            
+            # MTTR (left axis)
             fig_stability.add_trace(go.Scatter(
                 x=hourly["HOUR"], y=hourly["mttr"],
-                mode="lines+markers", name="MTTR (min)",
-                line=dict(color="red", width=2), yaxis="y"
+                mode="lines+markers",
+                name="MTTR (min)",
+                line=dict(color="red", width=2),
+                yaxis="y1"
             ))
+            
+            # MTBF (left axis)
             fig_stability.add_trace(go.Scatter(
                 x=hourly["HOUR"], y=hourly["mtbf"],
-                mode="lines+markers", name="MTBF (min)",
-                line=dict(color="green", width=2, dash="dot"), yaxis="y"
+                mode="lines+markers",
+                name="MTBF (min)",
+                line=dict(color="green", width=2, dash="dot"),
+                yaxis="y1"
             ))
-
-            # Stability Index with colored markers
-            colors = ["red" if v <= 50 else "yellow" if v <= 70 else "green" for v in hourly["stability_index"]]
+            
+            # Stability Index (right axis)
+            colors = []
+            for v in hourly["stability_index"]:
+                if pd.isna(v):
+                    colors.append("gray")
+                elif v <= 50:
+                    colors.append("red")
+                elif v <= 70:
+                    colors.append("yellow")
+                else:
+                    colors.append("green")
+            
             fig_stability.add_trace(go.Scatter(
                 x=hourly["HOUR"], y=hourly["stability_index"],
-                mode="lines+markers", name="Stability Index (%)",
-                line=dict(color="blue", width=2), marker=dict(color=colors, size=8),
+                mode="lines+markers",
+                name="Stability Index (%)",
+                line=dict(color="blue", width=2),
+                marker=dict(color=colors, size=8),
                 yaxis="y2"
             ))
-
+            
+            # Background bands (right axis, stability index)
+            fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=0, y1=50,
+                fillcolor="red", opacity=0.1, line_width=0, yref="y2")
+            fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=50, y1=70,
+                fillcolor="yellow", opacity=0.1, line_width=0, yref="y2")
+            fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=70, y1=100,
+                fillcolor="green", opacity=0.1, line_width=0, yref="y2")
+            
             fig_stability.update_layout(
                 title="Stability Index with MTTR & MTBF Overlay",
                 xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5, 23.5]),
                 yaxis=dict(title="MTTR / MTBF (min)", side="left"),
-                yaxis2=dict(title="Stability Index (%)", range=[0, 100], overlaying="y", side="right"),
+                yaxis2=dict(title="Stability Index (%)", overlaying="y", side="right", range=[0, 100]),
                 margin=dict(l=60, r=60, t=60, b=40),
                 legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center")
             )
+            
             st.plotly_chart(fig_stability, use_container_width=True)
-
-            # Explanation
-            st.markdown("### ℹ️ Stability Index Explanation")
+            
+            # --- Explanation block below the graph ---
             st.markdown("""
-            **Formula:**  
-            \n
-            Stability Index = ( **MTBF** / ( **MTBF** + **MTTR** ) ) × 100  
-            \n
-            **Alert Zones:**  
-            - 🟥 **0–50%** → High Risk (Unstable)  
-            - 🟨 **50–70%** → Medium Risk (Caution)  
-            - 🟩 **70–100%** → Low Risk (Stable)  
-            \n
-            This metric combines both uptime and downtime to highlight reliability and process stability.  
+            **ℹ️ Stability Index Formula**
+            - **Stability Index (%) = (MTBF / (MTBF + MTTR)) × 100**
+            - Interprets balance between uptime (MTBF) and downtime (MTTR).
+            - **Alert Zones:**
+              - 🟥 0–50% → High Risk (unstable production)
+              - 🟨 50–70% → Medium Risk (watch closely)
+              - 🟩 70–100% → Low Risk (stable operation)
             """)
+
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin. Headers in ROW 1 please")
