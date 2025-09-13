@@ -195,11 +195,9 @@ if uploaded_file:
             all_hours = pd.DataFrame({"HOUR": list(range(24))})
             hourly = all_hours.merge(hourly, on="HOUR", how="left")
             
-            # Guarantee columns exist
-            if "mttr" not in hourly.columns:
-                hourly["mttr"] = np.nan
-            if "mtbf" not in hourly.columns:
-                hourly["mtbf"] = np.nan
+            # Fill NaNs only where appropriate
+            hourly["mttr"] = hourly["mttr"].fillna(np.nan)
+            hourly["mtbf"] = hourly["mtbf"].fillna(np.nan)
             
             fig_mt = go.Figure()
             
@@ -234,8 +232,7 @@ if uploaded_file:
                 yaxis=dict(
                     title="MTTR (min)",
                     titlefont=dict(color="red"),
-                    tickfont=dict(color="red"),
-                    side="left"
+                    tickfont=dict(color="red")
                 ),
                 yaxis2=dict(
                     title="MTBF (min)",
