@@ -191,7 +191,7 @@ if uploaded_file:
             # ---------- 3) MTTR & MTBF Trend by Hour ----------
             hourly = results["hourly"].copy()
             
-            # Build full hour grid (no forward-fill, keep NaN so gaps show)
+            # Build full hour grid (no forward-fill so gaps stay visible)
             all_hours = pd.DataFrame({"HOUR": list(range(24))})
             hourly = all_hours.merge(hourly, on="HOUR", how="left")
             
@@ -237,7 +237,12 @@ if uploaded_file:
                     side="right"
                 ),
                 margin=dict(l=60, r=60, t=60, b=40),
-                legend=dict(x=0.5, y=-0.2, orientation="h", xanchor="center")
+                legend=dict(
+                    orientation="h",
+                    x=0.5,
+                    y=-0.2,
+                    xanchor="center"
+                )
             )
             
             st.plotly_chart(fig_mt, use_container_width=True)
