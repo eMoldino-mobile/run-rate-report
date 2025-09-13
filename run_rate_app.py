@@ -151,16 +151,22 @@ if uploaded_file:
                 df_vis["TIME_BUCKET"]
                 .value_counts()
                 .reindex(bucket_order)
-                .fillna(0).astype(int)
+                .fillna(0)
+                .astype(int)
             )
+            
+            bucket_df = bucket_counts.reset_index()
+            bucket_df.columns = ["Time Bucket", "Occurrences"]
+            
             fig_bucket = px.bar(
-                bucket_counts.reset_index().rename(columns={"index": "Time Bucket", "TIME_BUCKET": "Occurrences"}),
-                x="TIME_BUCKET", y="index",
-                orientation="h", text="TIME_BUCKET",
+                bucket_df[bucket_df["Time Bucket"].notna()],
+                x="Occurrences", y="Time Bucket",
+                orientation="h", text="Occurrences",
                 title="Time Bucket Analysis"
             )
             fig_bucket.update_traces(textposition="outside")
             st.plotly_chart(fig_bucket, use_container_width=True)
+
 
             # 2) Time Bucket Trend by Hour
             src = df_vis.loc[df_vis["STOP_EVENT"] & df_vis["TIME_BUCKET"].notna(), ["HOUR", "TIME_BUCKET"]]
