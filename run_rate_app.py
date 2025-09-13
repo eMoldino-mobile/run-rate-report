@@ -310,42 +310,7 @@ if uploaded_file:
               - 🟩 70–100% → Low Risk (stable operation)
             """)
             
-            # ---------- Downtime Candidates Log (≥ Mode CT × 2) ----------
-            df_vis = results["df"].copy()
-            threshold = results["mode_ct"] * 2  # Mode CT × 2 threshold
             
-            # Filter gaps exceeding threshold
-            downtime_candidates = df_vis[df_vis["CT_diff_sec"] >= threshold].copy()
-            
-            if downtime_candidates.empty:
-                st.info("✅ No downtime candidates found (≥ Mode CT × 2).")
-            else:
-                downtime_candidates["Gap (min)"] = (downtime_candidates["CT_diff_sec"] / 60).round(2)
-            
-                # Use STOP_FLAG (all candidates) instead of STOP_EVENT
-                downtime_candidates["Alert"] = np.where(downtime_candidates["STOP_FLAG"] == 1, "🔴", "")
-            
-                # Select and format columns for display
-                table = downtime_candidates[[
-                    "SHOT TIME", "CT_diff_sec", "Alert", "STOP_FLAG", "HOUR", "Gap (min)"
-                ]].rename(columns={
-                    "SHOT TIME": "Event Time",
-                    "CT_diff_sec": "Gap (sec)",
-                    "STOP_FLAG": "Stop Flag",
-                    "HOUR": "Hour"
-                })
-            
-                # Display table
-                st.markdown("### 🔴 Downtime Candidates (≥ Mode CT × 2)")
-                st.dataframe(table, use_container_width=True)
-            
-                # Summary
-                st.markdown(f"""
-                **Summary**
-                - Total Downtime Candidates: {len(downtime_candidates)}
-                - Threshold Applied: {results['mode_ct']:.2f} sec × 2 = {threshold:.2f} sec
-                """)
-                
             # ---------- Stoppage Alert Reporting (≥ Mode CT × 2) ----------
             df_vis = results["df"].copy()
             threshold = results["mode_ct"] * 2  # Mode CT × 2 threshold
