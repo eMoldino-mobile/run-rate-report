@@ -345,7 +345,60 @@ if uploaded_file:
                 - Total Downtime Candidates: {len(downtime_candidates)}
                 - Threshold Applied: {results['mode_ct']:.2f} sec × 2 = {threshold:.2f} sec
                 """)
+                
+            # ---------- Stoppage Alert Reporting (≥ Mode CT × 2) ----------
+df_vis = results["df"].copy()
+threshold = results["mode_ct"] * 2  # Mode CT × 2 threshold
 
+# Filter gaps exceeding threshold
+stoppage_alerts = df_vis[df_vis["CT_diff_sec"] >= threshold].copy()
+
+if stoppage_alerts.empty:
+    st.info("✅ No stoppage alerts found (≥ Mode CT × 2).")
+else:
+    stoppage_alerts["Gap (min)"] = (stoppage_alerts["CT_diff_sec"] / 60).round(2)
+
+    # Show alert marker
+    stoppage_alerts["Alert"] = np.where(stoppage_alerts["STOP_FLAG"] == 1, "🔴", "")
+
+    # Fake "Reason" column for operator reporting (pre-filled blank)
+    stoppage_alerts["Reported Reason"] = ""
+
+    # Display table
+    table = stoppage_alerts[[
+        "SHOT TIME", "CT_diff_sec", "Alert", "STOP_FLAG", "HOUR", "Gap (min)", "Reported Reason"
+    ]].rename(columns={
+        "SHOT TIME": "Event Time",
+        "CT_diff_sec": "Gap (sec)",
+        "STOP_FLAG": "Stop Flag",
+        "HOUR": "Hour"
+    })
+
+    st.markdown("### 🚨 Stoppage Alert Reporting (≥ Mode CT × 2)")
+    st.dataframe(table, use_container_width=True)
+
+    # Summary
+    st.markdown(f"""
+    **Summary**
+    - Total Stoppage Alerts: {len(stoppage_alerts)}
+    - Threshold Applied: {results['mode_ct']:.2f} sec × 2 = {threshold:.2f} sec
+    - Operators are expected to log a **reason** for each alert.
+    """)
+
+    # Fake reporting flow
+    st.markdown("""
+    ---
+    #### 📋 Reporting Flow (Simulation)
+    1. Alerts are flagged automatically based on `Mode CT × 2`.
+    2. Each flagged event requires operator input for **reason classification**.
+    3. Example categories:
+       - ⚙️ Equipment Failure  
+       - 🔄 Changeover Delay  
+       - 🧹 Cleaning / Setup  
+       - 📦 Material Shortage  
+       - ❓ Other (free text)  
+    4. Once reported, the table can be exported for maintenance review.
+    """)
 
 
 
