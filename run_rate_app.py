@@ -309,6 +309,46 @@ if uploaded_file:
               - 🟨 50–70% → Medium Risk (watch closely)
               - 🟩 70–100% → Low Risk (stable operation)
             """)
+            
+            # ---------- 5) Downtime Event Log (Mode CT × 2 Rule) ----------
+
+            # Identify downtime candidates where cycle > 2 × Mode CT
+            mode_ct = results["mode_ct"]
+            downtime_candidates = results["df"].copy()
+            downtime_candidates = downtime_candidates[downtime_candidates["CT_diff_sec"] >= (2 * mode_ct)]
+            
+            # Build table with relevant fields
+            if downtime_candidates.empty:
+                st.info("✅ No downtime events detected beyond Mode CT × 2 threshold.")
+            else:
+                downtime_log = downtime_candidates[[
+                    "SHOT TIME", "CT_diff_sec", "STOP_EVENT", "STOP_FLAG", "HOUR"
+                ]].copy()
+                downtime_log["CT_diff_min"] = downtime_log["CT_diff_sec"] / 60
+                downtime_log.rename(columns={
+                    "SHOT TIME": "Event Time",
+                    "HOUR": "Hour",
+                    "CT_diff_sec": "Gap (sec)",
+                    "CT_diff_min": "Gap (min)",
+                    "STOP_EVENT": "Stop Event?",
+                    "STOP_FLAG": "Stop Flag"
+                }, inplace=True)
+            
+                st.markdown("### 🛑 Downtime Event Log (≥ Mode CT × 2)")
+                st.dataframe(
+                    downtime_log.style.format({
+                        "Gap (sec)": "{:.0f}",
+                        "Gap (min)": "{:.2f}"
+                    })
+                )
+            
+                # Optional summary counts
+                st.markdown(f"""
+                **Summary**
+                - Total Downtime Candidates: **{len(downtime_log)}**
+                - Threshold Applied: **{mode_ct:.2f} sec × 2 = {2*mode_ct:.2f} sec**
+                """)
+
 
 
 
