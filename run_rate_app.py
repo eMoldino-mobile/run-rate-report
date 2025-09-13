@@ -191,7 +191,7 @@ if uploaded_file:
             # ---------- 3) MTTR & MTBF Trend by Hour ----------
             hourly = results["hourly"].copy()
             
-            # Ensure all 24 hours exist, but DO NOT forward-fill (keep NaN so gaps show)
+            # Build full hour grid (no forward-fill, keep NaN so gaps show)
             all_hours = pd.DataFrame({"HOUR": list(range(24))})
             hourly = all_hours.merge(hourly, on="HOUR", how="left")
             
@@ -203,7 +203,7 @@ if uploaded_file:
                 mode="lines+markers", name="MTTR (min)",
                 line=dict(color="red", width=2),
                 yaxis="y1",
-                connectgaps=False  # <- show breaks where NaN
+                connectgaps=False
             ))
             
             # MTBF line (right y-axis)
@@ -241,6 +241,7 @@ if uploaded_file:
             )
             
             st.plotly_chart(fig_mt, use_container_width=True)
+
 
 
 else:
