@@ -317,64 +317,41 @@ if uploaded_file:
                 stoppage_alerts["Gap (min)"] = (stoppage_alerts["CT_diff_sec"] / 60).round(2)
                 stoppage_alerts["Alert"] = "🔴"
             
-                # Initialize session state on first run
-                if "stoppage_reports" not in st.session_state:
-                    st.session_state.stoppage_reports = stoppage_alerts[[
-                        "SHOT TIME", "CT_diff_sec", "HOUR", "Gap (min)", "Alert"
-                    ]].copy()
-                    st.session_state.stoppage_reports["Reason"] = ""
-                    st.session_state.stoppage_reports["Details"] = ""
+                # Add blank columns for user inputs
+                stoppage_alerts["Reason"] = ""
+                stoppage_alerts["Details"] = ""
             
-                st.write("#### Events requiring reason entry:")
+                # Configure editable grid
+                edited_table = st.data_editor(
+                    stoppage_alerts.rename(columns={
+                        "SHOT TIME": "Event Time",
+                        "CT_diff_sec": "Gap (sec)",
+                        "HOUR": "Hour"
+                    }),
+                    column_config={
+                        "Reason": st.column_config.SelectboxColumn(
+                            "Reason",
+                            options=[
+                                "", "⚙️ Equipment Failure", "🔄 Changeover Delay",
+                                "🧹 Cleaning / Setup", "📦 Material Shortage", "❓ Other"
+                            ],
+                            required=False
+                        ),
+                        "Details": st.column_config.TextColumn("Details", max_chars=200),
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                )
             
-                # Build interactive rows
-                updated_rows = []
-                for i, row in st.session_state.stoppage_reports.iterrows():
-                    c1, c2, c3, c4, c5, c6 = st.columns([2, 1, 1, 2, 2, 2])
-            
-                    c1.write(row["SHOT TIME"])
-                    c2.write(f"{row['CT_diff_sec']:.0f}")
-                    c3.write(f"{row['Gap (min)']:.2f}")
-                    c4.write(int(row["HOUR"]))
-            
-                    reason = c5.selectbox(
-                        "Reason",
-                        ["", "⚙️ Equipment Failure", "🔄 Changeover Delay",
-                         "🧹 Cleaning / Setup", "📦 Material Shortage", "❓ Other"],
-                        key=f"reason_{i}",
-                        index=0 if row["Reason"] == "" else
-                        ["", "⚙️ Equipment Failure", "🔄 Changeover Delay",
-                         "🧹 Cleaning / Setup", "📦 Material Shortage", "❓ Other"].index(row["Reason"])
-                    )
-            
-                    details = c6.text_input(
-                        "Details",
-                        value=row["Details"],
-                        key=f"details_{i}"
-                    )
-            
-                    # Store updated row
-                    updated_rows.append({
-                        "SHOT TIME": row["SHOT TIME"],
-                        "CT_diff_sec": row["CT_diff_sec"],
-                        "HOUR": row["HOUR"],
-                        "Gap (min)": row["Gap (min)"],
-                        "Alert": row["Alert"],
-                        "Reason": reason,
-                        "Details": details
-                    })
-            
-                # Replace session state table with updated values
-                st.session_state.stoppage_reports = pd.DataFrame(updated_rows)
-            
-                # Show final table below
-                st.markdown("#### 📋 Recorded Reports")
-                st.dataframe(st.session_state.stoppage_reports, use_container_width=True)
+                # Show summary
+                st.markdown("#### 📋 Recorded Reports (Temporary)")
+                st.dataframe(edited_table, use_container_width=True)
             
                 st.markdown(f"""
                 **Summary**
-                - Total Stoppage Alerts: {len(st.session_state.stoppage_reports)}
+                - Total Stoppage Alerts: {len(stoppage_alerts)}
                 - Threshold Applied: {results['mode_ct']:.2f} sec × 2 = {threshold:.2f} sec
+                - ⚠️ Note: Reasons & details entered here are **not saved** (temporary only for demo purpose).
                 """)
 
 
