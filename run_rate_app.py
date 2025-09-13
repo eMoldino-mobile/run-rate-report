@@ -188,7 +188,7 @@ if uploaded_file:
                 fig_tb_trend.update_layout(barmode="stack")
                 st.plotly_chart(fig_tb_trend, use_container_width=True)
 
-                       # ---------- 3) MTTR & MTBF Trend by Hour ----------
+            # 3) MTTR & MTBF Trend by Hour ----------
             hourly = results["hourly"].copy()
 
             # Ensure all 24 hours exist
