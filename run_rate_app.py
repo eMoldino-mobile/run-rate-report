@@ -213,8 +213,9 @@ if uploaded_file:
                 yaxis="y2"
             ))
             
+            # Layout
             fig_mt.update_layout(
-                title_text="MTTR & MTBF Trend by Hour",
+                title=dict(text="MTTR & MTBF Trend by Hour", x=0.5),
                 xaxis=dict(
                     title="Hour of Day (0–23)",
                     tickmode="linear",
@@ -224,7 +225,8 @@ if uploaded_file:
                 yaxis=dict(
                     title="MTTR (min)",
                     titlefont=dict(color="red"),
-                    tickfont=dict(color="red")
+                    tickfont=dict(color="red"),
+                    side="left"
                 ),
                 yaxis2=dict(
                     title="MTBF (min)",
@@ -242,7 +244,6 @@ if uploaded_file:
             )
             
             st.plotly_chart(fig_mt, use_container_width=True)
-
 
 
 else:
