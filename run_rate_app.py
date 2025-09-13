@@ -298,5 +298,27 @@ if uploaded_file:
 
             st.plotly_chart(fig_mt, use_container_width=True)
             
+                        # 3. MTTR & MTBF Trend (Line)
+            hourly = results['hourly']
+            fig3 = go.Figure()
+            fig3.add_trace(
+                go.Scatter(x=hourly["HOUR"], 
+                y=hourly["mttr"], 
+                mode="lines+markers", 
+                name="MTTR",
+                line=dict(color="red", width=4)))
+            fig3.add_trace(
+                go.Scatter(x=hourly["HOUR"], 
+                y=hourly["mtbf"], 
+                mode="lines+markers", 
+                name="MTBF",
+                line=dict(color="green", width=4)))
+            fig3.update_layout(
+                title="MTTR & MTBF Trend per Hour", 
+                xaxis_title="Hour of Day", 
+                yaxis_title="Minutes")
+            st.plotly_chart(
+            fig3, use_container_width=True)
+            
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin.")
