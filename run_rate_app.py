@@ -284,7 +284,7 @@ if uploaded_file:
                 )
             )
 
-st.plotly_chart(fig_stability, use_container_width=True)
+            st.plotly_chart(fig_stability, use_container_width=True)
 
 
 else:
