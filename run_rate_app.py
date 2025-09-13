@@ -191,13 +191,9 @@ if uploaded_file:
             # ---------- 3) MTTR & MTBF Trend by Hour ----------
             hourly = results["hourly"].copy()
             
-            # Ensure all 24 hours are represented
+            # Ensure all 24 hours are present
             all_hours = pd.DataFrame({"HOUR": list(range(24))})
             hourly = all_hours.merge(hourly, on="HOUR", how="left")
-            
-            # Keep NaN for missing values (don't forward fill)
-            hourly["mttr"] = hourly["mttr"]
-            hourly["mtbf"] = hourly["mtbf"]
             
             fig_mt = go.Figure()
             
@@ -219,7 +215,7 @@ if uploaded_file:
                 yaxis="y2"
             ))
             
-            # Layout with dual y-axes
+            # Layout with dual y-axes (safe keys only)
             fig_mt.update_layout(
                 title="MTTR & MTBF Trend by Hour",
                 xaxis=dict(
@@ -249,6 +245,7 @@ if uploaded_file:
             )
             
             st.plotly_chart(fig_mt, use_container_width=True)
+
 
 
 
