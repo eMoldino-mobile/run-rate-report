@@ -126,7 +126,7 @@ if uploaded_file:
 
             st.markdown("### Reliability Metrics")
             st.table(pd.DataFrame({
-                "Metric": ["MTTR (Avg)", "MTBF (Avg)", "Time to First DT (Avg)", "Avg Cycle Time (Avg)"],
+                "Metric": ["MTTR", "MTBF", "Time to First DT (Avg)", "Avg Cycle Time"],
                 "Value": ["0.55", "6.06", "5.06", "28.21"]
             }))
 
@@ -216,38 +216,39 @@ if uploaded_file:
             ))
             
             fig_mt.update_layout(
-                title="MTTR & MTBF Trend by Hour",
-                xaxis=dict(
-                    title="Hour of Day (0–23)",
-                    tickmode="linear",
-                    dtick=1,
-                    range=[-0.5, 23.5]
-                ),
-                yaxis=dict(
-                    title="MTTR (min)",
-                    titlefont=dict(color="red"),
-                    tickfont=dict(color="red"),
-                    side="left"
-                ),
-                yaxis2=dict(
-                    title="MTBF (min)",
-                    titlefont=dict(color="green"),
-                    tickfont=dict(color="green"),
-                    overlaying="y",
-                    side="right"
-                ),
-                margin=dict(l=60, r=60, t=60, b=40),
-                legend=dict(
-                    orientation="h",
-                    x=0.5,
-                    y=-0.2,
-                    xanchor="center"
-                )
+            title="MTTR & MTBF Trend by Hour",
+            xaxis=dict(
+                title="Hour of Day (0–23)",
+                tickmode="linear",
+                dtick=1,
+                range=[-0.5, 23.5]
+            ),
+            yaxis=dict(
+                title="MTTR (min)",
+                titlefont=dict(color="red"),
+                tickfont=dict(color="red"),
+                side="left"
+            ),
+            yaxis2=dict(
+                title="MTBF (min)",
+                titlefont=dict(color="green"),
+                tickfont=dict(color="green"),
+                overlaying="y",
+                side="right"
+            ),
+            margin=dict(l=60, r=60, t=60, b=40),
+            legend=dict(
+                orientation="h",    # horizontal legend
+                x=0.5,              # center it horizontally
+                y=-0.25,            # move slightly below chart
+                xanchor="center"
             )
+        )
+
             
             st.plotly_chart(fig_mt, use_container_width=True)
 
 
 
 else:
-    st.info("👈 Upload a cleaned run rate Excel file to begin.")
+    st.info("👈 Upload a cleaned run rate Excel file to begin. Headers in ROW 1 please")
