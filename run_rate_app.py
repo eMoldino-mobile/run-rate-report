@@ -81,12 +81,8 @@ def calculate_run_rate_excel_like(df):
           .reset_index()
     )
 
-    # Stability index (if no stoppages → 100%)
-    hourly["stability_index"] = np.where(
-        hourly["stops"] == 0,
-        100,
-        (hourly["mtbf"] / (hourly["mtbf"] + hourly["mttr"])) * 100
-    )
+    # Stability index
+    hourly["stability_index"] = (hourly["mtbf"] / (hourly["mtbf"] + hourly["mttr"])) * 100
 
     return {
         "mode_ct": mode_ct,
@@ -161,57 +157,130 @@ if uploaded_file:
             st.subheader("📈 Visual Analysis")
 
             df_vis = results["df"].copy()
-            hourly = results["hourly"].copy()
             bucket_order = ["<1","1-2","2-3","3-5","5-10","10-20","20-30","30-60","60-120",">120"]
 
-            # ---------- Stability Index with zones ----------
-            fig_stability = go.Figure()
+            # 1) Time Bucket Analysis
+            bucket_counts = (
+                df_vis["TIME_BUCKET"]
+                .value_counts()
+                .reindex(bucket_order)
+                .fillna(0)
+                .astype(int)
+            )
+            bucket_df = bucket_counts.reset_index()
+            bucket_df.columns = ["Time Bucket", "Occurrences"]
 
-            # Background zones
-            fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=70, y1=100,
-                                    fillcolor="green", opacity=0.1, layer="below", line_width=0)
-            fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=50, y1=70,
-                                    fillcolor="yellow", opacity=0.1, layer="below", line_width=0)
-            fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=0, y1=50,
-                                    fillcolor="red", opacity=0.1, layer="below", line_width=0)
+            fig_bucket = px.bar(
+                bucket_df[bucket_df["Time Bucket"].notna()],
+                x="Occurrences", y="Time Bucket",
+                orientation="h", text="Occurrences",
+                title="Time Bucket Analysis"
+            )
+            fig_bucket.update_traces(textposition="outside")
+            st.plotly_chart(fig_bucket, use_container_width=True)
 
-            # Continuous trend line
-            fig_stability.add_trace(go.Scatter(
-                x=hourly["HOUR"], 
-                y=hourly["stability_index"],
-                mode="lines+markers",
-                name="Stability Index (%)",
-                line=dict(color="blue", width=2),
-                marker=dict(
-                    size=8,
-                    color=np.where(hourly["stability_index"] < 50, "red",
-                          np.where(hourly["stability_index"] < 70, "yellow", "green"))
+            # 2) Time Bucket Trend by Hour
+            src = df_vis.loc[df_vis["STOP_EVENT"] & df_vis["TIME_BUCKET"].notna(), ["HOUR", "TIME_BUCKET"]]
+            if src.empty:
+                st.info("No stop events with valid TIME_BUCKET for the selected tool/date.")
+            else:
+                hours = list(range(24))
+                grid = pd.MultiIndex.from_product([hours, bucket_order], names=["HOUR","TIME_BUCKET"]).to_frame(index=False)
+                counts = src.groupby(["HOUR", "TIME_BUCKET"]).size().reset_index(name="count")
+                trend = grid.merge(counts, on=["HOUR","TIME_BUCKET"], how="left").fillna({"count":0})
+
+                fig_tb_trend = px.bar(
+                    trend, x="HOUR", y="count", color="TIME_BUCKET",
+                    category_orders={"HOUR": hours, "TIME_BUCKET": bucket_order},
+                    title="Time Bucket Trend by Hour (0–23)"
                 )
+                fig_tb_trend.update_layout(barmode="stack")
+                st.plotly_chart(fig_tb_trend, use_container_width=True)
+
+            # 3) MTTR & MTBF Trend by Hour
+            hourly = results["hourly"].copy()
+            all_hours = pd.DataFrame({"HOUR": list(range(24))})
+            hourly = all_hours.merge(hourly, on="HOUR", how="left")
+
+            fig_mt = go.Figure()
+
+            fig_mt.add_trace(go.Scatter(
+                x=hourly["HOUR"], y=hourly["mttr"],
+                mode="lines+markers", name="MTTR (min)",
+                line=dict(color="red", width=2), yaxis="y"
             ))
 
-            fig_stability.update_layout(
-                title="Stability Index Trend by Hour",
+            fig_mt.add_trace(go.Scatter(
+                x=hourly["HOUR"], y=hourly["mtbf"],
+                mode="lines+markers", name="MTBF (min)",
+                line=dict(color="green", width=2, dash="dot"), yaxis="y2"
+            ))
+
+            fig_mt.update_layout(
+                title="MTTR & MTBF Trend by Hour",
                 xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5, 23.5]),
-                yaxis=dict(title="Stability Index (%)", range=[0, 100]),
+                yaxis=dict(title="MTTR (min)", tickfont=dict(color="red"), side="left"),
+                yaxis2=dict(title="MTBF (min)", tickfont=dict(color="green"), overlaying="y", side="right"),
                 margin=dict(l=60, r=60, t=60, b=40),
                 legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center")
             )
+            st.plotly_chart(fig_mt, use_container_width=True)
 
+            # 4) Stability Index Trend (with background + markers + MTTR/MTBF overlay)
+            fig_stability = go.Figure()
+
+            # Risk zones as background
+            fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=0, y1=50,
+                                    fillcolor="red", opacity=0.1, layer="below", line_width=0)
+            fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=50, y1=70,
+                                    fillcolor="yellow", opacity=0.1, layer="below", line_width=0)
+            fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=70, y1=100,
+                                    fillcolor="green", opacity=0.1, layer="below", line_width=0)
+
+            # MTTR & MTBF lines
+            fig_stability.add_trace(go.Scatter(
+                x=hourly["HOUR"], y=hourly["mttr"],
+                mode="lines+markers", name="MTTR (min)",
+                line=dict(color="red", width=2), yaxis="y"
+            ))
+            fig_stability.add_trace(go.Scatter(
+                x=hourly["HOUR"], y=hourly["mtbf"],
+                mode="lines+markers", name="MTBF (min)",
+                line=dict(color="green", width=2, dash="dot"), yaxis="y"
+            ))
+
+            # Stability Index with colored markers
+            colors = ["red" if v <= 50 else "yellow" if v <= 70 else "green" for v in hourly["stability_index"]]
+            fig_stability.add_trace(go.Scatter(
+                x=hourly["HOUR"], y=hourly["stability_index"],
+                mode="lines+markers", name="Stability Index (%)",
+                line=dict(color="blue", width=2), marker=dict(color=colors, size=8),
+                yaxis="y2"
+            ))
+
+            fig_stability.update_layout(
+                title="Stability Index with MTTR & MTBF Overlay",
+                xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5, 23.5]),
+                yaxis=dict(title="MTTR / MTBF (min)", side="left"),
+                yaxis2=dict(title="Stability Index (%)", range=[0, 100], overlaying="y", side="right"),
+                margin=dict(l=60, r=60, t=60, b=40),
+                legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center")
+            )
             st.plotly_chart(fig_stability, use_container_width=True)
 
-            # Detailed legend table
-            st.markdown("### Stability Index Alert Zones")
-            legend_df = pd.DataFrame({
-                "Zone": ["Low Risk", "Medium Risk", "High Risk"],
-                "Range (%)": ["70–100", "50–70", "0–50"],
-                "Indicator": ["🟢 Green", "🟡 Yellow", "🔴 Red"],
-                "Interpretation": [
-                    "Stable operation with sufficient MTBF",
-                    "Caution – risk of instability rising",
-                    "Critical – frequent stops, unstable production"
-                ]
-            })
-            st.table(legend_df)
-
+            # Explanation
+            st.markdown("### ℹ️ Stability Index Explanation")
+            st.markdown("""
+            **Formula:**  
+            \n
+            Stability Index = ( **MTBF** / ( **MTBF** + **MTTR** ) ) × 100  
+            \n
+            **Alert Zones:**  
+            - 🟥 **0–50%** → High Risk (Unstable)  
+            - 🟨 **50–70%** → Medium Risk (Caution)  
+            - 🟩 **70–100%** → Low Risk (Stable)  
+            \n
+            This metric combines both uptime and downtime to highlight reliability and process stability.  
+            """)
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin. Headers in ROW 1 please")
