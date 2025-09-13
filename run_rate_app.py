@@ -328,13 +328,20 @@ if uploaded_file:
                     "HOUR": "Hour"
                 })
             
-                # Add placeholder columns for Reason and Details
+                # Initialize with first option of dropdown shown
+                reasons_list = [
+                    "⚙️ Equipment Failure",
+                    "🔄 Changeover Delay",
+                    "🧹 Cleaning / Setup",
+                    "📦 Material Shortage",
+                    "❓ Other"
+                ]
                 table = table.assign(
-                    Reason="(selectable soon…)",   # placeholder
-                    Details="(input soon…)"        # placeholder
+                    Reason=[reasons_list[0]] * len(table),   # pre-fill with first option
+                    Details="(input soon…)"
                 )
             
-                # Display the table with disabled dropdowns + text input columns
+                # Display the table with dropdown column (disabled but shows list)
                 st.data_editor(
                     table,
                     use_container_width=True,
@@ -342,20 +349,14 @@ if uploaded_file:
                         "Reason": st.column_config.SelectboxColumn(
                             "Reason",
                             help="Dropdown preview (currently disabled)",
-                            options=[
-                                "⚙️ Equipment Failure",
-                                "🔄 Changeover Delay",
-                                "🧹 Cleaning / Setup",
-                                "📦 Material Shortage",
-                                "❓ Other"
-                            ]
+                            options=reasons_list
                         ),
                         "Details": st.column_config.TextColumn(
                             "Details",
                             help="Free-text details (currently disabled)"
                         )
                     },
-                    disabled=["Reason", "Details"]  # 🔒 lock these fields
+                    disabled=["Reason", "Details"]  # 🔒 locked, but dropdown visible
                 )
             
                 # Summary below the table
@@ -363,14 +364,8 @@ if uploaded_file:
                 **Summary**
                 - Total Stoppage Alerts: {len(stoppage_alerts)}
                 - Threshold Applied: {results['mode_ct']:.2f} sec × 2 = {threshold:.2f} sec  
-                - Reporting fields are visible but disabled — will be enabled in the next step.
+                - Reporting fields now show dropdown options, but are locked from editing.
                 """)
-
-
-
-
-
-
 
 
 else:
