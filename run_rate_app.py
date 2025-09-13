@@ -179,6 +179,8 @@ if uploaded_file:
             fig_bucket.update_traces(textposition="outside")
             st.plotly_chart(fig_bucket, use_container_width=True)
 
+
+
             # 2) Time Bucket Trend by Hour
             src = df_vis.loc[df_vis["STOP_EVENT"] & df_vis["TIME_BUCKET"].notna(), ["HOUR", "TIME_BUCKET"]]
             if src.empty:
@@ -196,6 +198,8 @@ if uploaded_file:
                 )
                 fig_tb_trend.update_layout(barmode="stack")
                 st.plotly_chart(fig_tb_trend, use_container_width=True)
+
+
 
             # 3) MTTR & MTBF Trend by Hour
             hourly = results["hourly"].copy()
@@ -226,20 +230,17 @@ if uploaded_file:
             )
             st.plotly_chart(fig_mt, use_container_width=True)
 
-            # ---------- 4) Stability Index (Clean) ----------
+
+
+            # 4) Stability Index
             hourly = results["hourly"].copy()
-            
-            # Force Stability Index = 100 when production exists but no stoppages
             hourly["stability_index"] = np.where(
                 (hourly["stops"] == 0) & (hourly["mtbf"].isna()),
                 100,
                 hourly["stability_index"]
             )
-            
-            # Calculate percentage change vs previous hour
             hourly["stability_change_%"] = hourly["stability_index"].pct_change() * 100
-            
-            # Assign color markers based on risk zones
+
             colors = []
             for v in hourly["stability_index"]:
                 if pd.isna(v):
@@ -250,26 +251,19 @@ if uploaded_file:
                     colors.append("yellow")
                 else:
                     colors.append("green")
-            
+
             fig_stability = go.Figure()
-            
-            # Stability Index line
             fig_stability.add_trace(go.Scatter(
                 x=hourly["HOUR"], y=hourly["stability_index"],
-                mode="lines+markers",
-                name="Stability Index (%)",
-                line=dict(color="blue", width=2),
-                marker=dict(color=colors, size=8)
+                mode="lines+markers", name="Stability Index (%)",
+                line=dict(color="blue", width=2), marker=dict(color=colors, size=8)
             ))
-            
-            # Background alert bands
             fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=0, y1=50,
                 fillcolor="red", opacity=0.1, line_width=0, yref="y")
             fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=50, y1=70,
                 fillcolor="yellow", opacity=0.1, line_width=0, yref="y")
             fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=70, y1=100,
                 fillcolor="green", opacity=0.1, line_width=0, yref="y")
-            
             fig_stability.update_layout(
                 title="Stability Index by Hour",
                 xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5, 23.5]),
@@ -277,11 +271,10 @@ if uploaded_file:
                 margin=dict(l=60, r=60, t=60, b=40),
                 legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center")
             )
-            
             st.plotly_chart(fig_stability, use_container_width=True)
-            
-            # --- Data Table below chart ---
-            table_data = hourly[["HOUR", "stability_index", "stability_change_%", "mttr", "mtbf", "stops"]].copy()
+
+            st.markdown("### Stability Index Metrics by Hour")
+            table_data = hourly[["HOUR","stability_index","stability_change_%","mttr","mtbf","stops"]].copy()
             table_data.rename(columns={
                 "HOUR": "Hour",
                 "stability_index": "Stability Index (%)",
@@ -290,132 +283,82 @@ if uploaded_file:
                 "mtbf": "MTBF (min)",
                 "stops": "Stop Count"
             }, inplace=True)
-            
-            st.markdown("### Stability Index Metrics by Hour")
             st.dataframe(table_data.style.format({
                 "Stability Index (%)": "{:.2f}",
                 "Change vs Prev Hour (%)": "{:+.2f}%",
                 "MTTR (min)": "{:.2f}",
                 "MTBF (min)": "{:.2f}"
             }))
-            
-            # --- Explanation block below the graph ---
+
             st.markdown("""
             **ℹ️ Stability Index Formula**
-            - **Stability Index (%) = (MTBF / (MTBF + MTTR)) × 100**
-            - If no stoppages occur in an hour, Stability Index is forced to **100%**.
-            - **Alert Zones:**
+            - Stability Index (%) = (MTBF / (MTBF + MTTR)) × 100
+            - If no stoppages occur in an hour, Stability Index is forced to **100%**
+            - Alert Zones:
               - 🟥 0–50% → High Risk (unstable production)
               - 🟨 50–70% → Medium Risk (watch closely)
               - 🟩 70–100% → Low Risk (stable operation)
             """)
-            
-            
-            # ---------- Stoppage Alert Reporting (≥ Mode CT × 2) ----------
+
+
+
+            # --- Stoppage Alert Reporting ---
             df_vis = results["df"].copy()
-            threshold = results["mode_ct"] * 2  # Mode CT × 2 threshold
-            
-            # Filter gaps exceeding threshold
+            threshold = results["mode_ct"] * 2
             stoppage_alerts = df_vis[df_vis["CT_diff_sec"] >= threshold].copy()
-            
+
+            st.markdown("### 🚨 Stoppage Alert Reporting (≥ Mode CT × 2)")
             if stoppage_alerts.empty:
-                st.info("✅ No stoppage alerts found (≥ Mode CT × 2).")
+                st.info("✅ No stoppage alerts found.")
             else:
                 stoppage_alerts["Gap (min)"] = (stoppage_alerts["CT_diff_sec"] / 60).round(2)
-            
-                # Show alert marker
-                stoppage_alerts["Alert"] = np.where(stoppage_alerts["STOP_FLAG"] == 1, "🔴", "")
-            
-                # Fake "Reason" column for operator reporting (pre-filled blank)
-                stoppage_alerts["Reported Reason"] = ""
-            
-                # Display table
-                table = stoppage_alerts[[
-                    "SHOT TIME", "CT_diff_sec", "Alert", "STOP_FLAG", "HOUR", "Gap (min)", "Reported Reason"
+                stoppage_alerts["Alert"] = "🔴"
+
+                if "stoppage_reports" not in st.session_state:
+                    stoppage_alerts["Reason"] = ""
+                    stoppage_alerts["Details"] = ""
+                    st.session_state.stoppage_reports = stoppage_alerts
+
+                table = st.session_state.stoppage_reports[[
+                    "SHOT TIME","CT_diff_sec","HOUR","Gap (min)","Alert","Reason","Details"
                 ]].rename(columns={
                     "SHOT TIME": "Event Time",
                     "CT_diff_sec": "Gap (sec)",
-                    "STOP_FLAG": "Stop Flag",
                     "HOUR": "Hour"
                 })
-            
-                st.markdown("### 🚨 Stoppage Alert Reporting (≥ Mode CT × 2)")
                 st.dataframe(table, use_container_width=True)
-            
-                # Summary
-                st.markdown(f"""
-                **Summary**
-                - Total Stoppage Alerts: {len(stoppage_alerts)}
-                - Threshold Applied: {results['mode_ct']:.2f} sec × 2 = {threshold:.2f} sec
-                - Operators are expected to log a **reason** for each alert.
-                """)
-            
-                # ---------- Stoppage Alert Reporting (≥ Mode CT × 2) ----------
-                df_vis = results["df"].copy()
-                threshold = results["mode_ct"] * 2  # Mode CT × 2 threshold
-                
-                # Filter gaps exceeding threshold
-                stoppage_alerts = df_vis[df_vis["CT_diff_sec"] >= threshold].copy()
-                
-                st.markdown("### 🚨 Stoppage Alert Reporting (≥ Mode CT × 2)")
-                
-                if stoppage_alerts.empty:
-                    st.info("✅ No stoppage alerts found (≥ Mode CT × 2).")
-                else:
-                    stoppage_alerts["Gap (min)"] = (stoppage_alerts["CT_diff_sec"] / 60).round(2)
-                    stoppage_alerts["Alert"] = "🔴"
-                
-                    # Clean table for display
-                    table = stoppage_alerts[[
-                        "SHOT TIME", "CT_diff_sec", "HOUR", "Gap (min)", "Alert"
-                    ]].rename(columns={
-                        "SHOT TIME": "Event Time",
-                        "CT_diff_sec": "Gap (sec)",
-                        "HOUR": "Hour"
-                    })
-                
-                    st.dataframe(table, use_container_width=True)
-                
-                    st.markdown("#### 📝 Report Stoppage Reasons")
-                
-                    reported_reasons = []
-                
-                    with st.form("reporting_form"):
-                        for i, row in table.iterrows():
-                            st.markdown(f"**Event: {row['Event Time']} | Gap: {row['Gap (min)']} min**")
-                
-                            reason = st.selectbox(
-                                f"Select reason for event at {row['Event Time']}",
-                                ["⚙️ Equipment Failure", "🔄 Changeover Delay", 
-                                 "🧹 Cleaning / Setup", "📦 Material Shortage", "❓ Other"],
-                                key=f"reason_{i}"
-                            )
-                
-                            details = st.text_input(
-                                f"Additional details for event at {row['Event Time']}",
-                                key=f"details_{i}"
-                            )
-                
-                            reported_reasons.append({
-                                "Event Time": row["Event Time"],
-                                "Hour": row["Hour"],
-                                "Gap (min)": row["Gap (min)"],
-                                "Reason": reason,
-                                "Details": details
-                            })
-                
-                            st.markdown("---")
-                
-                        submitted = st.form_submit_button("Save Reports")
-                
-                    if submitted:
-                        st.success("✅ Stoppage reasons recorded.")
-                        st.markdown("#### 📋 Recorded Reports")
-                        st.dataframe(pd.DataFrame(reported_reasons), use_container_width=True)
 
+                if "report_modal" not in st.session_state:
+                    st.session_state.report_modal = None
 
+                for i,row in table.iterrows():
+                    if st.button(f"📝 Report Event {row['Event Time']}", key=f"report_btn_{i}"):
+                        st.session_state.report_modal = i
 
+                if st.session_state.report_modal is not None:
+                    idx = st.session_state.report_modal
+                    row = table.loc[idx]
+                    st.markdown("### 📝 Report Stoppage Reason")
+                    st.info(f"Event: {row['Event Time']} | Gap: {row['Gap (min)']} min")
 
+                    reason = st.selectbox(
+                        "Select reason:",
+                        ["","⚙️ Equipment Failure","🔄 Changeover Delay","🧹 Cleaning / Setup","📦 Material Shortage","❓ Other"],
+                        index=0 if row["Reason"] == "" else
+                        ["","⚙️ Equipment Failure","🔄 Changeover Delay","🧹 Cleaning / Setup","📦 Material Shortage","❓ Other"].index(row["Reason"])
+                    )
+                    details = st.text_area("Additional details:", value=row["Details"])
+
+                    col1,col2 = st.columns(2)
+                    with col1:
+                        if st.button("✅ Save Report"):
+                            st.session_state.stoppage_reports.at[idx,"Reason"] = reason
+                            st.session_state.stoppage_reports.at[idx,"Details"] = details
+                            st.session_state.report_modal = None
+                            st.success("Report saved.")
+                    with col2:
+                        if st.button("❌ Cancel"):
+                            st.session_state.report_modal = None
 
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin. Headers in ROW 1 please")
