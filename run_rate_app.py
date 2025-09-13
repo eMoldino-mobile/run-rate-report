@@ -191,59 +191,65 @@ if uploaded_file:
             # ---------- 3) MTTR & MTBF Trend by Hour ----------
             hourly = results["hourly"].copy()
             
-            # Build full hour grid (no forward-fill so gaps stay visible)
+            # Ensure all 24 hours exist (don’t forward fill, so missing hours show as gaps)
             all_hours = pd.DataFrame({"HOUR": list(range(24))})
             hourly = all_hours.merge(hourly, on="HOUR", how="left")
             
             fig_mt = go.Figure()
             
-            # MTTR line (left y-axis)
+            # MTTR (left y-axis)
             fig_mt.add_trace(go.Scatter(
                 x=hourly["HOUR"], y=hourly["mttr"],
-                mode="lines+markers", name="MTTR (min)",
+                mode="lines+markers",
+                name="MTTR (min)",
                 line=dict(color="red", width=2),
                 yaxis="y1",
                 connectgaps=False
             ))
             
-            # MTBF line (right y-axis)
+            # MTBF (right y-axis)
             fig_mt.add_trace(go.Scatter(
                 x=hourly["HOUR"], y=hourly["mtbf"],
-                mode="lines+markers", name="MTBF (min)",
+                mode="lines+markers",
+                name="MTBF (min)",
                 line=dict(color="green", width=2, dash="dot"),
                 yaxis="y2",
                 connectgaps=False
             ))
             
+            # Layout (VALID KEYS ONLY)
             fig_mt.update_layout(
-            title="MTTR & MTBF Trend by Hour",
-            xaxis=dict(
-                title="Hour of Day (0–23)",
-                tickmode="linear",
-                dtick=1,
-                range=[-0.5, 23.5]
-            ),
-            yaxis=dict(
-                title="MTTR (min)",
-                titlefont=dict(color="red"),
-                tickfont=dict(color="red"),
-                side="left"
-            ),
-            yaxis2=dict(
-                title="MTBF (min)",
-                titlefont=dict(color="green"),
-                tickfont=dict(color="green"),
-                overlaying="y",
-                side="right"
-            ),
-            margin=dict(l=60, r=60, t=60, b=40),
-            legend=dict(
-                orientation="h",    # horizontal legend
-                x=0.5,              # center it horizontally
-                y=-0.25,            # move slightly below chart
-                xanchor="center"
+                title=dict(text="MTTR & MTBF Trend by Hour"),
+                xaxis=dict(
+                    title="Hour of Day (0–23)",
+                    tickmode="linear",
+                    dtick=1,
+                    range=[-0.5, 23.5]
+                ),
+                yaxis=dict(
+                    title="MTTR (min)",
+                    titlefont=dict(color="red"),
+                    tickfont=dict(color="red")
+                ),
+                yaxis2=dict(
+                    title="MTBF (min)",
+                    titlefont=dict(color="green"),
+                    tickfont=dict(color="green"),
+                    overlaying="y",
+                    side="right"
+                ),
+                margin=dict(l=60, r=60, t=60, b=40),
+                legend=dict(
+                    orientation="h",
+                    yanchor="top",
+                    y=-0.2,
+                    xanchor="center",
+                    x=0.5
+                )
             )
-        )
+
+st.plotly_chart(fig_mt, use_container_width=True)
+
 
             
             st.plotly_chart(fig_mt, use_container_width=True)
