@@ -226,28 +226,19 @@ if uploaded_file:
             )
             st.plotly_chart(fig_mt, use_container_width=True)
 
-            # ---------- 4) Stability Index with MTTR & MTBF Overlay ----------
+            # ---------- Stability Index with MTTR & MTBF Overlay ----------
+            hourly = results["hourly"].copy()
+            
+            # Force Stability Index = 100 when production exists but no stoppages
+            hourly["stability_index"] = np.where(
+                (hourly["stops"] == 0) & (hourly["mtbf"].isna()),
+                100,
+                hourly["stability_index"]
+            )
+            
             fig_stability = go.Figure()
             
-            # MTTR (left axis)
-            fig_stability.add_trace(go.Scatter(
-                x=hourly["HOUR"], y=hourly["mttr"],
-                mode="lines+markers",
-                name="MTTR (min)",
-                line=dict(color="red", width=2),
-                yaxis="y1"
-            ))
-            
-            # MTBF (left axis)
-            fig_stability.add_trace(go.Scatter(
-                x=hourly["HOUR"], y=hourly["mtbf"],
-                mode="lines+markers",
-                name="MTBF (min)",
-                line=dict(color="green", width=2, dash="dot"),
-                yaxis="y1"
-            ))
-            
-            # Stability Index (right axis)
+            # Stability Index (left axis, main KPI)
             colors = []
             for v in hourly["stability_index"]:
                 if pd.isna(v):
@@ -265,22 +256,40 @@ if uploaded_file:
                 name="Stability Index (%)",
                 line=dict(color="blue", width=2),
                 marker=dict(color=colors, size=8),
+                yaxis="y"
+            ))
+            
+            # MTTR (right axis)
+            fig_stability.add_trace(go.Scatter(
+                x=hourly["HOUR"], y=hourly["mttr"],
+                mode="lines+markers",
+                name="MTTR (min)",
+                line=dict(color="red", width=2),
                 yaxis="y2"
             ))
             
-            # Background bands (right axis, stability index)
+            # MTBF (right axis)
+            fig_stability.add_trace(go.Scatter(
+                x=hourly["HOUR"], y=hourly["mtbf"],
+                mode="lines+markers",
+                name="MTBF (min)",
+                line=dict(color="green", width=2, dash="dot"),
+                yaxis="y2"
+            ))
+            
+            # Background alert bands for Stability Index (left axis)
             fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=0, y1=50,
-                fillcolor="red", opacity=0.1, line_width=0, yref="y2")
+                fillcolor="red", opacity=0.1, line_width=0, yref="y")
             fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=50, y1=70,
-                fillcolor="yellow", opacity=0.1, line_width=0, yref="y2")
+                fillcolor="yellow", opacity=0.1, line_width=0, yref="y")
             fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=70, y1=100,
-                fillcolor="green", opacity=0.1, line_width=0, yref="y2")
+                fillcolor="green", opacity=0.1, line_width=0, yref="y")
             
             fig_stability.update_layout(
                 title="Stability Index with MTTR & MTBF Overlay",
                 xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5, 23.5]),
-                yaxis=dict(title="MTTR / MTBF (min)", side="left"),
-                yaxis2=dict(title="Stability Index (%)", overlaying="y", side="right", range=[0, 100]),
+                yaxis=dict(title="Stability Index (%)", range=[0, 100], side="left"),
+                yaxis2=dict(title="MTTR / MTBF (min)", overlaying="y", side="right"),
                 margin=dict(l=60, r=60, t=60, b=40),
                 legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center")
             )
@@ -291,12 +300,13 @@ if uploaded_file:
             st.markdown("""
             **ℹ️ Stability Index Formula**
             - **Stability Index (%) = (MTBF / (MTBF + MTTR)) × 100**
-            - Interprets balance between uptime (MTBF) and downtime (MTTR).
+            - If no stoppages occur in an hour, Stability Index is forced to **100%**.
             - **Alert Zones:**
               - 🟥 0–50% → High Risk (unstable production)
               - 🟨 50–70% → Medium Risk (watch closely)
               - 🟩 70–100% → Low Risk (stable operation)
             """)
+
 
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin. Headers in ROW 1 please")
