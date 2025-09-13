@@ -304,68 +304,73 @@ if uploaded_file:
 
 
 
-            # --- Stoppage Alert Reporting (≥ Mode CT × 2) ---
+            # ---------- Stoppage Alert Reporting (≥ Mode CT × 2) ----------
             df_vis = results["df"].copy()
             threshold = results["mode_ct"] * 2
             stoppage_alerts = df_vis[df_vis["CT_diff_sec"] >= threshold].copy()
             
             st.markdown("### 🚨 Stoppage Alert Reporting (≥ Mode CT × 2)")
+            
             if stoppage_alerts.empty:
                 st.info("✅ No stoppage alerts found.")
             else:
                 stoppage_alerts["Gap (min)"] = (stoppage_alerts["CT_diff_sec"] / 60).round(2)
                 stoppage_alerts["Alert"] = "🔴"
             
-                # Initialize session state on first load
+                # Initialize session state on first run
                 if "stoppage_reports" not in st.session_state:
-                    stoppage_alerts["Reason"] = ""
-                    stoppage_alerts["Details"] = ""
-                    st.session_state.stoppage_reports = stoppage_alerts.copy()
-            
-                # Always re-sync key columns in case new alerts appear
-                for col in ["Reason", "Details"]:
-                    if col not in st.session_state.stoppage_reports.columns:
-                        st.session_state.stoppage_reports[col] = ""
+                    st.session_state.stoppage_reports = stoppage_alerts[[
+                        "SHOT TIME", "CT_diff_sec", "HOUR", "Gap (min)", "Alert"
+                    ]].copy()
+                    st.session_state.stoppage_reports["Reason"] = ""
+                    st.session_state.stoppage_reports["Details"] = ""
             
                 st.write("#### Events requiring reason entry:")
             
-                # Table header
-                cols = st.columns([2, 1, 1, 1, 2, 2, 1])
-                headers = ["Event Time", "Gap (sec)", "Gap (min)", "Hour", "Reason", "Details", "Save"]
-                for col, h in zip(cols, headers):
-                    col.markdown(f"**{h}**")
-            
-                # Render each row interactively
+                # Build interactive rows
+                updated_rows = []
                 for i, row in st.session_state.stoppage_reports.iterrows():
-                    c1, c2, c3, c4, c5, c6, c7 = st.columns([2, 1, 1, 1, 2, 2, 1])
+                    c1, c2, c3, c4, c5, c6 = st.columns([2, 1, 1, 2, 2, 2])
             
                     c1.write(row["SHOT TIME"])
                     c2.write(f"{row['CT_diff_sec']:.0f}")
                     c3.write(f"{row['Gap (min)']:.2f}")
                     c4.write(int(row["HOUR"]))
             
-                    # Dropdown writes directly to session_state
-                    st.session_state.stoppage_reports.at[i, "Reason"] = c5.selectbox(
+                    reason = c5.selectbox(
                         "Reason",
                         ["", "⚙️ Equipment Failure", "🔄 Changeover Delay",
                          "🧹 Cleaning / Setup", "📦 Material Shortage", "❓ Other"],
                         key=f"reason_{i}",
                         index=0 if row["Reason"] == "" else
-                        ["", "⚙️ Equipment Failure", "🔄 Changeover Delay", "🧹 Cleaning / Setup", "📦 Material Shortage", "❓ Other"].index(row["Reason"])
+                        ["", "⚙️ Equipment Failure", "🔄 Changeover Delay",
+                         "🧹 Cleaning / Setup", "📦 Material Shortage", "❓ Other"].index(row["Reason"])
                     )
             
-                    # Text input writes directly to session_state
-                    st.session_state.stoppage_reports.at[i, "Details"] = c6.text_input(
+                    details = c6.text_input(
                         "Details",
                         value=row["Details"],
                         key=f"details_{i}"
                     )
             
-                    # Save button just shows confirmation (data already in session_state)
-                    if c7.button("💾 Save", key=f"save_{i}"):
-                        st.success(f"Saved report for event {row['SHOT TIME']}")
+                    # Store updated row
+                    updated_rows.append({
+                        "SHOT TIME": row["SHOT TIME"],
+                        "CT_diff_sec": row["CT_diff_sec"],
+                        "HOUR": row["HOUR"],
+                        "Gap (min)": row["Gap (min)"],
+                        "Alert": row["Alert"],
+                        "Reason": reason,
+                        "Details": details
+                    })
             
-                # Summary
+                # Replace session state table with updated values
+                st.session_state.stoppage_reports = pd.DataFrame(updated_rows)
+            
+                # Show final table below
+                st.markdown("#### 📋 Recorded Reports")
+                st.dataframe(st.session_state.stoppage_reports, use_container_width=True)
+            
                 st.markdown(f"""
                 **Summary**
                 - Total Stoppage Alerts: {len(st.session_state.stoppage_reports)}
