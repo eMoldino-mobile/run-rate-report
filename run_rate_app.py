@@ -144,7 +144,7 @@ if uploaded_file:
             st.markdown("### Time Bucket Analysis (Table)")
             st.table(results['bucket_counts'].reset_index().rename(columns={"index": "Time Bucket", 0: "Occurrences"}))
 
-            st.markdown("### Outside L1 / L2 Summary")
+            st.markdown("### Production & Downtime Summary")
             st.table(pd.DataFrame({
                 "Mode CT": [f"{results['mode_ct']:.2f}"],
                 "Lower Limit": [f"{results['lower_limit']:.2f}"],
@@ -250,10 +250,42 @@ if uploaded_file:
                     xanchor="center"
                 )
             )
-
-
-
             st.plotly_chart(fig_mt, use_container_width=True)
+            
+            # ---------- 4) Stability Index Trend by Hour ----------
+            fig_stability = go.Figure()
+            
+            fig_stability.add_trace(go.Scatter(
+                x=hourly["HOUR"], 
+                y=hourly["stability_index"],
+                mode="lines+markers",
+                name="Stability Index (%)",
+                line=dict(color="blue", width=2),
+                marker=dict(size=6)
+            ))
+            
+            fig_stability.update_layout(
+                title="Stability Index Trend by Hour",
+                xaxis=dict(
+                    title="Hour of Day (0–23)",
+                    tickmode="linear",
+                    dtick=1,
+                    range=[-0.5, 23.5]
+                ),
+                yaxis=dict(
+                    title="Stability Index (%)",
+                    range=[0, 100]
+                ),
+                margin=dict(l=60, r=60, t=60, b=40),
+                legend=dict(
+                    orientation="h",
+                    x=0.5, y=-0.25,
+                    xanchor="center"
+                )
+            )
+
+st.plotly_chart(fig_stability, use_container_width=True)
+
 
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin. Headers in ROW 1 please")
