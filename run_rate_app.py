@@ -60,11 +60,9 @@ def calculate_run_rate_excel_like(df):
     bucket_counts = df["TIME_BUCKET"].value_counts().sort_index().fillna(0).astype(int)
     bucket_counts.loc["Grand Total"] = bucket_counts.sum()
 
-     # --- Per-hour aggregation for MTTR / MTBF ---
-    # Define downtime as CT_diff when a stop occurs
+    # --- Per-hour aggregation for MTTR / MTBF ---
+    df["HOUR"] = df["SHOT TIME"].dt.hour
     df["DOWNTIME_MIN"] = np.where(df["STOP_EVENT"], df["CT_diff_sec"]/60, np.nan)
-
-    # Define uptime as CT_diff when no stop
     df["UPTIME_MIN"] = np.where(~df["STOP_EVENT"], df["CT_diff_sec"]/60, np.nan)
 
     hourly = df.groupby("HOUR").agg(
@@ -73,13 +71,28 @@ def calculate_run_rate_excel_like(df):
         mtbf=("UPTIME_MIN", lambda x: np.nanmean(x) if len(x.dropna()) > 0 else np.nan)
     ).reset_index()
 
-    # Ensure results are in minutes
-    hourly["mttr"] = hourly["mttr"]
-    hourly["mtbf"] = hourly["mtbf"]
-
-    # Stability index (optional, can be used later)
+    # Stability index
     hourly["stability_index"] = (hourly["mtbf"] / (hourly["mtbf"] + hourly["mttr"])) * 100
 
+    # ✅ Return dictionary with df included
+    return {
+        "mode_ct": mode_ct,
+        "lower_limit": lower_limit,
+        "upper_limit": upper_limit,
+        "total_shots": total_shots,
+        "normal_shots": normal_shots,
+        "stop_events": stop_events,
+        "run_hours": run_hours,
+        "gross_rate": gross_rate,
+        "net_rate": net_rate,
+        "efficiency": efficiency,
+        "production_time": production_time,
+        "downtime": downtime,
+        "total_runtime": total_runtime,
+        "bucket_counts": bucket_counts,
+        "hourly": hourly,
+        "df": df
+    }
 
 # --- Streamlit UI ---
 st.sidebar.title("Run Rate Report Generator")
@@ -145,10 +158,9 @@ if uploaded_file:
                 .fillna(0)
                 .astype(int)
             )
-            
             bucket_df = bucket_counts.reset_index()
             bucket_df.columns = ["Time Bucket", "Occurrences"]
-            
+
             fig_bucket = px.bar(
                 bucket_df[bucket_df["Time Bucket"].notna()],
                 x="Occurrences", y="Time Bucket",
@@ -157,7 +169,6 @@ if uploaded_file:
             )
             fig_bucket.update_traces(textposition="outside")
             st.plotly_chart(fig_bucket, use_container_width=True)
-
 
             # 2) Time Bucket Trend by Hour
             src = df_vis.loc[df_vis["STOP_EVENT"] & df_vis["TIME_BUCKET"].notna(), ["HOUR", "TIME_BUCKET"]]
@@ -203,6 +214,5 @@ if uploaded_file:
             )
             st.plotly_chart(fig_mt, use_container_width=True)
 
-            
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin.")
