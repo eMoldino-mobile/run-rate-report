@@ -168,32 +168,9 @@ if uploaded_file:
                 "Total Run Time (hrs)": [f"{results['run_hours']:.2f}"],
                 "Total Stops": [results['stop_events']]
             }))
-
-
-            # --- Time Bucket Analysis ---
-            st.markdown("### Time Bucket Analysis (Table)")
-            st.table(results['bucket_counts'].reset_index().rename(columns={"index": "Time Bucket", 0: "Occurrences"}))
-
-            bucket_order = ["<1","1-2","2-3","3-5","5-10","10-20","20-30","30-60","60-120",">120"]
-            df_vis = results["df"].copy()
-            bucket_counts = (
-                df_vis["TIME_BUCKET"]
-                .value_counts()
-                .reindex(bucket_order)
-                .fillna(0)
-                .astype(int)
-            )
-            bucket_df = bucket_counts.reset_index()
-            bucket_df.columns = ["Time Bucket", "Occurrences"]
-
-            fig_bucket = px.bar(
-                bucket_df[bucket_df["Time Bucket"].notna()],
-                x="Occurrences", y="Time Bucket",
-                orientation="h", text="Occurrences",
-                title="Time Bucket Analysis"
-            )
-            fig_bucket.update_traces(textposition="outside")
-            st.plotly_chart(fig_bucket, use_container_width=True)
+            
+            
+            
 
             # --- Time Bucket Trend by Hour ---
             src = df_vis.loc[df_vis["STOP_EVENT"] & df_vis["TIME_BUCKET"].notna(), ["HOUR", "TIME_BUCKET"]]
@@ -212,6 +189,12 @@ if uploaded_file:
                 )
                 fig_tb_trend.update_layout(barmode="stack")
                 st.plotly_chart(fig_tb_trend, use_container_width=True)
+                
+                
+            st.markdown("### Time Bucket Analysis (Table)")
+            st.table(results['bucket_counts'].reset_index().rename(columns={"index": "Time Bucket", 0: "Occurrences"}))           
+                
+                
 
             # --- MTTR & MTBF Trend ---
             hourly = results["hourly"].copy()
