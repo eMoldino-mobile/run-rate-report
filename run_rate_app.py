@@ -291,60 +291,63 @@ if uploaded_file:
                     - Threshold Applied: {results['mode_ct']:.2f} sec × 2 = {threshold:.2f} sec
                     """)
 
-            # --- Page 2: Raw & Processed Data ---
-            elif page == "Raw & Processed Data":
+            # ---------- Page 2: Raw & Processed Data ----------
+            elif page == "Raw Data Explorer":
                 st.title("📋 Raw & Processed Cycle Data")
             
-                st.markdown("This table shows all cycle-level data, combining base inputs with recalculated metrics used in the analysis.")
+                if "results" not in st.session_state:
+                    st.info("👈 Please generate a report first from the Analysis Dashboard.")
+                else:
+                    results = st.session_state.results
+                    df_vis = results["df"].copy()
             
-                export_df = results["df"].copy()
+                    # --- Normalize Shot Time ---
+                    if "SHOT TIME" not in df_vis.columns:
+                        if all(col in df_vis.columns for col in ["YEAR", "MONTH", "DAY", "TIME"]):
+                            df_vis["SHOT TIME"] = pd.to_datetime(
+                                df_vis["YEAR"].astype(str) + "-" +
+                                df_vis["MONTH"].astype(str) + "-" +
+                                df_vis["DAY"].astype(str) + " " +
+                                df_vis["TIME"].astype(str),
+                                errors="coerce"
+                            )
+                        else:
+                            st.error("No valid SHOT TIME or YEAR/MONTH/DAY/TIME columns found.")
+                            st.stop()
             
-                # Keep only relevant columns
-                keep_cols = [
-                    selection_column if selection_column in export_df.columns else None,
-                    "SHOT TIME",
-                    "ACTUAL CT",
-                    "CT_diff_sec",
-                    "STOP_FLAG",
-                    "STOP_ADJ",
-                    "STOP_EVENT",
-                    "RUN_DURATION",
-                    "TIME_BUCKET",
-                    "HOUR",
-                    "DOWNTIME_MIN",
-                    "UPTIME_MIN"
-                ]
-                keep_cols = [c for c in keep_cols if c in export_df.columns]  # remove Nones
+                    # --- Select only relevant columns ---
+                    keep_cols = []
+                    for col in [
+                        "SHOT TIME", "TOOLING ID", "SUPPLIER", "ACTUAL CT",
+                        "CT_diff_sec", "STOP_FLAG", "STOP_ADJ", "STOP_EVENT",
+                        "RUN_DURATION", "TIME_BUCKET", "HOUR",
+                        "DOWNTIME_MIN", "UPTIME_MIN"
+                    ]:
+                        if col in df_vis.columns:
+                            keep_cols.append(col)
             
-                export_df = export_df[keep_cols]
+                    df_clean = df_vis[keep_cols].copy()
             
-                # Rename headers for clarity
-                export_df = export_df.rename(columns={
-                    selection_column: "Tooling ID" if selection_column == "TOOLING ID" else "Equipment Code",
-                    "SHOT TIME": "Shot Time",
-                    "ACTUAL CT": "Actual CT (sec)",
-                    "CT_diff_sec": "Cycle Gap (sec)",
-                    "STOP_FLAG": "Stop Flag",
-                    "STOP_ADJ": "Stop Adjusted",
-                    "STOP_EVENT": "Stop Event",
-                    "RUN_DURATION": "Run Duration (min)",
-                    "TIME_BUCKET": "Time Bucket",
-                    "HOUR": "Hour",
-                    "DOWNTIME_MIN": "Downtime (min)",
-                    "UPTIME_MIN": "Uptime (min)"
-                })
+                    # --- Add calculated metrics ---
+                    if "CT_diff_sec" in df_clean.columns:
+                        df_clean["CT_diff_min"] = (df_clean["CT_diff_sec"] / 60).round(2)
             
-                # Display table on-screen
-                st.dataframe(export_df, use_container_width=True)
+                    if "DOWNTIME_MIN" in df_clean.columns and "UPTIME_MIN" in df_clean.columns:
+                        df_clean["Cycle_Type"] = np.where(df_clean["STOP_EVENT"], "Stop", "Run")
             
-                # Optional: download button
-                csv = export_df.to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    label="💾 Download Data as CSV",
-                    data=csv,
-                    file_name=f"processed_cycles_{date.strftime('%Y-%m-%d')}.csv",
-                    mime="text/csv"
-                )
+                    # --- Display ---
+                    st.markdown("### Cycle Data Table (Processed)")
+                    st.dataframe(df_clean, width="stretch")
+            
+                    # --- Download option ---
+                    csv = df_clean.to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        label="💾 Download Processed Data (CSV)",
+                        data=csv,
+                        file_name="processed_cycle_data.csv",
+                        mime="text/csv"
+                    )
+
 
 
 else:
