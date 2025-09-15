@@ -292,9 +292,9 @@ if uploaded_file:
                 - Stability Index (%) = (MTBF / (MTBF + MTTR)) × 100
                 - If no stoppages occur in an hour, Stability Index is forced to **100%**
                 - Alert Zones:
-                  - 🟥 0–50% → High Risk (unstable production)
-                  - 🟨 50–70% → Medium Risk (watch closely)
-                  - 🟩 70–100% → Low Risk (stable operation)
+                  - 🟥 0–50% → High Risk (Frequent stoppages with long recovery times. Production is highly unstable.)
+                  - 🟨 50–70% → Medium Risk (Minor but frequent stoppages or slower-than-normal recoveries. Production flow is inconsistent and requires attention to prevent escalation.)
+                  - 🟩 70–100% → Low Risk (Long, stable production runs with fast recoveries. Operations are considered healthy and efficient.)
                 """)
 
                 # 5) 🚨 Stoppage Alerts (Improved Table)
