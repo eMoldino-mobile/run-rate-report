@@ -256,13 +256,36 @@ if uploaded_file:
                 st.plotly_chart(fig_stability, width="stretch")
                 with st.expander("📊 Stability Index Data Table", expanded=False):
                     table_data = hourly[["HOUR","stability_index","stability_change_%","mttr","mtbf","stops"]].copy()
-                    table_data.rename(columns={"HOUR":"Hour","stability_index":"Stability Index (%)","stability_change_%":"Change vs Prev Hour (%)","mttr":"MTTR (min)","mtbf":"MTBF (min)","stops":"Stop Count"}, inplace=True)
-                    st.dataframe(table_data.style.format({
-                        "Stability Index (%)": "{:.2f}",
-                        "Change vs Prev Hour (%)": "{:+.2f}%",
-                        "MTTR (min)": "{:.2f}",
-                        "MTBF (min)": "{:.2f}"
-                    }))
+                    table_data.rename(columns={
+                        "HOUR":"Hour",
+                        "stability_index":"Stability Index (%)",
+                        "stability_change_%":"Change vs Prev Hour (%)",
+                        "mttr":"MTTR (min)",
+                        "mtbf":"MTBF (min)",
+                        "stops":"Stop Count"
+                    }, inplace=True)
+                
+                    # Define row-level highlighting
+                    def highlight_row(row):
+                        if pd.isna(row["Stability Index (%)"]):
+                            return [''] * len(row)
+                        elif row["Stability Index (%)"] <= 50:
+                            return ['background-color: #ffcccc'] * len(row)  # red
+                        elif row["Stability Index (%)"] <= 70:
+                            return ['background-color: #fff3cd'] * len(row)  # yellow
+                        else:
+                            return [''] * len(row)  # no highlight
+                
+                    st.dataframe(
+                        table_data.style
+                        .apply(highlight_row, axis=1)
+                        .format({
+                            "Stability Index (%)": "{:.2f}",
+                            "Change vs Prev Hour (%)": "{:+.2f}%",
+                            "MTTR (min)": "{:.2f}",
+                            "MTBF (min)": "{:.2f}"
+                        })
+                    )
 
                 st.markdown("""
                 **ℹ️ Stability Index Formula**
