@@ -5,7 +5,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import timedelta
 
-# --- Page Config ---
 st.set_page_config(layout="wide")
 
 # --- Helper Functions ---
@@ -13,6 +12,36 @@ def format_time(minutes):
     """Convert minutes (float) to hh:mm:ss string."""
     seconds = int(minutes * 60)
     return str(timedelta(seconds=seconds))
+
+def prepare_dataframe(df):
+    """Ensure SHOT TIME and Tool/Equipment columns are available."""
+    df = df.copy()
+
+    # --- Handle SHOT TIME ---
+    if "SHOT TIME" in df.columns:
+        df["SHOT TIME"] = pd.to_datetime(df["SHOT TIME"], errors="coerce")
+    elif {"YEAR", "MONTH", "DAY", "TIME"}.issubset(df.columns):
+        df["SHOT TIME"] = pd.to_datetime(
+            df["YEAR"].astype(str) + "-" +
+            df["MONTH"].astype(str).str.zfill(2) + "-" +
+            df["DAY"].astype(str).str.zfill(2) + " " +
+            df["TIME"].astype(str),
+            errors="coerce"
+        )
+    else:
+        st.error("❌ File must contain either 'SHOT TIME' or (YEAR+MONTH+DAY+TIME) columns.")
+        st.stop()
+
+    # --- Handle Tooling/Equipment ---
+    if "TOOLING ID" in df.columns:
+        df.rename(columns={"TOOLING ID": "TOOL"}, inplace=True)
+    elif "EQUIPMENT CODE" in df.columns:
+        df.rename(columns={"EQUIPMENT CODE": "TOOL"}, inplace=True)
+    else:
+        st.error("❌ File must contain either 'TOOLING ID' or 'EQUIPMENT CODE'.")
+        st.stop()
+
+    return df
 
 def calculate_run_rate_excel_like(df):
     df = df.copy()
@@ -43,15 +72,15 @@ def calculate_run_rate_excel_like(df):
     df["STOP_EVENT"] = (df["STOP_ADJ"].shift(fill_value=0) == 0) & (df["STOP_ADJ"] == 1)
     stop_events = df["STOP_EVENT"].sum()
 
-    run_hours = df["TOTAL RUN TIME"].iloc[0] / 60
+    run_hours = df["TOTAL RUN TIME"].iloc[0] / 60 if "TOTAL RUN TIME" in df.columns else None
     gross_rate = total_shots / run_hours if run_hours else None
     net_rate = normal_shots / run_hours if run_hours else None
     efficiency = normal_shots / total_shots if total_shots else None
 
     # Extra metrics
-    production_time = df["PRODUCTION TIME"].iloc[0]
-    downtime = df["TOTAL DOWN TIME"].iloc[0]
-    total_runtime = df["TOTAL RUN TIME"].iloc[0]
+    production_time = df["PRODUCTION TIME"].iloc[0] if "PRODUCTION TIME" in df.columns else None
+    downtime = df["TOTAL DOWN TIME"].iloc[0] if "TOTAL DOWN TIME" in df.columns else None
+    total_runtime = df["TOTAL RUN TIME"].iloc[0] if "TOTAL RUN TIME" in df.columns else None
 
     # Time bucket analysis
     df["RUN_DURATION"] = np.where(df["STOP_ADJ"] == 1, df["CT_diff_sec"] / 60, np.nan)
@@ -112,24 +141,13 @@ st.sidebar.title("Run Rate Report Generator")
 uploaded_file = st.sidebar.file_uploader("Upload Run Rate Excel (clean table)", type=["xlsx"])
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
+    df = prepare_dataframe(df)
 
-    # Pick whether to filter by Equipment Code or Tooling ID
-    selection_column = None
-    if "EQUIPMENT CODE" in df.columns:
-        selection_column = "EQUIPMENT CODE"
-    elif "TOOLING ID" in df.columns:
-        selection_column = "TOOLING ID"
-
-    if selection_column:
-        tool = st.sidebar.selectbox(f"Select {selection_column}", df[selection_column].unique())
-    else:
-        st.error("Input file must contain either 'EQUIPMENT CODE' or 'TOOLING ID'.")
-        st.stop()
-
-    date = st.sidebar.date_input("Select Date", pd.to_datetime(df["SHOT TIME"]).dt.date.min())
+    tool = st.sidebar.selectbox("Select Tool", df["TOOL"].unique())
+    date = st.sidebar.date_input("Select Date", df["SHOT TIME"].dt.date.min())
 
     if st.sidebar.button("Generate Report"):
-        mask = (df[selection_column] == tool) & (pd.to_datetime(df["SHOT TIME"]).dt.date == date)
+        mask = (df["TOOL"] == tool) & (pd.to_datetime(df["SHOT TIME"]).dt.date == date)
         df_filtered = df.loc[mask]
 
         if df_filtered.empty:
@@ -138,7 +156,7 @@ if uploaded_file:
             results = calculate_run_rate_excel_like(df_filtered)
 
             st.title("📊 Run Rate Report")
-            st.subheader(f"{selection_column}: {tool} | Date: {date.strftime('%Y-%m-%d')}")
+            st.subheader(f"Tool: {tool} | Date: {date.strftime('%Y-%m-%d')}")
 
             # --- Summaries ---
             st.markdown("### Shot Counts & Efficiency")
@@ -163,13 +181,13 @@ if uploaded_file:
                 "Mode CT": [f"{results['mode_ct']:.2f}"],
                 "Lower Limit": [f"{results['lower_limit']:.2f}"],
                 "Upper Limit": [f"{results['upper_limit']:.2f}"],
-                "Production Time %": [f"{results['production_time']/results['total_runtime']*100:.2f}%"],
-                "Downtime %": [f"{results['downtime']/results['total_runtime']*100:.2f}%"],
-                "Total Run Time (hrs)": [f"{results['run_hours']:.2f}"],
+                "Production Time %": [f"{results['production_time']/results['total_runtime']*100:.2f}%"] if results['production_time'] else ["N/A"],
+                "Downtime %": [f"{results['downtime']/results['total_runtime']*100:.2f}%"] if results['downtime'] else ["N/A"],
+                "Total Run Time (hrs)": [f"{results['run_hours']:.2f}"] if results['run_hours'] else ["N/A"],
                 "Total Stops": [results['stop_events']]
             }))
 
-            # --- Graphs ---
+            # ------------------- Graphs -------------------
             st.subheader("📈 Visual Analysis")
 
             df_vis = results["df"].copy()
@@ -219,16 +237,11 @@ if uploaded_file:
             hourly = all_hours.merge(hourly, on="HOUR", how="left")
 
             fig_mt = go.Figure()
-            fig_mt.add_trace(go.Scatter(
-                x=hourly["HOUR"], y=hourly["mttr"],
-                mode="lines+markers", name="MTTR (min)",
-                line=dict(color="red", width=2), yaxis="y"
-            ))
-            fig_mt.add_trace(go.Scatter(
-                x=hourly["HOUR"], y=hourly["mtbf"],
-                mode="lines+markers", name="MTBF (min)",
-                line=dict(color="green", width=2, dash="dot"), yaxis="y2"
-            ))
+            fig_mt.add_trace(go.Scatter(x=hourly["HOUR"], y=hourly["mttr"],
+                mode="lines+markers", name="MTTR (min)", line=dict(color="red", width=2), yaxis="y"))
+            fig_mt.add_trace(go.Scatter(x=hourly["HOUR"], y=hourly["mtbf"],
+                mode="lines+markers", name="MTBF (min)", line=dict(color="green", width=2, dash="dot"), yaxis="y2"))
+
             fig_mt.update_layout(
                 title="MTTR & MTBF Trend by Hour",
                 xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5, 23.5]),
@@ -278,6 +291,7 @@ if uploaded_file:
             )
             st.plotly_chart(fig_stability, use_container_width=True)
 
+            # Stability Metrics Table
             st.markdown("### Stability Index Metrics by Hour")
             table_data = hourly[["HOUR","stability_index","stability_change_%","mttr","mtbf","stops"]].copy()
             table_data.rename(columns={
@@ -305,26 +319,20 @@ if uploaded_file:
               - 🟩 70–100% → Low Risk (stable operation)
             """)
 
-            # 5) Stoppage Alert Reporting
+            # ---------- Stoppage Alert Reporting (≥ Mode CT × 2) ----------
             df_vis = results["df"].copy()
-            threshold = results["mode_ct"] * 2
+            threshold = results["mode_ct"] * 2  # Mode CT × 2 threshold
+            
             stoppage_alerts = df_vis[df_vis["CT_diff_sec"] >= threshold].copy()
-
             st.markdown("### 🚨 Stoppage Alert Reporting (≥ Mode CT × 2)")
+            
             if stoppage_alerts.empty:
                 st.info("✅ No stoppage alerts found (≥ Mode CT × 2).")
             else:
                 stoppage_alerts["Gap (min)"] = (stoppage_alerts["CT_diff_sec"] / 60).round(2)
                 stoppage_alerts["Alert"] = "🔴"
-
-                reasons_list = [
-                    "⚙️ Equipment Failure",
-                    "🔄 Changeover Delay",
-                    "🧹 Cleaning / Setup",
-                    "📦 Material Shortage",
-                    "❓ Other"
-                ]
-
+            
+                # Build clean display table
                 table = stoppage_alerts[[
                     "SHOT TIME", "CT_diff_sec", "HOUR", "Gap (min)", "Alert"
                 ]].rename(columns={
@@ -332,27 +340,44 @@ if uploaded_file:
                     "CT_diff_sec": "Gap (sec)",
                     "HOUR": "Hour"
                 })
+            
+                # Initialize with dropdown placeholders
+                reasons_list = [
+                    "⚙️ Equipment Failure",
+                    "🔄 Changeover Delay",
+                    "🧹 Cleaning / Setup",
+                    "📦 Material Shortage",
+                    "❓ Other"
+                ]
                 table = table.assign(
                     Reason=[reasons_list[0]] * len(table),
                     Details="(input soon…)"
                 )
-
+            
                 st.data_editor(
                     table,
                     use_container_width=True,
                     column_config={
-                        "Reason": st.column_config.SelectboxColumn("Reason", options=reasons_list),
-                        "Details": st.column_config.TextColumn("Details")
+                        "Reason": st.column_config.SelectboxColumn(
+                            "Reason",
+                            help="Dropdown preview (currently disabled)",
+                            options=reasons_list
+                        ),
+                        "Details": st.column_config.TextColumn(
+                            "Details",
+                            help="Free-text details (currently disabled)"
+                        )
                     },
-                    disabled=["Reason", "Details"]  # dropdowns shown but disabled
+                    disabled=["Reason", "Details"]
                 )
-
+            
                 st.markdown(f"""
                 **Summary**
                 - Total Stoppage Alerts: {len(stoppage_alerts)}
                 - Threshold Applied: {results['mode_ct']:.2f} sec × 2 = {threshold:.2f} sec  
                 - Reporting fields now show dropdown options, but are locked from editing.
                 """)
+                
 
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin. Headers in ROW 1 please")
