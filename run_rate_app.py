@@ -292,17 +292,17 @@ if uploaded_file:
                     - Threshold Applied: {results['mode_ct']:.2f} sec × 2 = {threshold:.2f} sec
                     """)
 
-                        # ---------- Page 2: Raw & Processed Data ----------
+            # ---------- Page 2: Raw & Processed Data ----------
             elif page == "📂 Raw & Processed Data":
                 st.title("📋 Raw & Processed Cycle Data")
-
+            
                 if "results" not in st.session_state:
                     st.info("👈 Please generate a report first from the Analysis Dashboard.")
                 else:
                     results = st.session_state.results
                     df_vis = results["df"].copy()
-
-                    # --- Show same summaries as Page 1 ---
+            
+                    # --- Summary (same as Page 1) ---
                     st.markdown("### Shot Counts & Efficiency")
                     st.table(pd.DataFrame({
                         "Total Shot Count": [results['total_shots']],
@@ -310,13 +310,13 @@ if uploaded_file:
                         "Efficiency": [f"{results['efficiency']*100:.2f}%"],
                         "Stop Count": [results['stop_events']]
                     }))
-
+            
                     st.markdown("### Reliability Metrics")
                     st.table(pd.DataFrame({
                         "Metric": ["MTTR", "MTBF", "Time to First DT (Avg)", "Avg Cycle Time"],
                         "Value": ["0.55", "6.06", "5.06", "28.21"]
                     }))
-
+            
                     st.markdown("### Production & Downtime Summary")
                     st.table(pd.DataFrame({
                         "Mode CT": [f"{results['mode_ct']:.2f}"],
@@ -327,47 +327,67 @@ if uploaded_file:
                         "Total Run Time (hrs)": [f"{results['run_hours']:.2f}"],
                         "Total Stops": [results['stop_events']]
                     }))
-
-                    st.markdown("### Processed Cycle Data")
-
-                    # --- Normalize Shot Time ---
-                    if "SHOT TIME" not in df_vis.columns:
-                        if all(col in df_vis.columns for col in ["YEAR", "MONTH", "DAY", "TIME"]):
-                            df_vis["SHOT TIME"] = pd.to_datetime(
-                                df_vis["YEAR"].astype(str) + "-" +
-                                df_vis["MONTH"].astype(str) + "-" +
-                                df_vis["DAY"].astype(str) + " " +
-                                df_vis["TIME"].astype(str),
-                                errors="coerce"
-                            )
-                        else:
-                            st.error("No valid SHOT TIME or YEAR/MONTH/DAY/TIME columns found.")
-                            st.stop()
-
-                    # --- Select only relevant columns ---
-                    keep_cols = []
-                    for col in [
-                        "SHOT TIME", "TOOLING ID", "SUPPLIER", "ACTUAL CT",
-                        "CT_diff_sec", "STOP_FLAG", "STOP_ADJ", "STOP_EVENT",
-                        "RUN_DURATION", "TIME_BUCKET", "HOUR",
-                        "DOWNTIME_MIN", "UPTIME_MIN"
-                    ]:
-                        if col in df_vis.columns:
-                            keep_cols.append(col)
-
-                    df_clean = df_vis[keep_cols].copy()
-
-                    # --- Add calculated metrics ---
-                    if "CT_diff_sec" in df_clean.columns:
-                        df_clean["CT_diff_min"] = (df_clean["CT_diff_sec"] / 60).round(2)
-
-                    if "STOP_EVENT" in df_clean.columns:
-                        df_clean["Cycle_Type"] = np.where(df_clean["STOP_EVENT"], "Stop", "Run")
-
-                    # --- Display ---
+            
+                    st.markdown("---")
+            
+                    # --- Supplier Name ---
+                    if "SUPPLIER NAME" in df_vis.columns:
+                        df_vis["Supplier Name"] = df_vis["SUPPLIER NAME"]
+                    else:
+                        df_vis["Supplier Name"] = "not provided"
+            
+                    # --- Equipment Code ---
+                    if "EQUIPMENT CODE" in df_vis.columns:
+                        df_vis["Equipment Code"] = df_vis["EQUIPMENT CODE"]
+                    else:
+                        df_vis["Equipment Code"] = "not provided"
+            
+                    # --- Approved CT ---
+                    if "APPROVED CT" in df_vis.columns:
+                        df_vis["Approved CT"] = df_vis["APPROVED CT"]
+                    else:
+                        df_vis["Approved CT"] = "not provided"
+            
+                    # --- Actual CT (1 decimal) ---
+                    df_vis["Actual CT"] = df_vis["ACTUAL CT"].round(1)
+            
+                    # --- Time Diff Sec (2 decimals) ---
+                    df_vis["Time Diff Sec"] = df_vis["CT_diff_sec"].round(2)
+            
+                    # --- Stop Flag (use STOP_ADJ so back-to-backs are also marked) ---
+                    df_vis["Stop"] = df_vis["STOP_ADJ"]
+            
+                    # --- Cumulative Count (cycles since last stop) ---
+                    df_vis["Cumulative Count"] = df_vis.groupby(df_vis["Stop"].cumsum()).cumcount()
+            
+                    # --- Run Duration (update only when stop occurs) ---
+                    df_vis["Run Duration"] = np.where(df_vis["Stop"] == 1,
+                                                      (df_vis["CT_diff_sec"] / 60).round(2),
+                                                      0)
+            
+                    # --- Select only required columns ---
+                    df_clean = df_vis[[
+                        "Supplier Name", "Equipment Code", "SHOT TIME",
+                        "Approved CT", "Actual CT", "Time Diff Sec",
+                        "Stop", "Cumulative Count", "Run Duration"
+                    ]].rename(columns={
+                        "SHOT TIME": "Shot Time"
+                    })
+            
+                    # --- Display with checkboxes for Stop ---
                     st.markdown("### Cycle Data Table (Processed)")
-                    st.dataframe(df_clean, width="stretch")
-
+                    st.data_editor(
+                        df_clean,
+                        width="stretch",
+                        column_config={
+                            "Stop": st.column_config.CheckboxColumn(
+                                "Stop",
+                                help="Marked as stoppage event",
+                                default=False
+                            )
+                        }
+                    )
+            
                     # --- Download option ---
                     csv = df_clean.to_csv(index=False).encode("utf-8")
                     st.download_button(
