@@ -141,46 +141,95 @@ if uploaded_file:
 
     page = st.sidebar.radio("Select Page", ["📊 Analysis Dashboard", "📂 Raw & Processed Data"])
 
+        page = st.sidebar.radio("Select Page", [
+        "📊 Analysis Dashboard",
+        "📂 Raw & Processed Data",
+        "📈 Trend Analysis"
+    ])
+
     if st.sidebar.button("Generate Report"):
-        mask = (df[selection_column] == tool) & (pd.to_datetime(df["SHOT TIME"]).dt.date == date)
-        df_filtered = df.loc[mask]
+        # If Trend Analysis selected → don't filter to single date
+        if page == "📈 Trend Analysis":
+            date_min = pd.to_datetime(df["SHOT TIME"]).dt.date.min()
+            date_max = pd.to_datetime(df["SHOT TIME"]).dt.date.max()
+            period = st.sidebar.selectbox("Select Trend Granularity", ["Daily", "Weekly", "Monthly", "Custom Range"])
 
-        if df_filtered.empty:
-            st.warning("No data found for this selection.")
-        else:
-            results = calculate_run_rate_excel_like(df_filtered)
-            st.session_state.results = results
+            if period == "Custom Range":
+                date_range = st.sidebar.date_input("Select Date Range", [date_min, date_max])
+                if len(date_range) == 2:
+                    mask = (pd.to_datetime(df["SHOT TIME"]).dt.date >= date_range[0]) & \
+                           (pd.to_datetime(df["SHOT TIME"]).dt.date <= date_range[1])
+                    df_filtered = df.loc[mask]
+                else:
+                    st.warning("Please select a valid start and end date.")
+                    st.stop()
+            else:
+                df_filtered = df.copy()
 
-            # --- Page 1: Analysis Dashboard ---
-            if page == "📊 Analysis Dashboard":
-                st.title("📊 Run Rate Report")
-                st.subheader(f"Tool: {tool} | Date: {date.strftime('%Y-%m-%d')}")
+            if df_filtered.empty:
+                st.warning("No data found for this selection.")
+            else:
+                # Add a "Period" column depending on granularity
+                df_filtered["DATE"] = pd.to_datetime(df_filtered["SHOT TIME"]).dt.date
+                if period == "Daily":
+                    df_filtered["PERIOD"] = df_filtered["DATE"]
+                elif period == "Weekly":
+                    df_filtered["PERIOD"] = pd.to_datetime(df_filtered["SHOT TIME"]).dt.to_period("W").apply(lambda r: r.start_time)
+                elif period == "Monthly":
+                    df_filtered["PERIOD"] = pd.to_datetime(df_filtered["SHOT TIME"]).dt.to_period("M").apply(lambda r: r.start_time)
 
-                # Summaries
-                st.markdown("### Shot Counts & Efficiency")
-                st.table(pd.DataFrame({
-                    "Total Shot Count": [results['total_shots']],
-                    "Normal Shot Count": [results['normal_shots']],
-                    "Efficiency": [f"{results['efficiency']*100:.2f}%"],
-                    "Stop Count": [results['stop_events']]
-                }))
+                # --- Aggregate metrics by PERIOD ---
+                trend_data = []
+                for period_val, group in df_filtered.groupby("PERIOD"):
+                    results = calculate_run_rate_excel_like(group)
+                    trend_data.append({
+                        "Period": period_val,
+                        "Total Shots": results["total_shots"],
+                        "Normal Shots": results["normal_shots"],
+                        "Efficiency %": results["efficiency"]*100 if results["efficiency"] else None,
+                        "Stops": results["stop_events"],
+                        "MTTR": results["hourly"]["mttr"].mean(),
+                        "MTBF": results["hourly"]["mtbf"].mean(),
+                        "Stability Index": results["hourly"]["stability_index"].mean()
+                    })
 
-                st.markdown("### Reliability Metrics")
-                st.table(pd.DataFrame({
-                    "Metric": ["MTTR", "MTBF", "Time to First DT (Avg)", "Avg Cycle Time"],
-                    "Value": ["0.55", "6.06", "5.06", "28.21"]
-                }))
+                trend_df = pd.DataFrame(trend_data).sort_values("Period")
 
-                st.markdown("### Production & Downtime Summary")
-                st.table(pd.DataFrame({
-                    "Mode CT": [f"{results['mode_ct']:.2f}"],
-                    "Lower Limit": [f"{results['lower_limit']:.2f}"],
-                    "Upper Limit": [f"{results['upper_limit']:.2f}"],
-                    "Production Time (hrs)": [f"{results['production_time']/60:.1f} hrs ({results['production_time']/results['total_runtime']*100:.2f}%)"],
-                    "Downtime (hrs)": [f"{results['downtime']/60:.1f} hrs ({results['downtime']/results['total_runtime']*100:.2f}%)"],
-                    "Total Run Time (hrs)": [f"{results['run_hours']:.2f}"],
-                    "Total Stops": [results['stop_events']]
-                }))
+                # --- Page Layout ---
+                st.title("📈 Run Rate Trend Analysis")
+                st.subheader(f"Tool: {tool} | Period: {period}")
+
+                # Efficiency Trend
+                fig_eff = px.line(trend_df, x="Period", y="Efficiency %", markers=True, title="Efficiency Trend")
+                st.plotly_chart(fig_eff, use_container_width=True)
+                with st.expander("📊 Efficiency Trend Data Table", expanded=False):
+                    st.dataframe(trend_df[["Period","Efficiency %"]])
+
+                # Stop Count Trend
+                fig_stops = px.bar(trend_df, x="Period", y="Stops", title="Stop Count Trend")
+                st.plotly_chart(fig_stops, use_container_width=True)
+                with st.expander("📊 Stop Count Data Table", expanded=False):
+                    st.dataframe(trend_df[["Period","Stops"]])
+
+                # MTTR / MTBF Trend
+                fig_mt = go.Figure()
+                fig_mt.add_trace(go.Scatter(x=trend_df["Period"], y=trend_df["MTTR"], mode="lines+markers",
+                                            name="MTTR (min)", line=dict(color="red")))
+                fig_mt.add_trace(go.Scatter(x=trend_df["Period"], y=trend_df["MTBF"], mode="lines+markers",
+                                            name="MTBF (min)", line=dict(color="green", dash="dot")))
+                fig_mt.update_layout(title="MTTR & MTBF Trend",
+                                     xaxis=dict(title="Period"),
+                                     yaxis=dict(title="Minutes"))
+                st.plotly_chart(fig_mt, use_container_width=True)
+                with st.expander("📊 MTTR & MTBF Data Table", expanded=False):
+                    st.dataframe(trend_df[["Period","MTTR","MTBF"]])
+
+                # Stability Index Trend
+                fig_stab = px.line(trend_df, x="Period", y="Stability Index", markers=True, title="Stability Index Trend")
+                fig_stab.update_yaxes(range=[0,100])
+                st.plotly_chart(fig_stab, use_container_width=True)
+                with st.expander("📊 Stability Index Data Table", expanded=False):
+                    st.dataframe(trend_df[["Period","Stability Index"]].style.format({"Stability Index":"{:.2f}"}))
 
                 # Graphs + Collapsible Tables
                 st.subheader("📈 Visual Analysis")
