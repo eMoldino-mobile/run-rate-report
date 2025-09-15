@@ -176,8 +176,8 @@ if uploaded_file:
                     "Mode CT": [f"{results['mode_ct']:.2f}"],
                     "Lower Limit": [f"{results['lower_limit']:.2f}"],
                     "Upper Limit": [f"{results['upper_limit']:.2f}"],
-                    "Production Time %": [f"{results['production_time']/results['total_runtime']*100:.2f}%"],
-                    "Downtime %": [f"{results['downtime']/results['total_runtime']*100:.2f}%"],
+                    "Production Time (hrs)": [f"{results['production_time']/60:.1f} hrs ({results['production_time']/results['total_runtime']*100:.2f}%)"],
+                    "Downtime (hrs)": [f"{results['downtime']/60:.1f} hrs ({results['downtime']/results['total_runtime']*100:.2f}%)"],
                     "Total Run Time (hrs)": [f"{results['run_hours']:.2f}"],
                     "Total Stops": [results['stop_events']]
                 }))
@@ -274,17 +274,27 @@ if uploaded_file:
                   - 🟩 70–100% → Low Risk (stable operation)
                 """)
 
-                # 5) Stoppage Alerts
+                # 5) 🚨 Stoppage Alerts (Improved Table)
+                st.markdown("### 🚨 Stoppage Alert Reporting (≥ Mode CT × 2)")
                 df_vis = results["df"].copy()
                 threshold = results["mode_ct"] * 2
                 stoppage_alerts = df_vis[df_vis["CT_diff_sec"] >= threshold].copy()
-                st.markdown("### 🚨 Stoppage Alert Reporting (≥ Mode CT × 2)")
+
                 if stoppage_alerts.empty:
                     st.info("✅ No stoppage alerts found (≥ Mode CT × 2).")
                 else:
-                    stoppage_alerts["Gap (min)"] = (stoppage_alerts["CT_diff_sec"] / 60).round(2)
+                    # Shots since last stop (cumulative cycle count)
+                    stoppage_alerts["Shots Since Last Stop"] = stoppage_alerts.groupby(
+                        stoppage_alerts["STOP_EVENT"].cumsum()
+                    ).cumcount()
+
+                    stoppage_alerts["Duration (min)"] = (stoppage_alerts["CT_diff_sec"] / 60).round(1)
+                    stoppage_alerts["Reason"] = "to be added"
                     stoppage_alerts["Alert"] = "🔴"
-                    table = stoppage_alerts[["SHOT TIME","CT_diff_sec","HOUR","Gap (min)","Alert"]].rename(columns={"SHOT TIME":"Event Time","CT_diff_sec":"Gap (sec)","HOUR":"Hour"})
+
+                    table = stoppage_alerts[["SHOT TIME","Duration (min)","Shots Since Last Stop","Reason","Alert"]]
+                    table = table.rename(columns={"SHOT TIME":"Event Time"})
+
                     st.dataframe(table, width="stretch")
                     st.markdown(f"""
                     **Summary**
@@ -322,8 +332,8 @@ if uploaded_file:
                         "Mode CT": [f"{results['mode_ct']:.2f}"],
                         "Lower Limit": [f"{results['lower_limit']:.2f}"],
                         "Upper Limit": [f"{results['upper_limit']:.2f}"],
-                        "Production Time %": [f"{results['production_time']/results['total_runtime']*100:.2f}%"],
-                        "Downtime %": [f"{results['downtime']/results['total_runtime']*100:.2f}%"],
+                        "Production Time (hrs)": [f"{results['production_time']/60:.1f} hrs ({results['production_time']/results['total_runtime']*100:.2f}%)"],
+                        "Downtime (hrs)": [f"{results['downtime']/60:.1f} hrs ({results['downtime']/results['total_runtime']*100:.2f}%)"],
                         "Total Run Time (hrs)": [f"{results['run_hours']:.2f}"],
                         "Total Stops": [results['stop_events']]
                     }))
@@ -396,8 +406,6 @@ if uploaded_file:
                         file_name="processed_cycle_data.csv",
                         mime="text/csv"
                     )
-
-
 
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin. Headers in ROW 1 please")
