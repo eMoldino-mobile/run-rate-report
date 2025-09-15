@@ -149,6 +149,7 @@ if uploaded_file:
             st.warning("No data found for this selection.")
         else:
             results = calculate_run_rate_excel_like(df_filtered)
+            st.session_state.results = results
 
             # --- Page 1: Analysis Dashboard ---
             if page == "📊 Analysis Dashboard":
@@ -195,7 +196,7 @@ if uploaded_file:
                                     orientation="h", text="Occurrences",
                                     title="Time Bucket Analysis")
                 fig_bucket.update_traces(textposition="outside")
-                st.plotly_chart(fig_bucket, use_container_width=True)
+                st.plotly_chart(fig_bucket, width="stretch")
                 with st.expander("📊 Time Bucket Analysis Data Table", expanded=False):
                     st.dataframe(bucket_df)
 
@@ -212,7 +213,7 @@ if uploaded_file:
                                           category_orders={"HOUR": hours, "TIME_BUCKET": bucket_order},
                                           title="Time Bucket Trend by Hour (0–23)")
                     fig_tb_trend.update_layout(barmode="stack")
-                    st.plotly_chart(fig_tb_trend, use_container_width=True)
+                    st.plotly_chart(fig_tb_trend, width="stretch")
                     with st.expander("📊 Time Bucket Trend Data Table", expanded=False):
                         st.dataframe(trend)
 
@@ -231,7 +232,7 @@ if uploaded_file:
                                      yaxis2=dict(title="MTBF (min)", tickfont=dict(color="green"), overlaying="y", side="right"),
                                      margin=dict(l=60,r=60,t=60,b=40),
                                      legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center"))
-                st.plotly_chart(fig_mt, use_container_width=True)
+                st.plotly_chart(fig_mt, width="stretch")
                 with st.expander("📊 MTTR & MTBF Data Table", expanded=False):
                     st.dataframe(hourly)
 
@@ -252,7 +253,7 @@ if uploaded_file:
                                             yaxis=dict(title="Stability Index (%)", range=[0,100], side="left"),
                                             margin=dict(l=60,r=60,t=60,b=40),
                                             legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center"))
-                st.plotly_chart(fig_stability, use_container_width=True)
+                st.plotly_chart(fig_stability, width="stretch")
                 with st.expander("📊 Stability Index Data Table", expanded=False):
                     table_data = hourly[["HOUR","stability_index","stability_change_%","mttr","mtbf","stops"]].copy()
                     table_data.rename(columns={"HOUR":"Hour","stability_index":"Stability Index (%)","stability_change_%":"Change vs Prev Hour (%)","mttr":"MTTR (min)","mtbf":"MTBF (min)","stops":"Stop Count"}, inplace=True)
@@ -284,7 +285,7 @@ if uploaded_file:
                     stoppage_alerts["Gap (min)"] = (stoppage_alerts["CT_diff_sec"] / 60).round(2)
                     stoppage_alerts["Alert"] = "🔴"
                     table = stoppage_alerts[["SHOT TIME","CT_diff_sec","HOUR","Gap (min)","Alert"]].rename(columns={"SHOT TIME":"Event Time","CT_diff_sec":"Gap (sec)","HOUR":"Hour"})
-                    st.dataframe(table, use_container_width=True)
+                    st.dataframe(table, width="stretch")
                     st.markdown(f"""
                     **Summary**
                     - Total Stoppage Alerts: {len(stoppage_alerts)}
@@ -292,7 +293,7 @@ if uploaded_file:
                     """)
 
             # ---------- Page 2: Raw & Processed Data ----------
-            elif page == "Raw Data Explorer":
+            elif page == "📂 Raw & Processed Data":
                 st.title("📋 Raw & Processed Cycle Data")
             
                 if "results" not in st.session_state:
@@ -333,22 +334,7 @@ if uploaded_file:
                         df_clean["CT_diff_min"] = (df_clean["CT_diff_sec"] / 60).round(2)
             
                     if "DOWNTIME_MIN" in df_clean.columns and "UPTIME_MIN" in df_clean.columns:
-                        df_clean["Cycle_Type"] = np.where(df_clean["STOP_EVENT"], "Stop", "Run")
-            
-                    # --- Display ---
-                    st.markdown("### Cycle Data Table (Processed)")
-                    st.dataframe(df_clean, width="stretch")
-            
-                    # --- Download option ---
-                    csv = df_clean.to_csv(index=False).encode("utf-8")
-                    st.download_button(
-                        label="💾 Download Processed Data (CSV)",
-                        data=csv,
-                        file_name="processed_cycle_data.csv",
-                        mime="text/csv"
-                    )
-
-
+                        df_clean["Cycle_Type"] = np.where(df_clean["STOP_EVENT
 
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin. Headers in ROW 1 please")
