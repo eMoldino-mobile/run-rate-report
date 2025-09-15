@@ -292,38 +292,61 @@ if uploaded_file:
                     """)
 
             # --- Page 2: Raw & Processed Data ---
-            elif page == "📂 Raw & Processed Data":
-                st.title("📂 Raw & Processed Data")
-                st.subheader(f"Tool: {tool} | Date: {date.strftime('%Y-%m-%d')}")
+            # --- Raw + Calculated Cycle Data Page ---
+            elif page == "Raw & Processed Data":
+                st.title("📋 Raw & Processed Cycle Data")
+            
+                st.markdown("This table shows all cycle-level data, combining base inputs with recalculated metrics used in the analysis.")
+            
+                export_df = results["df"].copy()
+            
+                # Keep only relevant columns
+                keep_cols = [
+                    selection_column if selection_column in export_df.columns else None,
+                    "SHOT TIME",
+                    "ACTUAL CT",
+                    "CT_diff_sec",
+                    "STOP_FLAG",
+                    "STOP_ADJ",
+                    "STOP_EVENT",
+                    "RUN_DURATION",
+                    "TIME_BUCKET",
+                    "HOUR",
+                    "DOWNTIME_MIN",
+                    "UPTIME_MIN"
+                ]
+                keep_cols = [c for c in keep_cols if c in export_df.columns]  # remove Nones
+            
+                export_df = export_df[keep_cols]
+            
+                # Rename headers for clarity
+                export_df = export_df.rename(columns={
+                    selection_column: "Tooling ID" if selection_column == "TOOLING ID" else "Equipment Code",
+                    "SHOT TIME": "Shot Time",
+                    "ACTUAL CT": "Actual CT (sec)",
+                    "CT_diff_sec": "Cycle Gap (sec)",
+                    "STOP_FLAG": "Stop Flag",
+                    "STOP_ADJ": "Stop Adjusted",
+                    "STOP_EVENT": "Stop Event",
+                    "RUN_DURATION": "Run Duration (min)",
+                    "TIME_BUCKET": "Time Bucket",
+                    "HOUR": "Hour",
+                    "DOWNTIME_MIN": "Downtime (min)",
+                    "UPTIME_MIN": "Uptime (min)"
+                })
+            
+                # Display table on-screen
+                st.dataframe(export_df, use_container_width=True)
+            
+                # Optional: download button
+                csv = export_df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="💾 Download Data as CSV",
+                    data=csv,
+                    file_name=f"processed_cycles_{date.strftime('%Y-%m-%d')}.csv",
+                    mime="text/csv"
+                )
 
-                # Summaries
-                st.markdown("### Shot Counts & Efficiency")
-                st.table(pd.DataFrame({
-                    "Total Shot Count": [results['total_shots']],
-                    "Normal Shot Count": [results['normal_shots']],
-                    "Efficiency": [f"{results['efficiency']*100:.2f}%"],
-                    "Stop Count": [results['stop_events']]
-                }))
-
-                st.markdown("### Reliability Metrics")
-                st.table(pd.DataFrame({
-                    "Metric": ["MTTR", "MTBF", "Time to First DT (Avg)", "Avg Cycle Time"],
-                    "Value": ["0.55", "6.06", "5.06", "28.21"]
-                }))
-
-                st.markdown("### Production & Downtime Summary")
-                st.table(pd.DataFrame({
-                    "Mode CT": [f"{results['mode_ct']:.2f}"],
-                    "Lower Limit": [f"{results['lower_limit']:.2f}"],
-                    "Upper Limit": [f"{results['upper_limit']:.2f}"],
-                    "Production Time %": [f"{results['production_time']/results['total_runtime']*100:.2f}%"],
-                    "Downtime %": [f"{results['downtime']/results['total_runtime']*100:.2f}%"],
-                    "Total Run Time (hrs)": [f"{results['run_hours']:.2f}"],
-                    "Total Stops": [results['stop_events']]
-                }))
-
-                with st.expander("📋 Full Cycle Data (Raw + Calculated)", expanded=False):
-                    st.dataframe(results["df"], use_container_width=True)
 
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin. Headers in ROW 1 please")
