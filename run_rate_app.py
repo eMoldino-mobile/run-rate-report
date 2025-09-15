@@ -135,17 +135,15 @@ if uploaded_file:
     else:
         st.error("File must contain either 'TOOLING ID' or 'EQUIPMENT CODE'.")
         st.stop()
-
+    
     tool = st.sidebar.selectbox("Select Tool", df[selection_column].unique())
     date = st.sidebar.date_input("Select Date", pd.to_datetime(df["SHOT TIME"]).dt.date.min())
-
-    page = st.sidebar.radio("Select Page", ["📊 Analysis Dashboard", "📂 Raw & Processed Data"])
-
-        page = st.sidebar.radio("Select Page", [
-        "📊 Analysis Dashboard",
-        "📂 Raw & Processed Data",
-        "📈 Trend Analysis"
-    ])
+    
+    # --- NEW: Page Selection including Trend Analysis ---
+    page = st.sidebar.radio(
+        "Select Page",
+        ["📊 Analysis Dashboard", "📂 Raw & Processed Data", "📈 Trend Analysis"]
+    )
 
     if st.sidebar.button("Generate Report"):
         # If Trend Analysis selected → don't filter to single date
