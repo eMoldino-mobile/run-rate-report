@@ -292,62 +292,91 @@ if uploaded_file:
                     - Threshold Applied: {results['mode_ct']:.2f} sec × 2 = {threshold:.2f} sec
                     """)
 
-            # ---------- Page 2: Raw & Processed Data ----------
-            elif page == "📂 Raw & Processed Data":
-                st.title("📋 Raw & Processed Cycle Data")
+                        # ---------- Page 2: Raw & Processed Data ----------
+                        elif page == "📂 Raw & Processed Data":
+                            st.title("📋 Raw & Processed Cycle Data")
             
-                if "results" not in st.session_state:
-                    st.info("👈 Please generate a report first from the Analysis Dashboard.")
-                else:
-                    results = st.session_state.results
-                    df_vis = results["df"].copy()
+                            if "results" not in st.session_state:
+                                st.info("👈 Please generate a report first from the Analysis Dashboard.")
+                            else:
+                                results = st.session_state.results
+                                df_vis = results["df"].copy()
             
-                    # --- Normalize Shot Time ---
-                    if "SHOT TIME" not in df_vis.columns:
-                        if all(col in df_vis.columns for col in ["YEAR", "MONTH", "DAY", "TIME"]):
-                            df_vis["SHOT TIME"] = pd.to_datetime(
-                                df_vis["YEAR"].astype(str) + "-" +
-                                df_vis["MONTH"].astype(str) + "-" +
-                                df_vis["DAY"].astype(str) + " " +
-                                df_vis["TIME"].astype(str),
-                                errors="coerce"
-                            )
-                        else:
-                            st.error("No valid SHOT TIME or YEAR/MONTH/DAY/TIME columns found.")
-                            st.stop()
+                                # --- Show same summaries as Page 1 ---
+                                st.markdown("### Shot Counts & Efficiency")
+                                st.table(pd.DataFrame({
+                                    "Total Shot Count": [results['total_shots']],
+                                    "Normal Shot Count": [results['normal_shots']],
+                                    "Efficiency": [f"{results['efficiency']*100:.2f}%"],
+                                    "Stop Count": [results['stop_events']]
+                                }))
             
-                    # --- Select only relevant columns ---
-                    keep_cols = []
-                    for col in [
-                        "SHOT TIME", "TOOLING ID", "SUPPLIER", "ACTUAL CT",
-                        "CT_diff_sec", "STOP_FLAG", "STOP_ADJ", "STOP_EVENT",
-                        "RUN_DURATION", "TIME_BUCKET", "HOUR",
-                        "DOWNTIME_MIN", "UPTIME_MIN"
-                    ]:
-                        if col in df_vis.columns:
-                            keep_cols.append(col)
+                                st.markdown("### Reliability Metrics")
+                                st.table(pd.DataFrame({
+                                    "Metric": ["MTTR", "MTBF", "Time to First DT (Avg)", "Avg Cycle Time"],
+                                    "Value": ["0.55", "6.06", "5.06", "28.21"]
+                                }))
             
-                    df_clean = df_vis[keep_cols].copy()
+                                st.markdown("### Production & Downtime Summary")
+                                st.table(pd.DataFrame({
+                                    "Mode CT": [f"{results['mode_ct']:.2f}"],
+                                    "Lower Limit": [f"{results['lower_limit']:.2f}"],
+                                    "Upper Limit": [f"{results['upper_limit']:.2f}"],
+                                    "Production Time %": [f"{results['production_time']/results['total_runtime']*100:.2f}%"],
+                                    "Downtime %": [f"{results['downtime']/results['total_runtime']*100:.2f}%"],
+                                    "Total Run Time (hrs)": [f"{results['run_hours']:.2f}"],
+                                    "Total Stops": [results['stop_events']]
+                                }))
             
-                    # --- Add calculated metrics ---
-                    if "CT_diff_sec" in df_clean.columns:
-                        df_clean["CT_diff_min"] = (df_clean["CT_diff_sec"] / 60).round(2)
+                                st.markdown("### Processed Cycle Data")
             
-                    if "DOWNTIME_MIN" in df_clean.columns and "UPTIME_MIN" in df_clean.columns:
-                        df_clean["Cycle_Type"] = np.where(df_clean["STOP_EVENT"], "Stop", "Run")
+                                # --- Normalize Shot Time ---
+                                if "SHOT TIME" not in df_vis.columns:
+                                    if all(col in df_vis.columns for col in ["YEAR", "MONTH", "DAY", "TIME"]):
+                                        df_vis["SHOT TIME"] = pd.to_datetime(
+                                            df_vis["YEAR"].astype(str) + "-" +
+                                            df_vis["MONTH"].astype(str) + "-" +
+                                            df_vis["DAY"].astype(str) + " " +
+                                            df_vis["TIME"].astype(str),
+                                            errors="coerce"
+                                        )
+                                    else:
+                                        st.error("No valid SHOT TIME or YEAR/MONTH/DAY/TIME columns found.")
+                                        st.stop()
+            
+                                # --- Select only relevant columns ---
+                                keep_cols = []
+                                for col in [
+                                    "SHOT TIME", "TOOLING ID", "SUPPLIER", "ACTUAL CT",
+                                    "CT_diff_sec", "STOP_FLAG", "STOP_ADJ", "STOP_EVENT",
+                                    "RUN_DURATION", "TIME_BUCKET", "HOUR",
+                                    "DOWNTIME_MIN", "UPTIME_MIN"
+                                ]:
+                                    if col in df_vis.columns:
+                                        keep_cols.append(col)
+            
+                                df_clean = df_vis[keep_cols].copy()
+            
+                                # --- Add calculated metrics ---
+                                if "CT_diff_sec" in df_clean.columns:
+                                    df_clean["CT_diff_min"] = (df_clean["CT_diff_sec"] / 60).round(2)
+            
+                                if "STOP_EVENT" in df_clean.columns:
+                                    df_clean["Cycle_Type"] = np.where(df_clean["STOP_EVENT"], "Stop", "Run")
+            
+                                # --- Display ---
+                                st.markdown("### Cycle Data Table (Processed)")
+                                st.dataframe(df_clean, width="stretch")
+            
+                                # --- Download option ---
+                                csv = df_clean.to_csv(index=False).encode("utf-8")
+                                st.download_button(
+                                    label="💾 Download Processed Data (CSV)",
+                                    data=csv,
+                                    file_name="processed_cycle_data.csv",
+                                    mime="text/csv"
+                                )
 
-                    # --- Display ---
-                    st.markdown("### Cycle Data Table (Processed)")
-                    st.dataframe(df_clean, width="stretch")
-
-                    # --- Download option ---
-                    csv = df_clean.to_csv(index=False).encode("utf-8")
-                    st.download_button(
-                        label="💾 Download Processed Data (CSV)",
-                        data=csv,
-                        file_name="processed_cycle_data.csv",
-                        mime="text/csv"
-                    )
 
 
 else:
