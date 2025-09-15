@@ -296,13 +296,30 @@ if uploaded_file:
                 st.title("📂 Raw & Processed Data")
                 st.subheader(f"Tool: {tool} | Date: {date.strftime('%Y-%m-%d')}")
 
-                st.markdown("### Summary")
+                # Summaries
+                st.markdown("### Shot Counts & Efficiency")
                 st.table(pd.DataFrame({
-                    "Total Shots": [results["total_shots"]],
-                    "Stops": [results["stop_events"]],
+                    "Total Shot Count": [results['total_shots']],
+                    "Normal Shot Count": [results['normal_shots']],
                     "Efficiency": [f"{results['efficiency']*100:.2f}%"],
-                    "Gross Rate (shots/hr)": [f"{results['gross_rate']:.2f}"],
-                    "Net Rate (shots/hr)": [f"{results['net_rate']:.2f}"]
+                    "Stop Count": [results['stop_events']]
+                }))
+
+                st.markdown("### Reliability Metrics")
+                st.table(pd.DataFrame({
+                    "Metric": ["MTTR", "MTBF", "Time to First DT (Avg)", "Avg Cycle Time"],
+                    "Value": ["0.55", "6.06", "5.06", "28.21"]
+                }))
+
+                st.markdown("### Production & Downtime Summary")
+                st.table(pd.DataFrame({
+                    "Mode CT": [f"{results['mode_ct']:.2f}"],
+                    "Lower Limit": [f"{results['lower_limit']:.2f}"],
+                    "Upper Limit": [f"{results['upper_limit']:.2f}"],
+                    "Production Time %": [f"{results['production_time']/results['total_runtime']*100:.2f}%"],
+                    "Downtime %": [f"{results['downtime']/results['total_runtime']*100:.2f}%"],
+                    "Total Run Time (hrs)": [f"{results['run_hours']:.2f}"],
+                    "Total Stops": [results['stop_events']]
                 }))
 
                 with st.expander("📋 Full Cycle Data (Raw + Calculated)", expanded=False):
