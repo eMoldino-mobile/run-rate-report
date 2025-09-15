@@ -265,20 +265,20 @@ if uploaded_file:
                         "stops":"Stop Count"
                     }, inplace=True)
                 
-                    # Define row-level highlighting
-                    def highlight_row(row):
-                        if pd.isna(row["Stability Index (%)"]):
-                            return [''] * len(row)
-                        elif row["Stability Index (%)"] <= 50:
-                            return ['background-color: #ffcccc'] * len(row)  # red
-                        elif row["Stability Index (%)"] <= 70:
-                            return ['background-color: #fff3cd'] * len(row)  # yellow
+                    # Highlight only the Stability Index column
+                    def highlight_stability(val):
+                        if pd.isna(val):
+                            return ""
+                        elif val <= 50:
+                            return "background-color: rgba(255, 0, 0, 0.3);"   # soft red
+                        elif val <= 70:
+                            return "background-color: rgba(255, 255, 0, 0.3);" # soft yellow
                         else:
-                            return [''] * len(row)  # no highlight
-                
+                            return ""
+                    
                     st.dataframe(
                         table_data.style
-                        .apply(highlight_row, axis=1)
+                        .applymap(highlight_stability, subset=["Stability Index (%)"])
                         .format({
                             "Stability Index (%)": "{:.2f}",
                             "Change vs Prev Hour (%)": "{:+.2f}%",
