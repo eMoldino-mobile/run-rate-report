@@ -334,7 +334,21 @@ if uploaded_file:
                         df_clean["CT_diff_min"] = (df_clean["CT_diff_sec"] / 60).round(2)
             
                     if "DOWNTIME_MIN" in df_clean.columns and "UPTIME_MIN" in df_clean.columns:
-                        df_clean["Cycle_Type"] = np.where(df_clean["STOP_EVENT
+                        df_clean["Cycle_Type"] = np.where(df_clean["STOP_EVENT"], "Stop", "Run")
+
+                    # --- Display ---
+                    st.markdown("### Cycle Data Table (Processed)")
+                    st.dataframe(df_clean, width="stretch")
+
+                    # --- Download option ---
+                    csv = df_clean.to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        label="💾 Download Processed Data (CSV)",
+                        data=csv,
+                        file_name="processed_cycle_data.csv",
+                        mime="text/csv"
+                    )
+
 
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin. Headers in ROW 1 please")
