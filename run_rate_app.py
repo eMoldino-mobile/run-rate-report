@@ -483,7 +483,7 @@ if uploaded_file:
             if "results" not in st.session_state or not st.session_state.results:
                 st.info("👈 Please generate a report first from the Analysis Dashboard.")
             else:
-                # ✅ Only here do we unpack results
+                # ✅ Everything that needs results stays indented here
                 results = st.session_state.results
                 df_res = results.get("df", pd.DataFrame()).copy()
                 df_vis = results.get("df", pd.DataFrame()).copy()
@@ -491,12 +491,7 @@ if uploaded_file:
         
                 # --- Summary ---
                 st.markdown("### Shot Counts & Efficiency")
-                st.table(pd.DataFrame({
-                    "Total Shot Count": [results.get("total_shots", 0)],
-                    "Normal Shot Count": [results.get("normal_shots", 0)],
-                    "Efficiency": [f"{results.get('efficiency', 0) * 100:.2f}%"],
-                    "Stop Count": [stop_events]
-                }))
+                st.table(...)
         
                 # --- Reliability Metrics ---
                 mttr = (
@@ -510,23 +505,7 @@ if uploaded_file:
                     else pd.Series(dtype=float)
                 )
                 mtbf = uptimes.mean() / 60 if stop_events > 0 and not uptimes.empty else None
-                first_dt = (
-                    df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].iloc[0] / 60
-                    if stop_events > 0 and "STOP_EVENT" in df_res.columns
-                    else None
-                )
-                avg_ct = df_res["ACTUAL CT"].mean() if "ACTUAL CT" in df_res.columns else None
-        
-                reliability_df = pd.DataFrame({
-                    "Metric": ["MTTR (min)", "MTBF (min)", "Time to First DT (min)", "Avg Cycle Time (sec)"],
-                    "Value": [
-                        f"{mttr:.2f}" if mttr else "N/A",
-                        f"{mtbf:.2f}" if mtbf else "N/A",
-                        f"{first_dt:.2f}" if first_dt else "N/A",
-                        f"{avg_ct:.2f}" if avg_ct else "N/A"
-                    ]
-                })
-                st.markdown("### Reliability Metrics")
+                ...
                 st.table(reliability_df)
         
                 # --- Production & Downtime Summary ---
