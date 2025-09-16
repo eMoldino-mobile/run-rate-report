@@ -236,16 +236,23 @@ if uploaded_file:
             stop_events = results.get("stop_events", 0)
             
             if stop_events > 0 and "STOP_EVENT" in df_res.columns:
-                # Downtime durations (stop events only)
+                # Downtime durations (true stop events only)
                 downtime_events = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"] / 60
                 mttr = downtime_events.mean() if not downtime_events.empty else None
             
-                # MTBF = total uptime (all CTs) ÷ number of stops
-                total_uptime = df_res["CT_diff_sec"].sum() / 60  # minutes
-                mtbf = total_uptime / stop_events if stop_events > 0 else None
+                # Uptime durations = time between stop events
+                stop_indices = df_res.index[df_res["STOP_EVENT"]].tolist()
+                uptime_durations = []
+                for i in range(1, len(stop_indices)):
+                    prev_stop = stop_indices[i-1]
+                    this_stop = stop_indices[i]
+                    uptime = df_res.loc[prev_stop+1:this_stop-1, "CT_diff_sec"].sum() / 60
+                    if uptime > 0:
+                        uptime_durations.append(uptime)
+                mtbf = np.mean(uptime_durations) if uptime_durations else None
             
-                # Time to First DT = uptime until the first stop
-                first_stop_idx = df_res.index[df_res["STOP_EVENT"]].min() if df_res["STOP_EVENT"].any() else None
+                # ✅ Corrected Time to First Downtime (Excel logic)
+                first_stop_idx = df_res.index[df_res["STOP_EVENT"]].min()
                 if first_stop_idx is not None and first_stop_idx > 0:
                     first_dt = df_res.loc[:first_stop_idx-1, "CT_diff_sec"].sum() / 60
                 else:
