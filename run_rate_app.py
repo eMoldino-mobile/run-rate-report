@@ -229,8 +229,12 @@ if uploaded_file:
                 "Efficiency": [f"{results.get('efficiency', 0)*100:.2f}%"],
                 "Stop Count": [results.get('stop_events', 0)]
             }))
-    
+            
             # --- Reliability Metrics ---
+            results = st.session_state.get("results", {})
+            df_res = results.get("df", pd.DataFrame()).copy()
+            stop_events = results.get("stop_events", 0)
+            
             if stop_events > 0 and "STOP_EVENT" in df_res.columns:
                 # Group downtimes per STOP_EVENT
                 downtime_events = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"] / 60  # minutes
