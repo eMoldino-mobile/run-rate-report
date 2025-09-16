@@ -219,45 +219,45 @@ if uploaded_file:
             "Stop Count": [results['stop_events']]
         }))
 
-                st.markdown("### Reliability Metrics")
+        st.markdown("### Reliability Metrics")
 
-                df_res = results["df"]
+        df_res = results["df"]
                 
-                # MTTR = average downtime duration (minutes)
-                mttr = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].mean() / 60 if results["stop_events"] > 0 else None
+        # MTTR = average downtime duration (minutes)
+        mttr = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].mean() / 60 if results["stop_events"] > 0 else None
                 
-                # MTBF = average uptime duration (minutes)
-                uptimes = df_res.loc[~df_res["STOP_EVENT"], "CT_diff_sec"]
-                mtbf = uptimes.mean() / 60 if results["stop_events"] > 0 and not uptimes.empty else None
+        # MTBF = average uptime duration (minutes)
+        uptimes = df_res.loc[~df_res["STOP_EVENT"], "CT_diff_sec"]
+        mtbf = uptimes.mean() / 60 if results["stop_events"] > 0 and not uptimes.empty else None
                 
-                # Time to First Downtime = first STOP_EVENT gap (minutes)
-                first_dt = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].iloc[0] / 60 if results["stop_events"] > 0 else None
+        # Time to First Downtime = first STOP_EVENT gap (minutes)
+        first_dt = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].iloc[0] / 60 if results["stop_events"] > 0 else None
                 
-                # Avg Cycle Time = mean of ACTUAL CT (seconds → convert to sec directly)
-                avg_ct = df_res["ACTUAL CT"].mean()
+        # Avg Cycle Time = mean of ACTUAL CT (seconds → convert to sec directly)
+        avg_ct = df_res["ACTUAL CT"].mean()
                 
-                reliability_df = pd.DataFrame({
-                    "Metric": ["MTTR (min)", "MTBF (min)", "Time to First DT (min)", "Avg Cycle Time (sec)"],
-                    "Value": [
-                        f"{mttr:.2f}" if mttr else "N/A",
-                        f"{mtbf:.2f}" if mtbf else "N/A",
-                        f"{first_dt:.2f}" if first_dt else "N/A",
-                        f"{avg_ct:.2f}" if avg_ct else "N/A"
-                    ]
-                })
+        reliability_df = pd.DataFrame({
+            "Metric": ["MTTR (min)", "MTBF (min)", "Time to First DT (min)", "Avg Cycle Time (sec)"],
+            "Value": [
+                f"{mttr:.2f}" if mttr else "N/A",
+                f"{mtbf:.2f}" if mtbf else "N/A",
+                f"{first_dt:.2f}" if first_dt else "N/A",
+                f"{avg_ct:.2f}" if avg_ct else "N/A"
+            ]
+        })
                 
-                st.table(reliability_df)
+        st.table(reliability_df)
 
-                st.markdown("### Production & Downtime Summary")
-                st.table(pd.DataFrame({
-                    "Mode CT": [f"{results['mode_ct']:.2f}"],
-                    "Lower Limit": [f"{results['lower_limit']:.2f}"],
-                    "Upper Limit": [f"{results['upper_limit']:.2f}"],
-                    "Production Time (hrs)": [f"{results['production_time']/60:.1f} hrs ({results['production_time']/results['total_runtime']*100:.2f}%)"],
-                    "Downtime (hrs)": [f"{results['downtime']/60:.1f} hrs ({results['downtime']/results['total_runtime']*100:.2f}%)"],
-                    "Total Run Time (hrs)": [f"{results['run_hours']:.2f}"],
-                    "Total Stops": [results['stop_events']]
-                }))
+        st.markdown("### Production & Downtime Summary")
+        st.table(pd.DataFrame({
+            "Mode CT": [f"{results['mode_ct']:.2f}"],
+            "Lower Limit": [f"{results['lower_limit']:.2f}"],
+            "Upper Limit": [f"{results['upper_limit']:.2f}"],
+            "Production Time (hrs)": [f"{results['production_time']/60:.1f} hrs ({results['production_time']/results['total_runtime']*100:.2f}%)"],
+            "Downtime (hrs)": [f"{results['downtime']/60:.1f} hrs ({results['downtime']/results['total_runtime']*100:.2f}%)"],
+            "Total Run Time (hrs)": [f"{results['run_hours']:.2f}"],
+            "Total Stops": [results['stop_events']]
+        }))
 
                 # Graphs + Collapsible Tables
                 st.subheader("📈 Visual Analysis")
