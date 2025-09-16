@@ -475,6 +475,7 @@ if uploaded_file:
                         ]].rename(columns={"SHOT TIME": "Event Time"})
         
                         st.dataframe(table, width="stretch")
+
         # ---------- Page 2: Raw & Processed Data ----------
         elif page == "📂 Raw & Processed Data":
             st.title("📋 Raw & Processed Cycle Data")
@@ -482,7 +483,7 @@ if uploaded_file:
             if "results" not in st.session_state or not st.session_state.results:
                 st.info("👈 Please generate a report first from the Analysis Dashboard.")
             else:
-                # ✅ safely unpack results
+                # ✅ Only here do we unpack results
                 results = st.session_state.results
                 df_res = results.get("df", pd.DataFrame()).copy()
                 df_vis = results.get("df", pd.DataFrame()).copy()
