@@ -234,17 +234,20 @@ if uploaded_file:
             df_res = results.get("df", pd.DataFrame()).copy()
             stop_events = results.get("stop_events", 0)
     
-            mttr = (
-                df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].mean() / 60
-                if stop_events > 0 and "STOP_EVENT" in df_res.columns
-                else None
-            )
-            uptimes = (
-                df_res.loc[~df_res["STOP_EVENT"], "CT_diff_sec"]
-                if "STOP_EVENT" in df_res.columns
-                else pd.Series(dtype=float)
-            )
-            mtbf = uptimes.mean() / 60 if stop_events > 0 and not uptimes.empty else None
+            # Downtime durations (only where STOP_EVENT is True)
+            downtimes = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"] / 60  # minutes
+            mttr = downtimes.mean() if not downtimes.empty else None
+            
+            # Uptime durations = gaps between stop events
+            if stop_events > 1:
+                stop_indices = df_res.index[df_res["STOP_EVENT"]].to_list()
+                uptimes = []
+                for i in range(1, len(stop_indices)):
+                    gap = df_res.loc[stop_indices[i-1]:stop_indices[i], "CT_diff_sec"].sum() / 60
+                    uptimes.append(gap)
+                mtbf = np.mean(uptimes) if uptimes else None
+            else:
+                mtbf = None
             first_dt = (
                 df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].iloc[0] / 60
                 if stop_events > 0 and "STOP_EVENT" in df_res.columns
@@ -514,13 +517,20 @@ if uploaded_file:
             }))
 
             # --- Reliability Metrics ---
-            if stop_events > 0 and "STOP_EVENT" in df_res.columns:
-                mttr = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].mean() / 60
-                uptimes = df_res.loc[~df_res["STOP_EVENT"], "CT_diff_sec"]
-                mtbf = uptimes.mean() / 60 if not uptimes.empty else None
-                first_dt = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].iloc[0] / 60
+            # Downtime durations (only where STOP_EVENT is True)
+            downtimes = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"] / 60  # minutes
+            mttr = downtimes.mean() if not downtimes.empty else None
+            
+            # Uptime durations = gaps between stop events
+            if stop_events > 1:
+                stop_indices = df_res.index[df_res["STOP_EVENT"]].to_list()
+                uptimes = []
+                for i in range(1, len(stop_indices)):
+                    gap = df_res.loc[stop_indices[i-1]:stop_indices[i], "CT_diff_sec"].sum() / 60
+                    uptimes.append(gap)
+                mtbf = np.mean(uptimes) if uptimes else None
             else:
-                mttr, mtbf, first_dt = None, None, None
+                mtbf = None
 
             avg_ct = df_res["ACTUAL CT"].mean() if "ACTUAL CT" in df_res.columns else None
 
