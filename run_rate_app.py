@@ -483,38 +483,19 @@ if uploaded_file:
             if "results" not in st.session_state or not st.session_state.results:
                 st.info("👈 Please generate a report first from the Analysis Dashboard.")
             else:
-                # ✅ Everything that needs results stays indented here
                 results = st.session_state.results
                 df_res = results.get("df", pd.DataFrame()).copy()
-                df_vis = results.get("df", pd.DataFrame()).copy()
                 stop_events = results.get("stop_events", 0)
         
-                # --- Summary ---
-                st.markdown("### Shot Counts & Efficiency")
-                st.table(pd.DataFrame({
-                    "Total Shot Count": [results.get("total_shots", 0)],
-                    "Normal Shot Count": [results.get("normal_shots", 0)],
-                    "Efficiency": [f"{results.get('efficiency', 0) * 100:.2f}%"],
-                    "Stop Count": [stop_events]
-                }))
-        
                 # --- Reliability Metrics ---
-                mttr = (
-                    df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].mean() / 60
-                    if stop_events > 0 and "STOP_EVENT" in df_res.columns
-                    else None
-                )
-                uptimes = (
-                    df_res.loc[~df_res["STOP_EVENT"], "CT_diff_sec"]
-                    if "STOP_EVENT" in df_res.columns
-                    else pd.Series(dtype=float)
-                )
-                mtbf = uptimes.mean() / 60 if stop_events > 0 and not uptimes.empty else None
-                first_dt = (
-                    df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].iloc[0] / 60
-                    if stop_events > 0 and "STOP_EVENT" in df_res.columns
-                    else None
-                )
+                if stop_events > 0 and "STOP_EVENT" in df_res.columns:
+                    mttr = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].mean() / 60
+                    uptimes = df_res.loc[~df_res["STOP_EVENT"], "CT_diff_sec"]
+                    mtbf = uptimes.mean() / 60 if not uptimes.empty else None
+                    first_dt = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].iloc[0] / 60
+                else:
+                    mttr, mtbf, first_dt = None, None, None
+        
                 avg_ct = df_res["ACTUAL CT"].mean() if "ACTUAL CT" in df_res.columns else None
         
                 reliability_df = pd.DataFrame({
