@@ -267,16 +267,16 @@ if uploaded_file:
         else:
             st.info("👈 No reliability data available yet.")
 
-        st.markdown("### Production & Downtime Summary")
-        st.table(pd.DataFrame({
-            "Mode CT": [f"{results.get('mode_ct', 0):.2f}"],
-            "Lower Limit": [f"{results.get('lower_limit', 0):.2f}"],
-            "Upper Limit": [f"{results.get('upper_limit', 0):.2f}"],
-            "Production Time (hrs)": [f"{results.get('production_time', 0)/60:.1f} hrs ({results.get('production_time', 0)/results.get('total_runtime', 1)*100:.2f}%)"],
-            "Downtime (hrs)": [f"{results.get('downtime', 0)/60:.1f} hrs ({results.get('downtime', 0)/results.get('total_runtime', 1)*100:.2f}%)"],
-            "Total Run Time (hrs)": [f"{results.get('run_hours', 0):.2f}"],
-            "Total Stops": [results.get('stop_events', 0)]
-        }))
+            st.markdown("### Production & Downtime Summary")
+            st.table(pd.DataFrame({
+                "Mode CT": [f"{results.get('mode_ct', 0):.2f}"],
+                "Lower Limit": [f"{results.get('lower_limit', 0):.2f}"],
+                "Upper Limit": [f"{results.get('upper_limit', 0):.2f}"],
+                "Production Time (hrs)": [f"{results.get('production_time', 0)/60:.1f} hrs ({results.get('production_time', 0)/results.get('total_runtime', 1)*100:.2f}%)"],
+                "Downtime (hrs)": [f"{results.get('downtime', 0)/60:.1f} hrs ({results.get('downtime', 0)/results.get('total_runtime', 1)*100:.2f}%)"],
+                "Total Run Time (hrs)": [f"{results.get('run_hours', 0):.2f}"],
+                "Total Stops": [results.get('stop_events', 0)]
+            }))
 
         # Graphs + Collapsible Tables
         st.subheader("📈 Visual Analysis")
