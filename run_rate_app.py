@@ -235,28 +235,25 @@ if uploaded_file:
             df_res = results.get("df", pd.DataFrame()).copy()
             stop_events = results.get("stop_events", 0)
             
-            if stop_events > 0 and "STOP_FLAG" in df_res.columns:
-                # --- Downtime: include all stop intervals (like Excel) ---
-                downtime_events = df_res.loc[df_res["STOP_FLAG"] == 1, "CT_diff_sec"] / 60
-                total_downtime = downtime_events.sum()
-                mttr = total_downtime / stop_events if stop_events > 0 else None
+            if stop_events > 0 and "STOP_EVENT" in df_res.columns:
+                # --- MTTR: total downtime (STOP_FLAG=1) / stop_events
+                downtime_minutes = df_res.loc[df_res["STOP_FLAG"] == 1, "CT_diff_sec"].sum() / 60
+                mttr = downtime_minutes / stop_events if stop_events > 0 else None
             
-                # --- Uptime: time between stops (still counted against all stops) ---
-                stop_indices = df_res.index[df_res["STOP_FLAG"] == 1].tolist()
-                total_uptime = 0
-                for i in range(1, len(stop_indices)):
-                    prev_stop = stop_indices[i-1]
-                    this_stop = stop_indices[i]
-                    uptime = df_res.loc[prev_stop+1:this_stop-1, "CT_diff_sec"].sum() / 60
-                    total_uptime += uptime
+                # --- MTBF: total runtime / stop_events
+                total_runtime_min = df_res["CT_diff_sec"].sum() / 60
+                mtbf = total_runtime_min / stop_events if stop_events > 0 else None
             
-                mtbf = total_uptime / stop_events if stop_events > 0 else None
-            
-                # --- Time to First Downtime (first STOP_FLAG interval) ---
-                first_dt = downtime_events.iloc[0] if not downtime_events.empty else None
+                # --- Time to First DT: sum of CT_diff_sec before first STOP_FLAG=1
+                if (df_res["STOP_FLAG"] == 1).any():
+                    first_stop_idx = df_res.index[df_res["STOP_FLAG"] == 1][0]
+                    first_dt = df_res.loc[:first_stop_idx-1, "CT_diff_sec"].sum() / 60
+                else:
+                    first_dt = None
             else:
                 mttr, mtbf, first_dt = None, None, None
             
+            # --- Avg CT
             avg_ct = df_res["ACTUAL CT"].mean() if "ACTUAL CT" in df_res.columns else None
             
             reliability_df = pd.DataFrame({
