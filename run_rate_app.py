@@ -73,14 +73,27 @@ def calculate_run_rate_excel_like(df):
     net_rate = normal_shots / run_hours if run_hours else None
     efficiency = normal_shots / total_shots if total_shots else None
 
-    # --- Time bucket analysis (use adjusted stops for sequences) ---
-    df["RUN_DURATION"] = np.where(df["STOP_ADJ"] == 1, df["CT_diff_sec"] / 60, np.nan)
-    df["TIME_BUCKET"] = pd.cut(
-        df["RUN_DURATION"],
-        bins=[0,1,2,3,5,10,20,30,60,120,999999],
-        labels=["<1","1-2","2-3","3-5","5-10","10-20","20-30","30-60","60-120",">120"]
+    # --- NEW: Continuous Run Durations ---
+    # Each run = time between two stop events (using STOP_ADJ to collapse back-to-back)
+    df["RUN_GROUP"] = df["STOP_ADJ"].cumsum()
+    run_durations = (
+        df.groupby("RUN_GROUP")
+          .apply(lambda g: g["CT_diff_sec"].sum() / 60)  # minutes
+          .reset_index(name="RUN_DURATION")
     )
-    bucket_counts = df["TIME_BUCKET"].value_counts().sort_index().fillna(0).astype(int)
+
+    # Remove first run if it starts with a stop (edge case)
+    run_durations = run_durations[run_durations["RUN_DURATION"] > 0]
+
+    # Assign buckets (0–20, 20–40, …)
+    run_durations["TIME_BUCKET"] = pd.cut(
+        run_durations["RUN_DURATION"],
+        bins=[0,20,40,60,80,100,120,140,160,999999],
+        labels=["0-20","20-40","40-60","60-80","80-100","100-120","120-140","140-160",">160"]
+    )
+
+    # Bucket counts for overall distribution
+    bucket_counts = run_durations["TIME_BUCKET"].value_counts().sort_index().fillna(0).astype(int)
     bucket_counts.loc["Grand Total"] = bucket_counts.sum()
 
     # --- Hourly MTTR/MTBF ---
@@ -121,7 +134,8 @@ def calculate_run_rate_excel_like(df):
         "total_runtime": total_runtime,
         "bucket_counts": bucket_counts,
         "hourly": hourly,
-        "df": df
+        "df": df,
+        "run_durations": run_durations  # <-- NEW dataset for plotting
     }
 
 # --- UI ---
