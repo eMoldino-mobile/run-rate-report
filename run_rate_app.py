@@ -231,16 +231,16 @@ if uploaded_file:
                     title="Time Bucket Analysis (Continuous Runs Before Stops)",
                     category_orders={"Time Bucket": bucket_order},
                     color="Time Bucket",
-                    color_discrete_map={
+                    color_discrete_map = {
                         "1: 0-20 min":   "#d73027",  # red
                         "2: 20-40 min":  "#fc8d59",  # orange-red
                         "3: 40-60 min":  "#fee090",  # yellow
-                        "4: 60-80 min":  "#ccece6",  # pale teal
-                        "5: 80-100 min": "#99d8c9",  # light teal
-                        "6: 100-120 min":"#66c2a4",  # aqua/sea green
-                        "7: 120-140 min":"#238b45",  # forest green-blue
-                        "8: 140-160 min":"#005824",  # deep teal/blue-green
-                        "9: >160 min":  "#003d2d"   # almost black teal
+                        "4: 60-80 min":  "#c6dbef",  # very light grey-blue
+                        "5: 80-100 min": "#9ecae1",  # light steel blue
+                        "6: 100-120 min":"#6baed6",  # medium blue-grey
+                        "7: 120-140 min":"#4292c6",  # stronger blue-grey
+                        "8: 140-160 min":"#2171b5",  # dark muted blue
+                        "9: >160 min":  "#084594"    # deep navy blue
                     },
                     hover_data={"Occurrences":True,"Percentage":True}
                 )
@@ -267,16 +267,16 @@ if uploaded_file:
                     trend, x="HOUR", y="count", color="TIME_BUCKET",
                     category_orders={"TIME_BUCKET": bucket_order},
                     title="Hourly Time Bucket Trend (Continuous Runs Before Stops)",
-                    color_discrete_map={
+                    color_discrete_map = {
                         "1: 0-20 min":   "#d73027",  # red
                         "2: 20-40 min":  "#fc8d59",  # orange-red
                         "3: 40-60 min":  "#fee090",  # yellow
-                        "4: 60-80 min":  "#ccece6",  # pale teal
-                        "5: 80-100 min": "#99d8c9",  # light teal
-                        "6: 100-120 min":"#66c2a4",  # aqua/sea green
-                        "7: 120-140 min":"#238b45",  # forest green-blue
-                        "8: 140-160 min":"#005824",  # deep teal/blue-green
-                        "9: >160 min":  "#003d2d"   # almost black teal
+                        "4: 60-80 min":  "#c6dbef",  # very light grey-blue
+                        "5: 80-100 min": "#9ecae1",  # light steel blue
+                        "6: 100-120 min":"#6baed6",  # medium blue-grey
+                        "7: 120-140 min":"#4292c6",  # stronger blue-grey
+                        "8: 140-160 min":"#2171b5",  # dark muted blue
+                        "9: >160 min":  "#084594"    # deep navy blue
                     },
                     hover_data={"count":True,"HOUR":True}
                 )
