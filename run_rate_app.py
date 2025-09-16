@@ -545,11 +545,6 @@ if uploaded_file:
                     "Total Run Time (hrs)": [f"{results.get('run_hours', 0):.2f}"],
                     "Total Stops": [stop_events]
                 }))
-                st.markdown(f"""
-                **Summary**
-                - Total Stoppage Alerts: {len(stoppage_alerts)}
-                - Threshold Applied: {threshold_label}
-                """)
                 else:
                     st.warning("⚠️ No stoppage event data available for this dataset.")
 
