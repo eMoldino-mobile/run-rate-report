@@ -204,27 +204,39 @@ if uploaded_file:
                 # Graphs + Collapsible Tables
                 st.subheader("📈 Visual Analysis")
                 run_durations = results["run_durations"].copy()
-                bucket_order = ["0-20","20-40","40-60","60-80","80-100",
-                                "100-120","120-140","140-160",">160"]
+                bucket_order = [f"{i+1}: {rng}" for i, rng in enumerate(
+                    ["0-20 min","20-40 min","40-60 min","60-80 min",
+                     "80-100 min","100-120 min","120-140 min","140-160 min",">160 min"]
+                )]
+
+                # Re-map bucket labels in run_durations
+                label_map = {
+                    "0-20":"1: 0-20 min", "20-40":"2: 20-40 min", "40-60":"3: 40-60 min",
+                    "60-80":"4: 60-80 min", "80-100":"5: 80-100 min", "100-120":"6: 100-120 min",
+                    "120-140":"7: 120-140 min", "140-160":"8: 140-160 min", ">160":"9: >160 min"
+                }
+                run_durations["TIME_BUCKET"] = run_durations["TIME_BUCKET"].map(label_map)
 
                 # 1) Time Bucket Analysis (overall distribution of run durations)
                 bucket_counts = run_durations["TIME_BUCKET"].value_counts().reindex(bucket_order).fillna(0).astype(int)
-                bucket_counts.loc["Grand Total"] = bucket_counts.sum()
+                total_runs = bucket_counts.sum()
                 bucket_df = bucket_counts.reset_index()
                 bucket_df.columns = ["Time Bucket", "Occurrences"]
+                bucket_df["Percentage"] = (bucket_df["Occurrences"] / total_runs * 100).round(2)
 
                 fig_bucket = px.bar(
-                    bucket_df[bucket_df["Time Bucket"] != "Grand Total"],
+                    bucket_df[bucket_df["Time Bucket"].notna()],
                     x="Occurrences", y="Time Bucket",
                     orientation="h", text="Occurrences",
                     title="Time Bucket Analysis (Continuous Runs Before Stops)",
                     category_orders={"Time Bucket": bucket_order},
                     color="Time Bucket",
                     color_discrete_map={
-                        "0-20":"#d73027","20-40":"#fc8d59","40-60":"#fee090",   # red→orange gradient
-                        "60-80":"#91bfdb","80-100":"#4575b4","100-120":"#313695", # blue gradient
-                        "120-140":"#253494","140-160":"#081d58",">160":"#000000" # darker blues
-                    }
+                        "1: 0-20 min":"#d73027","2: 20-40 min":"#fc8d59","3: 40-60 min":"#fee090",
+                        "4: 60-80 min":"#91bfdb","5: 80-100 min":"#4575b4","6: 100-120 min":"#313695",
+                        "7: 120-140 min":"#253494","8: 140-160 min":"#081d58","9: >160 min":"#542788"
+                    },
+                    hover_data={"Occurrences":True,"Percentage":True}
                 )
                 fig_bucket.update_traces(textposition="outside")
                 st.plotly_chart(fig_bucket, use_container_width=True)
@@ -245,10 +257,11 @@ if uploaded_file:
                     category_orders={"TIME_BUCKET": bucket_order},
                     title="Weekly Time Bucket Trend (Continuous Runs Before Stops)",
                     color_discrete_map={
-                        "0-20":"#d73027","20-40":"#fc8d59","40-60":"#fee090",
-                        "60-80":"#91bfdb","80-100":"#4575b4","100-120":"#313695",
-                        "120-140":"#253494","140-160":"#081d58",">160":"#000000"
-                    }
+                        "1: 0-20 min":"#d73027","2: 20-40 min":"#fc8d59","3: 40-60 min":"#fee090",
+                        "4: 60-80 min":"#91bfdb","5: 80-100 min":"#4575b4","6: 100-120 min":"#313695",
+                        "7: 120-140 min":"#253494","8: 140-160 min":"#081d58","9: >160 min":"#542788"
+                    },
+                    hover_data={"count":True}
                 )
                 fig_tb_trend.update_layout(barmode="stack")
                 st.plotly_chart(fig_tb_trend, use_container_width=True)
