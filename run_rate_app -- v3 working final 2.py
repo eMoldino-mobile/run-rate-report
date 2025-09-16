@@ -165,10 +165,7 @@ if uploaded_file:
     tool = st.sidebar.selectbox("Select Tool", df[selection_column].unique())
     date = st.sidebar.date_input("Select Date", pd.to_datetime(df["SHOT TIME"]).dt.date.min())
 
-    page = st.sidebar.radio(
-    "Select Page", 
-    ["📊 Analysis Dashboard", "📂 Raw & Processed Data", "📅 Weekly/Monthly Trends"]
-)
+    page = st.sidebar.radio("Select Page", ["📊 Analysis Dashboard", "📂 Raw & Processed Data"])
 
     if st.sidebar.button("Generate Report"):
         mask = (df[selection_column] == tool) & (pd.to_datetime(df["SHOT TIME"]).dt.date == date)
@@ -620,60 +617,5 @@ if uploaded_file:
                 file_name="processed_cycle_data.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-            
-    # ---------- Page 3: Weekly/Monthly Trends ----------
-    elif page == "📅 Weekly/Monthly Trends":
-        st.title("📅 Weekly & Monthly Trends")
-    
-        results = st.session_state.get("results", {})
-        if not results or "df" not in results:
-            st.info("👈 Please generate a report first from the Analysis Dashboard.")
-        else:
-            df = results["df"].copy()
-    
-            # Ensure datetime
-            if "SHOT TIME" in df.columns:
-                df["SHOT TIME"] = pd.to_datetime(df["SHOT TIME"], errors="coerce")
-                df["WEEK"] = df["SHOT TIME"].dt.to_period("W").apply(lambda r: r.start_time)
-                df["MONTH"] = df["SHOT TIME"].dt.to_period("M").apply(lambda r: r.start_time)
-            else:
-                st.error("SHOT TIME missing from dataset.")
-                st.stop()
-    
-            # --- Weekly summary ---
-            weekly = df.groupby("WEEK").agg(
-                total_shots=("ACTUAL CT","count"),
-                avg_ct=("ACTUAL CT","mean"),
-                stops=("STOP_EVENT","sum"),
-                mttr=("CT_diff_sec", lambda x: np.nanmean(x[df["STOP_EVENT"]])) ,
-                mtbf=("CT_diff_sec", lambda x: np.nanmean(x[~df["STOP_EVENT"]]))
-            ).reset_index()
-    
-            # --- Monthly summary ---
-            monthly = df.groupby("MONTH").agg(
-                total_shots=("ACTUAL CT","count"),
-                avg_ct=("ACTUAL CT","mean"),
-                stops=("STOP_EVENT","sum"),
-                mttr=("CT_diff_sec", lambda x: np.nanmean(x[df["STOP_EVENT"]])) ,
-                mtbf=("CT_diff_sec", lambda x: np.nanmean(x[~df["STOP_EVENT"]]))
-            ).reset_index()
-    
-            # --- Weekly Plot ---
-            st.subheader("📊 Weekly Trends")
-            fig_week = px.line(
-                weekly, x="WEEK", y=["mttr","mtbf"],
-                markers=True, title="Weekly MTTR & MTBF"
-            )
-            st.plotly_chart(fig_week, use_container_width=True)
-            st.dataframe(weekly)
-    
-            # --- Monthly Plot ---
-            st.subheader("📊 Monthly Trends")
-            fig_month = px.line(
-                monthly, x="MONTH", y=["mttr","mtbf"],
-                markers=True, title="Monthly MTTR & MTBF"
-            )
-            st.plotly_chart(fig_month, use_container_width=True)
-            st.dataframe(monthly)
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin. Headers in ROW 1 please.")
