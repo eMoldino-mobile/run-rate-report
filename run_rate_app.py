@@ -275,6 +275,25 @@ if uploaded_file:
                 with st.expander("📊 MTTR & MTBF Data Table", expanded=False):
                     st.dataframe(hourly)
 
+                # 3) MTTR & MTBF Trend by Hour
+                hourly = results["hourly"].copy()
+                all_hours = pd.DataFrame({"HOUR": list(range(24))})
+                hourly = all_hours.merge(hourly, on="HOUR", how="left")
+                fig_mt = go.Figure()
+                fig_mt.add_trace(go.Scatter(x=hourly["HOUR"], y=hourly["mttr"], mode="lines+markers",
+                                            name="MTTR (min)", line=dict(color="red", width=2), yaxis="y"))
+                fig_mt.add_trace(go.Scatter(x=hourly["HOUR"], y=hourly["mtbf"], mode="lines+markers",
+                                            name="MTBF (min)", line=dict(color="green", width=2, dash="dot"), yaxis="y2"))
+                fig_mt.update_layout(title="MTTR & MTBF Trend by Hour",
+                                     xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5,23.5]),
+                                     yaxis=dict(title="MTTR (min)", tickfont=dict(color="red"), side="left"),
+                                     yaxis2=dict(title="MTBF (min)", tickfont=dict(color="green"), overlaying="y", side="right"),
+                                     margin=dict(l=60,r=60,t=60,b=40),
+                                     legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center"))
+                st.plotly_chart(fig_mt, width="stretch")
+                with st.expander("📊 MTTR & MTBF Data Table", expanded=False):
+                    st.dataframe(hourly)
+
                 # 4) Stability Index
                 hourly["stability_index"] = np.where((hourly["stops"] == 0) & (hourly["mtbf"].isna()),
                                                      100, hourly["stability_index"])
