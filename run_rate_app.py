@@ -316,282 +316,282 @@ if uploaded_file:
         trend = run_durations.groupby(["HOUR","TIME_BUCKET"]).size().reset_index(name="count")
 
         # Ensure all hours 0–23 appear, even if empty
-                hours = list(range(24))
-                grid = pd.MultiIndex.from_product([hours, bucket_order], names=["HOUR","TIME_BUCKET"]).to_frame(index=False)
-                trend = grid.merge(trend, on=["HOUR","TIME_BUCKET"], how="left").fillna({"count":0})
+        hours = list(range(24))
+        grid = pd.MultiIndex.from_product([hours, bucket_order], names=["HOUR","TIME_BUCKET"]).to_frame(index=False)
+        trend = grid.merge(trend, on=["HOUR","TIME_BUCKET"], how="left").fillna({"count":0})
 
-                fig_tb_trend = px.bar(
-                    trend, x="HOUR", y="count", color="TIME_BUCKET",
-                    category_orders={"TIME_BUCKET": bucket_order},
-                    title="Hourly Time Bucket Trend (Continuous Runs Before Stops)",
-                    color_discrete_map = {
-                        "1: 0-20 min":   "#d73027",  # red
-                        "2: 20-40 min":  "#fc8d59",  # orange-red
-                        "3: 40-60 min":  "#fee090",  # yellow
-                        "4: 60-80 min":  "#c6dbef",  # very light grey-blue
-                        "5: 80-100 min": "#9ecae1",  # light steel blue
-                        "6: 100-120 min":"#6baed6",  # medium blue-grey
-                        "7: 120-140 min":"#4292c6",  # stronger blue-grey
-                        "8: 140-160 min":"#2171b5",  # dark muted blue
-                        "9: >160 min":  "#084594"    # deep navy blue
-                    },
-                    hover_data={"count":True,"HOUR":True}
-                )
-                fig_tb_trend.update_layout(
-                    barmode="stack",
-                    xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5,23.5]),
-                    yaxis=dict(title="Number of Runs")
-                )
-                st.plotly_chart(fig_tb_trend, width="stretch")
+        fig_tb_trend = px.bar(
+            trend, x="HOUR", y="count", color="TIME_BUCKET",
+            category_orders={"TIME_BUCKET": bucket_order},
+            title="Hourly Time Bucket Trend (Continuous Runs Before Stops)",
+            color_discrete_map = {
+                "1: 0-20 min":   "#d73027",  # red
+                "2: 20-40 min":  "#fc8d59",  # orange-red
+                "3: 40-60 min":  "#fee090",  # yellow
+                "4: 60-80 min":  "#c6dbef",  # very light grey-blue
+                "5: 80-100 min": "#9ecae1",  # light steel blue
+                "6: 100-120 min":"#6baed6",  # medium blue-grey
+                "7: 120-140 min":"#4292c6",  # stronger blue-grey
+                "8: 140-160 min":"#2171b5",  # dark muted blue
+                "9: >160 min":  "#084594"    # deep navy blue
+            },
+            hover_data={"count":True,"HOUR":True}
+        )
+        fig_tb_trend.update_layout(
+            barmode="stack",
+            xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5,23.5]),
+            yaxis=dict(title="Number of Runs")
+        )
+        st.plotly_chart(fig_tb_trend, width="stretch")
 
-                with st.expander("📊 Hourly Time Bucket Trend Data Table", expanded=False):
-                    st.dataframe(trend)
+        with st.expander("📊 Hourly Time Bucket Trend Data Table", expanded=False):
+            st.dataframe(trend)
 
-                # 3) MTTR & MTBF Trend by Hour
-                hourly = results["hourly"].copy()
-                all_hours = pd.DataFrame({"HOUR": list(range(24))})
-                hourly = all_hours.merge(hourly, on="HOUR", how="left")
-                fig_mt = go.Figure()
-                fig_mt.add_trace(go.Scatter(x=hourly["HOUR"], y=hourly["mttr"], mode="lines+markers",
-                                            name="MTTR (min)", line=dict(color="red", width=2), yaxis="y"))
-                fig_mt.add_trace(go.Scatter(x=hourly["HOUR"], y=hourly["mtbf"], mode="lines+markers",
-                                            name="MTBF (min)", line=dict(color="green", width=2, dash="dot"), yaxis="y2"))
-                fig_mt.update_layout(title="MTTR & MTBF Trend by Hour",
-                                     xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5,23.5]),
-                                     yaxis=dict(title="MTTR (min)", tickfont=dict(color="red"), side="left"),
-                                     yaxis2=dict(title="MTBF (min)", tickfont=dict(color="green"), overlaying="y", side="right"),
-                                     margin=dict(l=60,r=60,t=60,b=40),
-                                     legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center"))
-                st.plotly_chart(fig_mt, width="stretch")
-                with st.expander("📊 MTTR & MTBF Data Table", expanded=False):
-                    st.dataframe(hourly)
+        # 3) MTTR & MTBF Trend by Hour
+        hourly = results["hourly"].copy()
+        all_hours = pd.DataFrame({"HOUR": list(range(24))})
+        hourly = all_hours.merge(hourly, on="HOUR", how="left")
+        fig_mt = go.Figure()
+        fig_mt.add_trace(go.Scatter(x=hourly["HOUR"], y=hourly["mttr"], mode="lines+markers",
+                                    name="MTTR (min)", line=dict(color="red", width=2), yaxis="y"))
+        fig_mt.add_trace(go.Scatter(x=hourly["HOUR"], y=hourly["mtbf"], mode="lines+markers",
+                                    name="MTBF (min)", line=dict(color="green", width=2, dash="dot"), yaxis="y2"))
+        fig_mt.update_layout(title="MTTR & MTBF Trend by Hour",
+                             xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5,23.5]),
+                             yaxis=dict(title="MTTR (min)", tickfont=dict(color="red"), side="left"),
+                             yaxis2=dict(title="MTBF (min)", tickfont=dict(color="green"), overlaying="y", side="right"),
+                             margin=dict(l=60,r=60,t=60,b=40),
+                             legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center"))
+        st.plotly_chart(fig_mt, width="stretch")
+        with st.expander("📊 MTTR & MTBF Data Table", expanded=False):
+            st.dataframe(hourly)
 
-                # 4) Stability Index
-                hourly["stability_index"] = np.where((hourly["stops"] == 0) & (hourly["mtbf"].isna()),
-                                                     100, hourly["stability_index"])
-                hourly["stability_change_%"] = hourly["stability_index"].pct_change() * 100
-                colors = ["gray" if pd.isna(v) else "red" if v <= 50 else "yellow" if v <= 70 else "green" for v in hourly["stability_index"]]
-                fig_stability = go.Figure()
-                fig_stability.add_trace(go.Scatter(x=hourly["HOUR"], y=hourly["stability_index"],
-                                                   mode="lines+markers", name="Stability Index (%)",
-                                                   line=dict(color="blue", width=2), marker=dict(color=colors, size=8)))
-                for y0,y1,c in [(0,50,"red"),(50,70,"yellow"),(70,100,"green")]:
-                    fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=y0, y1=y1,
-                                            fillcolor=c, opacity=0.1, line_width=0, yref="y")
-                fig_stability.update_layout(title="Stability Index by Hour",
-                                            xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5,23.5]),
-                                            yaxis=dict(title="Stability Index (%)", range=[0,100], side="left"),
-                                            margin=dict(l=60,r=60,t=60,b=40),
-                                            legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center"))
-                st.plotly_chart(fig_stability, width="stretch")
-                with st.expander("📊 Stability Index Data Table", expanded=False):
-                    table_data = hourly[["HOUR","stability_index","stability_change_%","mttr","mtbf","stops"]].copy()
-                    table_data.rename(columns={
-                        "HOUR":"Hour",
-                        "stability_index":"Stability Index (%)",
-                        "stability_change_%":"Change vs Prev Hour (%)",
-                        "mttr":"MTTR (min)",
-                        "mtbf":"MTBF (min)",
-                        "stops":"Stop Count"
-                    }, inplace=True)
-                
-                    # Highlight only the Stability Index column
-                    def highlight_stability(val):
-                        if pd.isna(val):
-                            return ""
-                        elif val <= 50:
-                            return "background-color: rgba(255, 0, 0, 0.3);"   # soft red
-                        elif val <= 70:
-                            return "background-color: rgba(255, 255, 0, 0.3);" # soft yellow
-                        else:
-                            return ""
-                    
-                    st.dataframe(
-                        table_data.style
-                        .applymap(highlight_stability, subset=["Stability Index (%)"])
-                        .format({
-                            "Stability Index (%)": "{:.2f}",
-                            "Change vs Prev Hour (%)": "{:+.2f}%",
-                            "MTTR (min)": "{:.2f}",
-                            "MTBF (min)": "{:.2f}"
-                        })
-                    )
-
-                st.markdown("""
-                **ℹ️ Stability Index Formula**
-                - Stability Index (%) = (MTBF / (MTBF + MTTR)) × 100
-                - If no stoppages occur in an hour, Stability Index is forced to **100%**
-                - Alert Zones:
-                  - 🟥 0–50% → High Risk (Frequent stoppages with long recovery times. Production is highly unstable.)
-                  - 🟨 50–70% → Medium Risk (Minor but frequent stoppages or slower-than-normal recoveries. Production flow is inconsistent and requires attention to prevent escalation.)
-                  - 🟩 70–100% → Low Risk (stable operation)
-                """)
-
-                # 5) 🚨 Stoppage Alerts (Improved Table)
-                st.markdown("### 🚨 Stoppage Alert Reporting")
-                
-                if "results" in st.session_state:
-                    results = st.session_state.results
-                    df_vis = results["df"].copy()
-                
-                    # --- Threshold selection ---
-                    threshold_mode = st.radio(
-                        "Select threshold type:",
-                        ["Multiple of Mode CT", "Manual (seconds)"],
-                        horizontal=True,
-                        key="threshold_mode"
-                    )
-                
-                    if threshold_mode == "Multiple of Mode CT":
-                        multiplier = st.slider(
-                            "Multiplier of Mode CT",
-                            min_value=1.0, max_value=5.0, value=2.0, step=0.5,
-                            key="ct_multiplier"
-                        )
-                        threshold = results["mode_ct"] * multiplier
-                        threshold_label = f"Mode CT × {multiplier} = {threshold:.2f} sec"
-                    else:
-                        threshold = st.number_input(
-                            "Manual threshold (seconds)",
-                            min_value=1.0, value=float(results["mode_ct"] * 2),
-                            key="manual_threshold"
-                        )
-                        threshold_label = f"{threshold:.2f} sec (manual)"
-                
-                    # --- Filter stoppages ---
-                    if "STOP_EVENT" in df_vis.columns and "CT_diff_sec" in df_vis.columns:
-                        stoppage_alerts = df_vis[df_vis["CT_diff_sec"] >= threshold].copy()
-                
-                        if stoppage_alerts.empty:
-                            st.info(f"✅ No stoppage alerts found (≥ {threshold_label}).")
-                        else:
-                            # Add context columns
-                            stoppage_alerts["Shots Since Last Stop"] = stoppage_alerts.groupby(
-                                stoppage_alerts["STOP_EVENT"].cumsum()
-                            ).cumcount()
-                            stoppage_alerts["Duration (min)"] = (stoppage_alerts["CT_diff_sec"] / 60).round(1)
-                            stoppage_alerts["Reason"] = "to be added"
-                            stoppage_alerts["Alert"] = "🔴"
-                
-                            # Final clean table
-                            table = stoppage_alerts[[
-                                "SHOT TIME", "Duration (min)", "Shots Since Last Stop", "Reason", "Alert"
-                            ]].rename(columns={"SHOT TIME": "Event Time"})
-                
-                            st.dataframe(table, width="stretch")
-                
-                            st.markdown(f"""
-                            **Summary**
-                            - Total Stoppage Alerts: {len(stoppage_alerts)}
-                            - Threshold Applied: {threshold_label}
-                            """)
-                    else:
-                        st.warning("⚠️ No stoppage event data available for this dataset.")
-
-            # ---------- Page 2: Raw & Processed Data ----------
-            elif page == "📂 Raw & Processed Data":
-                st.title("📋 Raw & Processed Cycle Data")
-            
-                if "results" not in st.session_state:
-                    st.info("👈 Please generate a report first from the Analysis Dashboard.")
+        # 4) Stability Index
+        hourly["stability_index"] = np.where((hourly["stops"] == 0) & (hourly["mtbf"].isna()),
+                                             100, hourly["stability_index"])
+        hourly["stability_change_%"] = hourly["stability_index"].pct_change() * 100
+        colors = ["gray" if pd.isna(v) else "red" if v <= 50 else "yellow" if v <= 70 else "green" for v in hourly["stability_index"]]
+        fig_stability = go.Figure()
+        fig_stability.add_trace(go.Scatter(x=hourly["HOUR"], y=hourly["stability_index"],
+                                           mode="lines+markers", name="Stability Index (%)",
+                                           line=dict(color="blue", width=2), marker=dict(color=colors, size=8)))
+        for y0,y1,c in [(0,50,"red"),(50,70,"yellow"),(70,100,"green")]:
+            fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=y0, y1=y1,
+                                    fillcolor=c, opacity=0.1, line_width=0, yref="y")
+        fig_stability.update_layout(title="Stability Index by Hour",
+                                    xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5,23.5]),
+                                    yaxis=dict(title="Stability Index (%)", range=[0,100], side="left"),
+                                    margin=dict(l=60,r=60,t=60,b=40),
+                                    legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center"))
+        st.plotly_chart(fig_stability, width="stretch")
+        with st.expander("📊 Stability Index Data Table", expanded=False):
+            table_data = hourly[["HOUR","stability_index","stability_change_%","mttr","mtbf","stops"]].copy()
+            table_data.rename(columns={
+                "HOUR":"Hour",
+                "stability_index":"Stability Index (%)",
+                "stability_change_%":"Change vs Prev Hour (%)",
+                "mttr":"MTTR (min)",
+                "mtbf":"MTBF (min)",
+                "stops":"Stop Count"
+            }, inplace=True)
+        
+            # Highlight only the Stability Index column
+            def highlight_stability(val):
+                if pd.isna(val):
+                    return ""
+                elif val <= 50:
+                    return "background-color: rgba(255, 0, 0, 0.3);"   # soft red
+                elif val <= 70:
+                    return "background-color: rgba(255, 255, 0, 0.3);" # soft yellow
                 else:
-                    results = st.session_state.results
-                    df_vis = results["df"].copy()
+                    return ""
             
-                    # --- Summary (same as Page 1) ---
-                    st.markdown("### Shot Counts & Efficiency")
-                    st.table(pd.DataFrame({
-                        "Total Shot Count": [results['total_shots']],
-                        "Normal Shot Count": [results['normal_shots']],
-                        "Efficiency": [f"{results['efficiency']*100:.2f}%"],
-                        "Stop Count": [results['stop_events']]
-                    }))
-            
-                    st.markdown("### Reliability Metrics")
-                    st.table(pd.DataFrame({
-                        "Metric": ["MTTR", "MTBF", "Time to First DT (Avg)", "Avg Cycle Time"],
-                        "Value": ["0.55", "6.06", "5.06", "28.21"]
-                    }))
-            
-                    st.markdown("### Production & Downtime Summary")
-                    st.table(pd.DataFrame({
-                        "Mode CT": [f"{results['mode_ct']:.2f}"],
-                        "Lower Limit": [f"{results['lower_limit']:.2f}"],
-                        "Upper Limit": [f"{results['upper_limit']:.2f}"],
-                        "Production Time (hrs)": [f"{results['production_time']/60:.1f} hrs ({results['production_time']/results['total_runtime']*100:.2f}%)"],
-                        "Downtime (hrs)": [f"{results['downtime']/60:.1f} hrs ({results['downtime']/results['total_runtime']*100:.2f}%)"],
-                        "Total Run Time (hrs)": [f"{results['run_hours']:.2f}"],
-                        "Total Stops": [results['stop_events']]
-                    }))
-            
-                    st.markdown("---")
-            
-                    # --- Supplier Name ---
-                    if "SUPPLIER NAME" in df_vis.columns:
-                        df_vis["Supplier Name"] = df_vis["SUPPLIER NAME"]
-                    else:
-                        df_vis["Supplier Name"] = "not provided"
-            
-                    # --- Equipment Code ---
-                    if "EQUIPMENT CODE" in df_vis.columns:
-                        df_vis["Equipment Code"] = df_vis["EQUIPMENT CODE"]
-                    else:
-                        df_vis["Equipment Code"] = "not provided"
-            
-                    # --- Approved CT ---
-                    if "APPROVED CT" in df_vis.columns:
-                        df_vis["Approved CT"] = df_vis["APPROVED CT"]
-                    else:
-                        df_vis["Approved CT"] = "not provided"
-            
-                    # --- Actual CT (1 decimal) ---
-                    df_vis["Actual CT"] = df_vis["ACTUAL CT"].round(1)
-            
-                    # --- Time Diff Sec (2 decimals) ---
-                    df_vis["Time Diff Sec"] = df_vis["CT_diff_sec"].round(2)
-            
-                    # --- Stop Flag (use STOP_ADJ so back-to-backs are also marked) ---
-                    df_vis["Stop"] = df_vis["STOP_ADJ"]
-            
-                    # --- Cumulative Count (cycles since last stop) ---
-                    df_vis["Cumulative Count"] = df_vis.groupby(df_vis["Stop"].cumsum()).cumcount()
-            
-                    # --- Run Duration (update only when stop occurs) ---
-                    df_vis["Run Duration"] = np.where(df_vis["Stop"] == 1,
-                                                      (df_vis["CT_diff_sec"] / 60).round(2),
-                                                      0)
-            
-                    # --- Select only required columns ---
-                    df_clean = df_vis[[
-                        "Supplier Name", "Equipment Code", "SHOT TIME",
-                        "Approved CT", "Actual CT", "Time Diff Sec",
-                        "Stop", "Cumulative Count", "Run Duration"
-                    ]].rename(columns={
-                        "SHOT TIME": "Shot Time"
-                    })
-            
-                    # --- Display with checkboxes for Stop ---
-                    st.markdown("### Cycle Data Table (Processed)")
-                    st.data_editor(
-                        df_clean,
-                        width="stretch",
-                        column_config={
-                            "Stop": st.column_config.CheckboxColumn(
-                                "Stop",
-                                help="Marked as stoppage event",
-                                default=False
-                            )
-                        }
+            st.dataframe(
+                table_data.style
+                .applymap(highlight_stability, subset=["Stability Index (%)"])
+                .format({
+                    "Stability Index (%)": "{:.2f}",
+                    "Change vs Prev Hour (%)": "{:+.2f}%",
+                    "MTTR (min)": "{:.2f}",
+                    "MTBF (min)": "{:.2f}"
+                })
+            )
+
+        st.markdown("""
+        **ℹ️ Stability Index Formula**
+        - Stability Index (%) = (MTBF / (MTBF + MTTR)) × 100
+        - If no stoppages occur in an hour, Stability Index is forced to **100%**
+        - Alert Zones:
+          - 🟥 0–50% → High Risk (Frequent stoppages with long recovery times. Production is highly unstable.)
+          - 🟨 50–70% → Medium Risk (Minor but frequent stoppages or slower-than-normal recoveries. Production flow is inconsistent and requires attention to prevent escalation.)
+          - 🟩 70–100% → Low Risk (stable operation)
+        """)
+
+        # 5) 🚨 Stoppage Alerts (Improved Table)
+        st.markdown("### 🚨 Stoppage Alert Reporting")
+        
+        if "results" in st.session_state:
+            results = st.session_state.results
+            df_vis = results["df"].copy()
+        
+            # --- Threshold selection ---
+            threshold_mode = st.radio(
+                "Select threshold type:",
+                ["Multiple of Mode CT", "Manual (seconds)"],
+                horizontal=True,
+                key="threshold_mode"
+            )
+        
+            if threshold_mode == "Multiple of Mode CT":
+                multiplier = st.slider(
+                    "Multiplier of Mode CT",
+                    min_value=1.0, max_value=5.0, value=2.0, step=0.5,
+                    key="ct_multiplier"
+                )
+                threshold = results["mode_ct"] * multiplier
+                threshold_label = f"Mode CT × {multiplier} = {threshold:.2f} sec"
+            else:
+                threshold = st.number_input(
+                    "Manual threshold (seconds)",
+                    min_value=1.0, value=float(results["mode_ct"] * 2),
+                    key="manual_threshold"
+                )
+                threshold_label = f"{threshold:.2f} sec (manual)"
+        
+            # --- Filter stoppages ---
+            if "STOP_EVENT" in df_vis.columns and "CT_diff_sec" in df_vis.columns:
+                stoppage_alerts = df_vis[df_vis["CT_diff_sec"] >= threshold].copy()
+        
+                if stoppage_alerts.empty:
+                    st.info(f"✅ No stoppage alerts found (≥ {threshold_label}).")
+                else:
+                    # Add context columns
+                    stoppage_alerts["Shots Since Last Stop"] = stoppage_alerts.groupby(
+                        stoppage_alerts["STOP_EVENT"].cumsum()
+                    ).cumcount()
+                    stoppage_alerts["Duration (min)"] = (stoppage_alerts["CT_diff_sec"] / 60).round(1)
+                    stoppage_alerts["Reason"] = "to be added"
+                    stoppage_alerts["Alert"] = "🔴"
+        
+                    # Final clean table
+                    table = stoppage_alerts[[
+                        "SHOT TIME", "Duration (min)", "Shots Since Last Stop", "Reason", "Alert"
+                    ]].rename(columns={"SHOT TIME": "Event Time"})
+        
+                    st.dataframe(table, width="stretch")
+        
+                    st.markdown(f"""
+                    **Summary**
+                    - Total Stoppage Alerts: {len(stoppage_alerts)}
+                    - Threshold Applied: {threshold_label}
+                    """)
+            else:
+                st.warning("⚠️ No stoppage event data available for this dataset.")
+
+    # ---------- Page 2: Raw & Processed Data ----------
+    elif page == "📂 Raw & Processed Data":
+        st.title("📋 Raw & Processed Cycle Data")
+    
+        if "results" not in st.session_state:
+            st.info("👈 Please generate a report first from the Analysis Dashboard.")
+        else:
+            results = st.session_state.results
+            df_vis = results["df"].copy()
+    
+            # --- Summary (same as Page 1) ---
+            st.markdown("### Shot Counts & Efficiency")
+            st.table(pd.DataFrame({
+                "Total Shot Count": [results['total_shots']],
+                "Normal Shot Count": [results['normal_shots']],
+                "Efficiency": [f"{results['efficiency']*100:.2f}%"],
+                "Stop Count": [results['stop_events']]
+            }))
+    
+            st.markdown("### Reliability Metrics")
+            st.table(pd.DataFrame({
+                "Metric": ["MTTR", "MTBF", "Time to First DT (Avg)", "Avg Cycle Time"],
+                "Value": ["0.55", "6.06", "5.06", "28.21"]
+            }))
+    
+            st.markdown("### Production & Downtime Summary")
+            st.table(pd.DataFrame({
+                "Mode CT": [f"{results['mode_ct']:.2f}"],
+                "Lower Limit": [f"{results['lower_limit']:.2f}"],
+                "Upper Limit": [f"{results['upper_limit']:.2f}"],
+                "Production Time (hrs)": [f"{results['production_time']/60:.1f} hrs ({results['production_time']/results['total_runtime']*100:.2f}%)"],
+                "Downtime (hrs)": [f"{results['downtime']/60:.1f} hrs ({results['downtime']/results['total_runtime']*100:.2f}%)"],
+                "Total Run Time (hrs)": [f"{results['run_hours']:.2f}"],
+                "Total Stops": [results['stop_events']]
+            }))
+    
+            st.markdown("---")
+    
+            # --- Supplier Name ---
+            if "SUPPLIER NAME" in df_vis.columns:
+                df_vis["Supplier Name"] = df_vis["SUPPLIER NAME"]
+            else:
+                df_vis["Supplier Name"] = "not provided"
+    
+            # --- Equipment Code ---
+            if "EQUIPMENT CODE" in df_vis.columns:
+                df_vis["Equipment Code"] = df_vis["EQUIPMENT CODE"]
+            else:
+                df_vis["Equipment Code"] = "not provided"
+    
+            # --- Approved CT ---
+            if "APPROVED CT" in df_vis.columns:
+                df_vis["Approved CT"] = df_vis["APPROVED CT"]
+            else:
+                df_vis["Approved CT"] = "not provided"
+    
+            # --- Actual CT (1 decimal) ---
+            df_vis["Actual CT"] = df_vis["ACTUAL CT"].round(1)
+    
+            # --- Time Diff Sec (2 decimals) ---
+            df_vis["Time Diff Sec"] = df_vis["CT_diff_sec"].round(2)
+    
+            # --- Stop Flag (use STOP_ADJ so back-to-backs are also marked) ---
+            df_vis["Stop"] = df_vis["STOP_ADJ"]
+    
+            # --- Cumulative Count (cycles since last stop) ---
+            df_vis["Cumulative Count"] = df_vis.groupby(df_vis["Stop"].cumsum()).cumcount()
+    
+            # --- Run Duration (update only when stop occurs) ---
+            df_vis["Run Duration"] = np.where(df_vis["Stop"] == 1,
+                                              (df_vis["CT_diff_sec"] / 60).round(2),
+                                              0)
+    
+            # --- Select only required columns ---
+            df_clean = df_vis[[
+                "Supplier Name", "Equipment Code", "SHOT TIME",
+                "Approved CT", "Actual CT", "Time Diff Sec",
+                "Stop", "Cumulative Count", "Run Duration"
+            ]].rename(columns={
+                "SHOT TIME": "Shot Time"
+            })
+    
+            # --- Display with checkboxes for Stop ---
+            st.markdown("### Cycle Data Table (Processed)")
+            st.data_editor(
+                df_clean,
+                width="stretch",
+                column_config={
+                    "Stop": st.column_config.CheckboxColumn(
+                        "Stop",
+                        help="Marked as stoppage event",
+                        default=False
                     )
-            
-                    # --- Download option ---
-                    csv = df_clean.to_csv(index=False).encode("utf-8")
-                    st.download_button(
-                        label="💾 Download Processed Data (CSV)",
-                        data=csv,
-                        file_name="processed_cycle_data.csv",
-                        mime="text/csv"
-                    )
+                }
+            )
+    
+            # --- Download option ---
+            csv = df_clean.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="💾 Download Processed Data (CSV)",
+                data=csv,
+                file_name="processed_cycle_data.csv",
+                mime="text/csv"
+            )
 
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin. Headers in ROW 1 please")
