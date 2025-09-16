@@ -222,10 +222,10 @@ if uploaded_file:
             # Summaries
             st.markdown("### Shot Counts & Efficiency")
             st.table(pd.DataFrame({
-                "Total Shot Count": [results['total_shots']],
-                "Normal Shot Count": [results['normal_shots']],
-                "Efficiency": [f"{results['efficiency']*100:.2f}%"],
-                "Stop Count": [results['stop_events']]
+                "Total Shot Count": [results.get('total_shots', 0)],
+                "Normal Shot Count": [results.get('normal_shots', 0)],
+                "Efficiency": [f"{results.get('efficiency', 0)*100:.2f}%"],
+                "Stop Count": [results.get('stop_events', 0)]
             }))
 
         # --- Reliability Metrics ---
@@ -269,13 +269,13 @@ if uploaded_file:
 
         st.markdown("### Production & Downtime Summary")
         st.table(pd.DataFrame({
-            "Mode CT": [f"{results['mode_ct']:.2f}"],
-            "Lower Limit": [f"{results['lower_limit']:.2f}"],
-            "Upper Limit": [f"{results['upper_limit']:.2f}"],
-            "Production Time (hrs)": [f"{results['production_time']/60:.1f} hrs ({results['production_time']/results['total_runtime']*100:.2f}%)"],
-            "Downtime (hrs)": [f"{results['downtime']/60:.1f} hrs ({results['downtime']/results['total_runtime']*100:.2f}%)"],
-            "Total Run Time (hrs)": [f"{results['run_hours']:.2f}"],
-            "Total Stops": [results['stop_events']]
+            "Mode CT": [f"{results.get('mode_ct', 0):.2f}"],
+            "Lower Limit": [f"{results.get('lower_limit', 0):.2f}"],
+            "Upper Limit": [f"{results.get('upper_limit', 0):.2f}"],
+            "Production Time (hrs)": [f"{results.get('production_time', 0)/60:.1f} hrs ({results.get('production_time', 0)/results.get('total_runtime', 1)*100:.2f}%)"],
+            "Downtime (hrs)": [f"{results.get('downtime', 0)/60:.1f} hrs ({results.get('downtime', 0)/results.get('total_runtime', 1)*100:.2f}%)"],
+            "Total Run Time (hrs)": [f"{results.get('run_hours', 0):.2f}"],
+            "Total Stops": [results.get('stop_events', 0)]
         }))
 
         # Graphs + Collapsible Tables
@@ -328,7 +328,7 @@ if uploaded_file:
 
         # 2) Time Bucket Trend (group by hour of day instead of week)
 
-        if "SHOT TIME" in results["df"].columns:
+        if "SHOT TIME" in results.get("df", pd.DataFrame()).columns:
             # Get run end time for each RUN_GROUP
             run_end_times = results["df"].groupby("RUN_GROUP")["SHOT TIME"].max().reset_index(name="RUN_END")
             run_durations = run_durations.merge(run_end_times, on="RUN_GROUP", how="left")
@@ -371,7 +371,7 @@ if uploaded_file:
             st.dataframe(trend)
 
         # 3) MTTR & MTBF Trend by Hour
-        hourly = results["hourly"].copy()
+        hourly = results.get("hourly", pd.DataFrame()).copy()
         all_hours = pd.DataFrame({"HOUR": list(range(24))})
         hourly = all_hours.merge(hourly, on="HOUR", how="left")
         fig_mt = go.Figure()
@@ -455,7 +455,7 @@ if uploaded_file:
         
         if "results" in st.session_state:
             results = st.session_state.results
-            df_vis = results["df"].copy()
+            df_vis = results.get("df", pd.DataFrame()).copy()
         
             # --- Read threshold values from sidebar ---
             threshold_mode = st.session_state.get("threshold_mode")
