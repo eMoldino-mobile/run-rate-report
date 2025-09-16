@@ -497,7 +497,6 @@ if uploaded_file:
         st.title("📋 Raw & Processed Cycle Data")
 
         results = st.session_state.get("results", {})
-        st.write("DEBUG - Results keys:", list(results.keys()))
         if not results:
             st.info("👈 Please generate a report first from the Analysis Dashboard.")
         else:
