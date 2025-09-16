@@ -545,8 +545,6 @@ if uploaded_file:
                     "Total Run Time (hrs)": [f"{results.get('run_hours', 0):.2f}"],
                     "Total Stops": [stop_events]
                 }))
-                else:
-                    st.warning("⚠️ No stoppage event data available for this dataset.")
 
     # ---------- Page 2: Raw & Processed Data ----------
     
