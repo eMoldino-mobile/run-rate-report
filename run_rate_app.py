@@ -528,12 +528,12 @@ if uploaded_file:
                     "Lower Limit": [f"{results.get('lower_limit', 0):.2f}"],
                     "Upper Limit": [f"{results.get('upper_limit', 0):.2f}"],
                     "Production Time (hrs)": [
-                        f"{results.get('production_time', 0) / 60:.1f} hrs "
-                        f"({results.get('production_time', 0) / results.get('total_runtime', 1) * 100:.2f}%)"
+                        f"{results.get('production_time', 0)/60:.1f} hrs "
+                        f"({results.get('production_time', 0)/results.get('total_runtime', 1)*100:.2f}%)"
                     ],
                     "Downtime (hrs)": [
-                        f"{results.get('downtime', 0) / 60:.1f} hrs "
-                        f"({results.get('downtime', 0) / results.get('total_runtime', 1) * 100:.2f}%)"
+                        f"{results.get('downtime', 0)/60:.1f} hrs "
+                        f"({results.get('downtime', 0)/results.get('total_runtime', 1)*100:.2f}%)"
                     ],
                     "Total Run Time (hrs)": [f"{results.get('run_hours', 0):.2f}"],
                     "Total Stops": [stop_events]
