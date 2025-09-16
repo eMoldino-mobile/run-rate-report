@@ -493,7 +493,6 @@ if uploaded_file:
             st.info("👈 Please generate a report first from the Analysis Dashboard.")
         else:
             results = st.session_state.results
-            df_res = results["df"].copy()
             df_vis = results["df"].copy()
     
             # --- Shot Counts & Efficiency ---
