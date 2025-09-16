@@ -51,6 +51,7 @@ def calculate_run_rate_excel_like(df):
     df["STOP_ADJ"] = df["STOP_FLAG"]
     df.loc[(df["STOP_FLAG"] == 1) & (df["STOP_FLAG"].shift(fill_value=0) == 1), "STOP_ADJ"] = 0
 
+
     # Events
     df["STOP_EVENT"] = (df["STOP_ADJ"].shift(fill_value=0) == 0) & (df["STOP_ADJ"] == 1)
 
