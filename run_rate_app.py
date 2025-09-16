@@ -258,11 +258,6 @@ if uploaded_file:
             else:
                 mttr, mtbf, first_dt = None, None, None
             
-                # Time to First Downtime
-                first_dt = downtime_events.iloc[0] if not downtime_events.empty else None
-            else:
-                mttr, mtbf, first_dt = None, None, None
-            
             avg_ct = df_res["ACTUAL CT"].mean() if "ACTUAL CT" in df_res.columns else None
             
             reliability_df = pd.DataFrame({
