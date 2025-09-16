@@ -212,8 +212,9 @@ if uploaded_file:
 
     # --- Page 1: Analysis Dashboard ---
     if page == "📊 Analysis Dashboard":
-    results = st.session_state.get("results", {})  # ✅ always define safely
-
+        # ✅ always define safely
+        results = st.session_state.get("results", {})
+    
         if not results:
             st.info("👈 Please generate a report first from the sidebar.")
         else:
@@ -279,10 +280,10 @@ if uploaded_file:
                     f"({results.get('downtime', 0)/results.get('total_runtime', 1)*100:.2f}%)"
                 ],
                 "Total Run Time (hrs)": [f"{results.get('run_hours', 0):.2f}"],
-                "Total Stops": [results.get('stop_events', 0)]
+                "Total Stops": [stop_events]
             }))
-
-        # Graphs + Collapsible Tables
+    
+            # --- Visual Analysis ---
         st.subheader("📈 Visual Analysis")
         run_durations = results["run_durations"].copy()
         bucket_order = [f"{i+1}: {rng}" for i, rng in enumerate(
