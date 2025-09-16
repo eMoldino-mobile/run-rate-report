@@ -277,7 +277,6 @@ if uploaded_file:
                         "7: 120-140 min":"#238b45",  # forest green-blue
                         "8: 140-160 min":"#005824",  # deep teal/blue-green
                         "9: >160 min":  "#003d2d"   # almost black teal
-                    }
                     },
                     hover_data={"count":True,"HOUR":True}
                 )
