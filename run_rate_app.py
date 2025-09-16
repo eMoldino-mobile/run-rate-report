@@ -259,21 +259,20 @@ if uploaded_file:
             "Total Stops": [results['stop_events']]
         }))
 
-                # Graphs + Collapsible Tables
-                st.subheader("📈 Visual Analysis")
-                run_durations = results["run_durations"].copy()
-                bucket_order = [f"{i+1}: {rng}" for i, rng in enumerate(
-                    ["0-20 min","20-40 min","40-60 min","60-80 min",
-                     "80-100 min","100-120 min","120-140 min","140-160 min",">160 min"]
-                )]
+        # Graphs + Collapsible Tables
+        st.subheader("📈 Visual Analysis")
+        run_durations = results["run_durations"].copy()
+        bucket_order = [f"{i+1}: {rng}" for i, rng in enumerate(
+            ["0-20 min","20-40 min","40-60 min","60-80 min","80-100 min","100-120 min","120-140 min","140-160 min",">160 min"]
+        )]
 
-                # Re-map bucket labels in run_durations
-                label_map = {
-                    "0-20":"1: 0-20 min", "20-40":"2: 20-40 min", "40-60":"3: 40-60 min",
-                    "60-80":"4: 60-80 min", "80-100":"5: 80-100 min", "100-120":"6: 100-120 min",
-                    "120-140":"7: 120-140 min", "140-160":"8: 140-160 min", ">160":"9: >160 min"
-                }
-                run_durations["TIME_BUCKET"] = run_durations["TIME_BUCKET"].map(label_map)
+        # Re-map bucket labels in run_durations
+        label_map = {
+            "0-20":"1: 0-20 min", "20-40":"2: 20-40 min", "40-60":"3: 40-60 min",
+            "60-80":"4: 60-80 min", "80-100":"5: 80-100 min", "100-120":"6: 100-120 min",
+            "120-140":"7: 120-140 min", "140-160":"8: 140-160 min", ">160":"9: >160 min"
+        }
+        run_durations["TIME_BUCKET"] = run_durations["TIME_BUCKET"].map(label_map)
 
                 # 1) Time Bucket Analysis (overall distribution of run durations)
                 bucket_counts = run_durations["TIME_BUCKET"].value_counts().reindex(bucket_order).fillna(0).astype(int)
