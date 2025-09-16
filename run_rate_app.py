@@ -185,10 +185,31 @@ if uploaded_file:
                 }))
 
                 st.markdown("### Reliability Metrics")
-                st.table(pd.DataFrame({
+
+                # MTTR = average downtime duration
+                mttr = results["df"].loc[results["STOP_EVENT"], "CT_diff_sec"].mean() / 60 if results["stop_events"] > 0 else None
+                
+                # MTBF = average uptime duration
+                uptimes = results["df"].loc[~results["STOP_EVENT"], "CT_diff_sec"]
+                mtbf = uptimes.mean() / 60 if results["stop_events"] > 0 and not uptimes.empty else None
+                
+                # Time to First Downtime = first STOP_EVENT duration
+                first_dt = results["df"].loc[results["STOP_EVENT"], "CT_diff_sec"].iloc[0] / 60 if results["stop_events"] > 0 else None
+                
+                # Avg Cycle Time = average of ACTUAL CT
+                avg_ct = results["df"]["ACTUAL CT"].mean()
+                
+                reliability_df = pd.DataFrame({
                     "Metric": ["MTTR", "MTBF", "Time to First DT (Avg)", "Avg Cycle Time"],
-                    "Value": ["0.55", "6.06", "5.06", "28.21"]
-                }))
+                    "Value": [
+                        f"{mttr:.2f}" if mttr else "N/A",
+                        f"{mtbf:.2f}" if mtbf else "N/A",
+                        f"{first_dt:.2f}" if first_dt else "N/A",
+                        f"{avg_ct:.2f}" if avg_ct else "N/A"
+                    ]
+                })
+                
+                st.table(reliability_df)
 
                 st.markdown("### Production & Downtime Summary")
                 st.table(pd.DataFrame({
