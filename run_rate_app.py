@@ -186,21 +186,23 @@ if uploaded_file:
 
                 st.markdown("### Reliability Metrics")
 
-                # MTTR = average downtime duration
-                mttr = results["df"].loc[results["STOP_EVENT"], "CT_diff_sec"].mean() / 60 if results["stop_events"] > 0 else None
+                df_res = results["df"]
                 
-                # MTBF = average uptime duration
-                uptimes = results["df"].loc[~results["STOP_EVENT"], "CT_diff_sec"]
+                # MTTR = average downtime duration (minutes)
+                mttr = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].mean() / 60 if results["stop_events"] > 0 else None
+                
+                # MTBF = average uptime duration (minutes)
+                uptimes = df_res.loc[~df_res["STOP_EVENT"], "CT_diff_sec"]
                 mtbf = uptimes.mean() / 60 if results["stop_events"] > 0 and not uptimes.empty else None
                 
-                # Time to First Downtime = first STOP_EVENT duration
-                first_dt = results["df"].loc[results["STOP_EVENT"], "CT_diff_sec"].iloc[0] / 60 if results["stop_events"] > 0 else None
+                # Time to First Downtime = first STOP_EVENT gap (minutes)
+                first_dt = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].iloc[0] / 60 if results["stop_events"] > 0 else None
                 
-                # Avg Cycle Time = average of ACTUAL CT
-                avg_ct = results["df"]["ACTUAL CT"].mean()
+                # Avg Cycle Time = mean of ACTUAL CT (seconds → convert to sec directly)
+                avg_ct = df_res["ACTUAL CT"].mean()
                 
                 reliability_df = pd.DataFrame({
-                    "Metric": ["MTTR", "MTBF", "Time to First DT (Avg)", "Avg Cycle Time"],
+                    "Metric": ["MTTR (min)", "MTBF (min)", "Time to First DT (min)", "Avg Cycle Time (sec)"],
                     "Value": [
                         f"{mttr:.2f}" if mttr else "N/A",
                         f"{mtbf:.2f}" if mtbf else "N/A",
