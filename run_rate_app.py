@@ -523,7 +523,6 @@ if uploaded_file:
 
                 # --- Production & Downtime Summary ---
                 st.markdown("### Production & Downtime Summary")
-                results = st.session_state.get("results", {})
                 st.table(pd.DataFrame({
                     "Mode CT": [f"{results.get('mode_ct', 0):.2f}"],
                     "Lower Limit": [f"{results.get('lower_limit', 0):.2f}"],
