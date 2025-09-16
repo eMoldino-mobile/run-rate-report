@@ -396,46 +396,60 @@ if uploaded_file:
                 # 5) 🚨 Stoppage Alerts (Improved Table)
                 st.markdown("### 🚨 Stoppage Alert Reporting")
 
-                # Let user pick how to define the threshold
-                threshold_mode = st.radio(
-                    "Select threshold type:",
-                    ["Multiple of Mode CT", "Manual (seconds)"],
-                    horizontal=True
-                )
+                if "results" in st.session_state:
+                    results = st.session_state.results
+                    df_vis = results["df"].copy()
                 
-                if threshold_mode == "Multiple of Mode CT":
-                    multiplier = st.slider("Multiplier of Mode CT", min_value=1.0, max_value=5.0, value=2.0, step=0.5)
-                    threshold = results["mode_ct"] * multiplier
-                    threshold_label = f"Mode CT × {multiplier} = {threshold:.2f} sec"
-                else:
-                    threshold = st.number_input("Manual threshold (seconds)", min_value=1.0, value=float(results["mode_ct"]*2))
-                    threshold_label = f"{threshold:.2f} sec (manual)"
+                    # Let user pick how to define the threshold
+                    threshold_mode = st.radio(
+                        "Select threshold type:",
+                        ["Multiple of Mode CT", "Manual (seconds)"],
+                        horizontal=True,
+                        key="threshold_mode"
+                    )
                 
-                # Filter alerts based on chosen threshold
-                df_vis = results["df"].copy()
-                stoppage_alerts = df_vis[df_vis["CT_diff_sec"] >= threshold].copy()
+                    if threshold_mode == "Multiple of Mode CT":
+                        multiplier = st.slider(
+                            "Multiplier of Mode CT",
+                            min_value=1.0, max_value=5.0, value=2.0, step=0.5,
+                            key="ct_multiplier"
+                        )
+                        threshold = results["mode_ct"] * multiplier
+                        threshold_label = f"Mode CT × {multiplier} = {threshold:.2f} sec"
+                    else:
+                        threshold = st.number_input(
+                            "Manual threshold (seconds)",
+                            min_value=1.0, value=float(results["mode_ct"]*2),
+                            key="manual_threshold"
+                        )
+                        threshold_label = f"{threshold:.2f} sec (manual)"
                 
-                if stoppage_alerts.empty:
-                    st.info("✅ No stoppage alerts found.")
-                else:
-                    # Shots since last stop (cumulative cycle count)
-                    stoppage_alerts["Shots Since Last Stop"] = stoppage_alerts.groupby(
-                        stoppage_alerts["STOP_EVENT"].cumsum()
-                    ).cumcount()
+                    # Filter stoppages
+                    if "STOP_EVENT" in df_vis.columns and "CT_diff_sec" in df_vis.columns:
+                        stoppage_alerts = df_vis[df_vis["CT_diff_sec"] >= threshold].copy()
                 
-                    stoppage_alerts["Duration (min)"] = (stoppage_alerts["CT_diff_sec"] / 60).round(1)
-                    stoppage_alerts["Reason"] = "to be added"
-                    stoppage_alerts["Alert"] = "🔴"
+                        if stoppage_alerts.empty:
+                            st.info("✅ No stoppage alerts found.")
+                        else:
+                            stoppage_alerts["Shots Since Last Stop"] = stoppage_alerts.groupby(
+                                stoppage_alerts["STOP_EVENT"].cumsum()
+                            ).cumcount()
                 
-                    table = stoppage_alerts[["SHOT TIME","Duration (min)","Shots Since Last Stop","Reason","Alert"]]
-                    table = table.rename(columns={"SHOT TIME":"Event Time"})
+                            stoppage_alerts["Duration (min)"] = (stoppage_alerts["CT_diff_sec"] / 60).round(1)
+                            stoppage_alerts["Reason"] = "to be added"
+                            stoppage_alerts["Alert"] = "🔴"
                 
-                    st.dataframe(table, width="stretch")
-                    st.markdown(f"""
-                    **Summary**
-                    - Total Stoppage Alerts: {len(stoppage_alerts)}
-                    - Threshold Applied: {threshold_label}
-                    """)
+                            table = stoppage_alerts[["SHOT TIME","Duration (min)","Shots Since Last Stop","Reason","Alert"]]
+                            table = table.rename(columns={"SHOT TIME":"Event Time"})
+                
+                            st.dataframe(table, use_container_width=True)
+                            st.markdown(f"""
+                            **Summary**
+                            - Total Stoppage Alerts: {len(stoppage_alerts)}
+                            - Threshold Applied: {threshold_label}
+                            """)
+                    else:
+                        st.warning("No stoppage event data available for this dataset.")
 
                 if stoppage_alerts.empty:
                     st.info("✅ No stoppage alerts found (≥ Mode CT × 2).")
