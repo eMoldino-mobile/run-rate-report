@@ -230,7 +230,6 @@ if uploaded_file:
 
         st.markdown("### Reliability Metrics")
 
-        df_res = results["df"]
                 
         # MTTR = average downtime duration (minutes)
         mttr = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].mean() / 60 if results["stop_events"] > 0 else None
@@ -493,6 +492,7 @@ if uploaded_file:
             st.info("👈 Please generate a report first from the Analysis Dashboard.")
         else:
             results = st.session_state.results
+            df_res = results["df"].copy()
             df_vis = results["df"].copy()
     
             # --- Shot Counts & Efficiency ---
