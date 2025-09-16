@@ -176,11 +176,6 @@ if uploaded_file:
         else:
             results = calculate_run_rate_excel_like(df_filtered)
             st.session_state.results = results
-
-            # --- Page 1: Analysis Dashboard ---
-            if page == "📊 Analysis Dashboard":
-                st.title("📊 Run Rate Report")
-                st.subheader(f"Tool: {tool} | Date: {date.strftime('%Y-%m-%d')}")
     # --- Threshold Settings (in sidebar) ---
     st.sidebar.markdown("### 🚨 Stoppage Threshold Settings")
     
@@ -209,6 +204,11 @@ if uploaded_file:
             key="manual_threshold"
         )
         threshold_label = f"{threshold:.2f} sec (manual)" if threshold else ""
+
+            # --- Page 1: Analysis Dashboard ---
+            if page == "📊 Analysis Dashboard":
+                st.title("📊 Run Rate Report")
+                st.subheader(f"Tool: {tool} | Date: {date.strftime('%Y-%m-%d')}")
 
                 # Summaries
                 st.markdown("### Shot Counts & Efficiency")
