@@ -492,9 +492,10 @@ if uploaded_file:
         if "results" not in st.session_state:
             st.info("👈 Please generate a report first from the Analysis Dashboard.")
         else:
+            # ✅ only access results inside this block
             results = st.session_state.results
+            df_res = results["df"].copy()   # safe now
             df_vis = results["df"].copy()
-            df_res = results["df"]
     
             # --- Shot Counts & Efficiency ---
             st.markdown("### Shot Counts & Efficiency")
@@ -505,7 +506,7 @@ if uploaded_file:
                 "Stop Count": [results['stop_events']]
             }))
     
-            # --- Reliability Metrics (calculated dynamically, same logic as Page 1) ---
+            # --- Reliability Metrics ---
             mttr = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].mean() / 60 if results["stop_events"] > 0 else None
             uptimes = df_res.loc[~df_res["STOP_EVENT"], "CT_diff_sec"]
             mtbf = uptimes.mean() / 60 if results["stop_events"] > 0 and not uptimes.empty else None
