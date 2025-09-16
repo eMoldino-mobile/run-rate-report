@@ -317,32 +317,36 @@ if uploaded_file:
             st.dataframe(bucket_df)
 
         # 2) Time Bucket Trend (group by hour of day instead of week)
+
         if "SHOT TIME" in results["df"].columns:
-            run_durations["HOUR"] = results["df"]["SHOT TIME"].dt.hour
+            # Get run end time for each RUN_GROUP
+            run_end_times = results["df"].groupby("RUN_GROUP")["SHOT TIME"].max().reset_index(name="RUN_END")
+            run_durations = run_durations.merge(run_end_times, on="RUN_GROUP", how="left")
+            run_durations["HOUR"] = run_durations["RUN_END"].dt.hour
         else:
             run_durations["HOUR"] = -1  # fallback if no timestamps
-
+        
         trend = run_durations.groupby(["HOUR","TIME_BUCKET"]).size().reset_index(name="count")
-
+        
         # Ensure all hours 0–23 appear, even if empty
         hours = list(range(24))
         grid = pd.MultiIndex.from_product([hours, bucket_order], names=["HOUR","TIME_BUCKET"]).to_frame(index=False)
         trend = grid.merge(trend, on=["HOUR","TIME_BUCKET"], how="left").fillna({"count":0})
-
+        
         fig_tb_trend = px.bar(
             trend, x="HOUR", y="count", color="TIME_BUCKET",
             category_orders={"TIME_BUCKET": bucket_order},
             title="Hourly Time Bucket Trend (Continuous Runs Before Stops)",
             color_discrete_map = {
-                "1: 0-20 min":   "#d73027",  # red
-                "2: 20-40 min":  "#fc8d59",  # orange-red
-                "3: 40-60 min":  "#fee090",  # yellow
-                "4: 60-80 min":  "#c6dbef",  # very light grey-blue
-                "5: 80-100 min": "#9ecae1",  # light steel blue
-                "6: 100-120 min":"#6baed6",  # medium blue-grey
-                "7: 120-140 min":"#4292c6",  # stronger blue-grey
-                "8: 140-160 min":"#2171b5",  # dark muted blue
-                "9: >160 min":  "#084594"    # deep navy blue
+                "1: 0-20 min":   "#d73027",
+                "2: 20-40 min":  "#fc8d59",
+                "3: 40-60 min":  "#fee090",
+                "4: 60-80 min":  "#c6dbef",
+                "5: 80-100 min": "#9ecae1",
+                "6: 100-120 min":"#6baed6",
+                "7: 120-140 min":"#4292c6",
+                "8: 140-160 min":"#2171b5",
+                "9: >160 min":  "#084594"
             },
             hover_data={"count":True,"HOUR":True}
         )
@@ -352,7 +356,7 @@ if uploaded_file:
             yaxis=dict(title="Number of Runs")
         )
         st.plotly_chart(fig_tb_trend, width="stretch")
-
+        
         with st.expander("📊 Hourly Time Bucket Trend Data Table", expanded=False):
             st.dataframe(trend)
 
