@@ -491,12 +491,22 @@ if uploaded_file:
         elif page == "📂 Raw & Processed Data":
             st.title("📋 Raw & Processed Cycle Data")
 
-            if "results" not in st.session_state or not st.session_state.results:
+            results = st.session_state.get("results", {})
+            if not results:
                 st.info("👈 Please generate a report first from the Analysis Dashboard.")
             else:
-                results = st.session_state.results
                 df_res = results.get("df", pd.DataFrame()).copy()
+                df_vis = results.get("df", pd.DataFrame()).copy()
                 stop_events = results.get("stop_events", 0)
+
+                # --- Summary ---
+                st.markdown("### Shot Counts & Efficiency")
+                st.table(pd.DataFrame({
+                    "Total Shot Count": [results.get("total_shots", 0)],
+                    "Normal Shot Count": [results.get("normal_shots", 0)],
+                    "Efficiency": [f"{results.get('efficiency', 0)*100:.2f}%"],
+                    "Stop Count": [stop_events]
+                }))
 
                 # --- Reliability Metrics ---
                 if stop_events > 0 and "STOP_EVENT" in df_res.columns:
@@ -536,16 +546,16 @@ if uploaded_file:
                         f"({results.get('downtime', 0)/results.get('total_runtime', 1)*100:.2f}%)"
                     ],
                     "Total Run Time (hrs)": [f"{results.get('run_hours', 0):.2f}"],
-                    "Total Stops": [results.get('stop_events', 0)]
+                    "Total Stops": [stop_events]
                 }))
 
                 st.markdown("---")
-        
+
                 # --- Supplier / Equipment / Approved CT ---
                 df_vis["Supplier Name"] = df_vis.get("SUPPLIER NAME", "not provided")
                 df_vis["Equipment Code"] = df_vis.get("EQUIPMENT CODE", "not provided")
                 df_vis["Approved CT"] = df_vis.get("APPROVED CT", "not provided")
-        
+
                 # --- Enrich cycle data ---
                 df_vis["Actual CT"] = df_vis["ACTUAL CT"].round(1)
                 df_vis["Time Diff Sec"] = df_vis["CT_diff_sec"].round(2)
@@ -556,14 +566,14 @@ if uploaded_file:
                     (df_vis["CT_diff_sec"] / 60).round(2),
                     0
                 )
-        
+
                 # --- Final cleaned table ---
                 df_clean = df_vis[[
                     "Supplier Name", "Equipment Code", "SHOT TIME",
                     "Approved CT", "Actual CT", "Time Diff Sec",
                     "Stop", "Cumulative Count", "Run Duration"
                 ]].rename(columns={"SHOT TIME": "Shot Time"})
-        
+
                 # --- Interactive data editor ---
                 st.markdown("### Cycle Data Table (Processed)")
                 st.data_editor(
@@ -577,7 +587,7 @@ if uploaded_file:
                         )
                     }
                 )
-        
+
                 # --- Download options ---
                 # 1) CSV Export
                 csv = df_clean.to_csv(index=False).encode("utf-8")
@@ -587,18 +597,18 @@ if uploaded_file:
                     file_name="processed_cycle_data.csv",
                     mime="text/csv"
                 )
-        
+
                 # 2) Excel Export with formulas
                 from io import BytesIO
                 from openpyxl import Workbook
-        
+
                 wb = Workbook()
                 ws = wb.active
                 ws.title = "Cycle Data"
-        
+
                 # Write headers
                 ws.append(df_clean.columns.tolist())
-        
+
                 # Write rows with formulas where useful
                 for i, row in df_clean.iterrows():
                     excel_row = []
@@ -609,12 +619,12 @@ if uploaded_file:
                         else:
                             excel_row.append(row[col])
                     ws.append(excel_row)
-        
+
                 # Save to buffer
                 buffer = BytesIO()
                 wb.save(buffer)
                 buffer.seek(0)
-        
+
                 st.download_button(
                     label="📊 Download Processed Data (Excel with formulas)",
                     data=buffer,
