@@ -504,12 +504,29 @@ if uploaded_file:
                 "Stop Count": [results['stop_events']]
             }))
     
-            st.markdown("### Reliability Metrics")
-            st.table(pd.DataFrame({
-                "Metric": ["MTTR", "MTBF", "Time to First DT (Avg)", "Avg Cycle Time"],
-                "Value": ["0.55", "6.06", "5.06", "28.21"]
-            }))
+            # --- Reliability Metrics (calculated dynamically like Page 1) ---
+            df_res = results["df"]
     
+            mttr = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].mean() / 60 if results["stop_events"] > 0 else None
+            uptimes = df_res.loc[~df_res["STOP_EVENT"], "CT_diff_sec"]
+            mtbf = uptimes.mean() / 60 if results["stop_events"] > 0 and not uptimes.empty else None
+            first_dt = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].iloc[0] / 60 if results["stop_events"] > 0 else None
+            avg_ct = df_res["ACTUAL CT"].mean()
+    
+            reliability_df = pd.DataFrame({
+                "Metric": ["MTTR (min)", "MTBF (min)", "Time to First DT (min)", "Avg Cycle Time (sec)"],
+                "Value": [
+                    f"{mttr:.2f}" if mttr else "N/A",
+                    f"{mtbf:.2f}" if mtbf else "N/A",
+                    f"{first_dt:.2f}" if first_dt else "N/A",
+                    f"{avg_ct:.2f}" if avg_ct else "N/A"
+                ]
+            })
+    
+            st.markdown("### Reliability Metrics")
+            st.table(reliability_df)
+    
+            # --- Production & Downtime Summary ---
             st.markdown("### Production & Downtime Summary")
             st.table(pd.DataFrame({
                 "Mode CT": [f"{results['mode_ct']:.2f}"],
@@ -524,22 +541,13 @@ if uploaded_file:
             st.markdown("---")
     
             # --- Supplier Name ---
-            if "SUPPLIER NAME" in df_vis.columns:
-                df_vis["Supplier Name"] = df_vis["SUPPLIER NAME"]
-            else:
-                df_vis["Supplier Name"] = "not provided"
+            df_vis["Supplier Name"] = df_vis.get("SUPPLIER NAME", "not provided")
     
             # --- Equipment Code ---
-            if "EQUIPMENT CODE" in df_vis.columns:
-                df_vis["Equipment Code"] = df_vis["EQUIPMENT CODE"]
-            else:
-                df_vis["Equipment Code"] = "not provided"
+            df_vis["Equipment Code"] = df_vis.get("EQUIPMENT CODE", "not provided")
     
             # --- Approved CT ---
-            if "APPROVED CT" in df_vis.columns:
-                df_vis["Approved CT"] = df_vis["APPROVED CT"]
-            else:
-                df_vis["Approved CT"] = "not provided"
+            df_vis["Approved CT"] = df_vis.get("APPROVED CT", "not provided")
     
             # --- Actual CT (1 decimal) ---
             df_vis["Actual CT"] = df_vis["ACTUAL CT"].round(1)
@@ -554,18 +562,18 @@ if uploaded_file:
             df_vis["Cumulative Count"] = df_vis.groupby(df_vis["Stop"].cumsum()).cumcount()
     
             # --- Run Duration (update only when stop occurs) ---
-            df_vis["Run Duration"] = np.where(df_vis["Stop"] == 1,
-                                              (df_vis["CT_diff_sec"] / 60).round(2),
-                                              0)
+            df_vis["Run Duration"] = np.where(
+                df_vis["Stop"] == 1,
+                (df_vis["CT_diff_sec"] / 60).round(2),
+                0
+            )
     
             # --- Select only required columns ---
             df_clean = df_vis[[
                 "Supplier Name", "Equipment Code", "SHOT TIME",
                 "Approved CT", "Actual CT", "Time Diff Sec",
                 "Stop", "Cumulative Count", "Run Duration"
-            ]].rename(columns={
-                "SHOT TIME": "Shot Time"
-            })
+            ]].rename(columns={"SHOT TIME": "Shot Time"})
     
             # --- Display with checkboxes for Stop ---
             st.markdown("### Cycle Data Table (Processed)")
@@ -581,13 +589,48 @@ if uploaded_file:
                 }
             )
     
-            # --- Download option ---
+            # --- Download options ---
+            # 1. CSV Export
             csv = df_clean.to_csv(index=False).encode("utf-8")
             st.download_button(
                 label="💾 Download Processed Data (CSV)",
                 data=csv,
                 file_name="processed_cycle_data.csv",
                 mime="text/csv"
+            )
+    
+            # 2. Excel Export with formulas
+            from io import BytesIO
+            from openpyxl import Workbook
+    
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Cycle Data"
+    
+            # Write headers
+            ws.append(df_clean.columns.tolist())
+    
+            # Write rows with formulas where useful
+            for i, row in df_clean.iterrows():
+                excel_row = []
+                for j, col in enumerate(df_clean.columns):
+                    if col == "Run Duration":
+                        # Example formula: if Stop=1, use Time Diff Sec / 60
+                        excel_row.append(f"=IF(H{i+2}=1, F{i+2}/60, 0)")  # H=Stop col, F=Time Diff Sec col
+                    else:
+                        excel_row.append(row[col])
+                ws.append(excel_row)
+    
+            # Save to buffer
+            buffer = BytesIO()
+            wb.save(buffer)
+            buffer.seek(0)
+    
+            st.download_button(
+                label="📊 Download Processed Data (Excel with formulas)",
+                data=buffer,
+                file_name="processed_cycle_data.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
 else:
