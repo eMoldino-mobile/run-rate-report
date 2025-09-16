@@ -80,11 +80,11 @@ def calculate_run_rate_excel_like(df):
     # --- Continuous Run Durations ---
     df["RUN_GROUP"] = df["STOP_ADJ"].cumsum()
     run_durations = (
-        df.groupby("RUN_GROUP", group_keys=False)   # 👈 prevents FutureWarning
-          .apply(lambda g: g["CT_diff_sec"].sum() / 60)  # minutes
-          .reset_index(name="RUN_DURATION")
-    )
+        df.groupby("RUN_GROUP", group_keys=False)["CT_diff_sec"]  # select column explicitly
+          .sum() / 60  # minutes
+    ).reset_index(name="RUN_DURATION")
 
+    # Keep only positive runs
     run_durations = run_durations[run_durations["RUN_DURATION"] > 0]
 
     # Assign buckets (0–20, 20–40, …)
@@ -93,7 +93,7 @@ def calculate_run_rate_excel_like(df):
         bins=[0,20,40,60,80,100,120,140,160,999999],
         labels=["0-20","20-40","40-60","60-80","80-100",
                 "100-120","120-140","140-160",">160"]
-    )
+    ).astype("object")  # ensure string-like, avoids categorical fillna issues
 
     # Bucket counts for overall distribution
     bucket_counts = run_durations["TIME_BUCKET"].value_counts().sort_index().fillna(0).astype(int)
