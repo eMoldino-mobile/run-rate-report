@@ -207,17 +207,21 @@ if uploaded_file:
 
     # --- Page 1: Analysis Dashboard ---
     if page == "📊 Analysis Dashboard":
-        st.title("📊 Run Rate Report")
-        st.subheader(f"Tool: {tool} | Date: {date.strftime('%Y-%m-%d')}")
-
-        # Summaries
-        st.markdown("### Shot Counts & Efficiency")
-        st.table(pd.DataFrame({
-            "Total Shot Count": [results['total_shots']],
-            "Normal Shot Count": [results['normal_shots']],
-            "Efficiency": [f"{results['efficiency']*100:.2f}%"],
-            "Stop Count": [results['stop_events']]
-        }))
+        if "results" not in st.session_state:
+            st.info("👈 Please generate a report first from the sidebar.")
+        else:
+            results = st.session_state.results
+            st.title("📊 Run Rate Report")
+            st.subheader(f"Tool: {tool} | Date: {date.strftime('%Y-%m-%d')}")
+    
+            # Summaries
+            st.markdown("### Shot Counts & Efficiency")
+            st.table(pd.DataFrame({
+                "Total Shot Count": [results['total_shots']],
+                "Normal Shot Count": [results['normal_shots']],
+                "Efficiency": [f"{results['efficiency']*100:.2f}%"],
+                "Stop Count": [results['stop_events']]
+            }))
 
         st.markdown("### Reliability Metrics")
 
