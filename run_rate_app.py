@@ -185,14 +185,14 @@ if uploaded_file:
         "Select threshold type:",
         ["Multiple of Mode CT", "Manual (seconds)"],
         horizontal=False,
-        key="threshold_mode"
+        key="sidebar_threshold_mode"  # unique key for sidebar
     )
     
     if threshold_mode == "Multiple of Mode CT":
         multiplier = st.sidebar.slider(
             "Multiplier of Mode CT",
             min_value=1.0, max_value=5.0, value=2.0, step=0.5,
-            key="ct_multiplier"
+            key="sidebar_ct_multiplier"
         )
         threshold = mode_ct * multiplier if mode_ct else None
         threshold_label = f"Mode CT × {multiplier} = {threshold:.2f} sec" if threshold else ""
@@ -201,9 +201,14 @@ if uploaded_file:
         threshold = st.sidebar.number_input(
             "Manual threshold (seconds)",
             min_value=1.0, value=default_val,
-            key="manual_threshold"
+            key="sidebar_manual_threshold"
         )
         threshold_label = f"{threshold:.2f} sec (manual)" if threshold else ""
+    
+    # Save into session_state for use in main section
+    st.session_state["threshold_mode"] = threshold_mode
+    st.session_state["threshold"] = threshold
+    st.session_state["threshold_label"] = threshold_label
 
     # --- Page 1: Analysis Dashboard ---
     if page == "📊 Analysis Dashboard":
