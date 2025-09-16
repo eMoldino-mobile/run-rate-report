@@ -494,6 +494,8 @@ if uploaded_file:
         else:
             results = st.session_state.results
             df_vis = results["df"].copy()
+            df_res = results["df"]  # ✅ so df_res exists here too
+            run_durations = results["run_durations"]["RUN_DURATION"]
     
             # --- Summary (same as Page 1) ---
             st.markdown("### Shot Counts & Efficiency")
