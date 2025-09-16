@@ -38,7 +38,7 @@ def calculate_run_rate_excel_like(df):
     lower_limit = mode_ct * 0.95
     upper_limit = mode_ct * 1.05
 
-    # STOP flag
+    # STOP flag (all potential stops)
     df["STOP_FLAG"] = np.where(
         (df["CT_diff_sec"].notna()) &
         ((df["CT_diff_sec"] < lower_limit) | (df["CT_diff_sec"] > upper_limit)) &
@@ -47,11 +47,11 @@ def calculate_run_rate_excel_like(df):
     )
     df.loc[df.index[0], "STOP_FLAG"] = 0
 
-    # Back-to-back stop adjustment
+    # Back-to-back stop adjustment (for stop count)
     df["STOP_ADJ"] = df["STOP_FLAG"]
     df.loc[(df["STOP_FLAG"] == 1) & (df["STOP_FLAG"].shift(fill_value=0) == 1), "STOP_ADJ"] = 0
 
-    # Events
+    # Events (first in sequence = true stop event)
     df["STOP_EVENT"] = (df["STOP_ADJ"].shift(fill_value=0) == 0) & (df["STOP_ADJ"] == 1)
 
     # --- Core Metrics ---
@@ -63,9 +63,9 @@ def calculate_run_rate_excel_like(df):
     total_runtime = (df["SHOT TIME"].max() - df["SHOT TIME"].min()).total_seconds() / 60  # minutes
     run_hours = total_runtime / 60
 
-    # Downtime = sum of adjusted stop intervals
-    downtime = df.loc[df["STOP_ADJ"] == 1, "CT_diff_sec"].sum() / 60  # minutes
-    
+    # Downtime = sum of ALL stop intervals (even back-to-back)
+    downtime = df.loc[df["STOP_FLAG"] == 1, "CT_diff_sec"].sum() / 60  # minutes
+
     # Production time = runtime - downtime
     production_time = total_runtime - downtime
 
@@ -73,7 +73,7 @@ def calculate_run_rate_excel_like(df):
     net_rate = normal_shots / run_hours if run_hours else None
     efficiency = normal_shots / total_shots if total_shots else None
 
-    # --- Time bucket analysis ---
+    # --- Time bucket analysis (use adjusted stops for sequences) ---
     df["RUN_DURATION"] = np.where(df["STOP_ADJ"] == 1, df["CT_diff_sec"] / 60, np.nan)
     df["TIME_BUCKET"] = pd.cut(
         df["RUN_DURATION"],
