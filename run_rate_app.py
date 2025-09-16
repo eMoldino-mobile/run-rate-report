@@ -181,6 +181,34 @@ if uploaded_file:
             if page == "📊 Analysis Dashboard":
                 st.title("📊 Run Rate Report")
                 st.subheader(f"Tool: {tool} | Date: {date.strftime('%Y-%m-%d')}")
+    # --- Threshold Settings (in sidebar) ---
+    st.sidebar.markdown("### 🚨 Stoppage Threshold Settings")
+    
+    mode_ct = st.session_state.results["mode_ct"] if "results" in st.session_state else None
+    
+    threshold_mode = st.sidebar.radio(
+        "Select threshold type:",
+        ["Multiple of Mode CT", "Manual (seconds)"],
+        horizontal=False,
+        key="threshold_mode"
+    )
+    
+    if threshold_mode == "Multiple of Mode CT":
+        multiplier = st.sidebar.slider(
+            "Multiplier of Mode CT",
+            min_value=1.0, max_value=5.0, value=2.0, step=0.5,
+            key="ct_multiplier"
+        )
+        threshold = mode_ct * multiplier if mode_ct else None
+        threshold_label = f"Mode CT × {multiplier} = {threshold:.2f} sec" if threshold else ""
+    else:
+        default_val = float(mode_ct * 2) if mode_ct else 2.0
+        threshold = st.sidebar.number_input(
+            "Manual threshold (seconds)",
+            min_value=1.0, value=default_val,
+            key="manual_threshold"
+        )
+        threshold_label = f"{threshold:.2f} sec (manual)" if threshold else ""
 
                 # Summaries
                 st.markdown("### Shot Counts & Efficiency")
