@@ -245,9 +245,9 @@ if uploaded_file:
                 mtbf = total_uptime / stop_events if stop_events > 0 else None
             
                 # Time to First DT = uptime until the first stop
-                if df_res["STOP_EVENT"].any():
-                    first_stop_idx = df_res.index[df_res["STOP_EVENT"]][0]
-                    first_dt = df_res.loc[:first_stop_idx - 1, "CT_diff_sec"].sum() / 60
+                first_stop_idx = df_res.index[df_res["STOP_EVENT"]].min() if df_res["STOP_EVENT"].any() else None
+                if first_stop_idx is not None and first_stop_idx > 0:
+                    first_dt = df_res.loc[:first_stop_idx-1, "CT_diff_sec"].sum() / 60
                 else:
                     first_dt = None
             else:
