@@ -203,38 +203,58 @@ if uploaded_file:
 
                 # Graphs + Collapsible Tables
                 st.subheader("📈 Visual Analysis")
-                df_vis = results["df"].copy()
-                bucket_order = ["<1","1-2","2-3","3-5","5-10","10-20","20-30","30-60","60-120",">120"]
+                run_durations = results["run_durations"].copy()
+                bucket_order = ["0-20","20-40","40-60","60-80","80-100",
+                                "100-120","120-140","140-160",">160"]
 
-                # 1) Time Bucket Analysis
-                bucket_counts = df_vis["TIME_BUCKET"].value_counts().reindex(bucket_order).fillna(0).astype(int)
+                # 1) Time Bucket Analysis (overall distribution of run durations)
+                bucket_counts = run_durations["TIME_BUCKET"].value_counts().reindex(bucket_order).fillna(0).astype(int)
+                bucket_counts.loc["Grand Total"] = bucket_counts.sum()
                 bucket_df = bucket_counts.reset_index()
                 bucket_df.columns = ["Time Bucket", "Occurrences"]
-                fig_bucket = px.bar(bucket_df[bucket_df["Time Bucket"].notna()],
-                                    x="Occurrences", y="Time Bucket",
-                                    orientation="h", text="Occurrences",
-                                    title="Time Bucket Analysis")
+
+                fig_bucket = px.bar(
+                    bucket_df[bucket_df["Time Bucket"] != "Grand Total"],
+                    x="Occurrences", y="Time Bucket",
+                    orientation="h", text="Occurrences",
+                    title="Time Bucket Analysis (Continuous Runs Before Stops)",
+                    category_orders={"Time Bucket": bucket_order},
+                    color="Time Bucket",
+                    color_discrete_map={
+                        "0-20":"#d73027","20-40":"#fc8d59","40-60":"#fee090",   # red→orange gradient
+                        "60-80":"#91bfdb","80-100":"#4575b4","100-120":"#313695", # blue gradient
+                        "120-140":"#253494","140-160":"#081d58",">160":"#000000" # darker blues
+                    }
+                )
                 fig_bucket.update_traces(textposition="outside")
-                st.plotly_chart(fig_bucket, width="stretch")
+                st.plotly_chart(fig_bucket, use_container_width=True)
+
                 with st.expander("📊 Time Bucket Analysis Data Table", expanded=False):
                     st.dataframe(bucket_df)
 
-                # 2) Time Bucket Trend by Hour
-                src = df_vis.loc[df_vis["STOP_EVENT"] & df_vis["TIME_BUCKET"].notna(), ["HOUR","TIME_BUCKET"]]
-                if src.empty:
-                    st.info("No stop events with valid TIME_BUCKET for the selected tool/date.")
+                # 2) Time Bucket Trend (group by week instead of hour)
+                if "SHOT TIME" in results["df"].columns:
+                    run_durations["WEEK"] = results["df"]["SHOT TIME"].dt.to_period("W").astype(str)
                 else:
-                    hours = list(range(24))
-                    grid = pd.MultiIndex.from_product([hours, bucket_order], names=["HOUR","TIME_BUCKET"]).to_frame(index=False)
-                    counts = src.groupby(["HOUR","TIME_BUCKET"]).size().reset_index(name="count")
-                    trend = grid.merge(counts, on=["HOUR","TIME_BUCKET"], how="left").fillna({"count":0})
-                    fig_tb_trend = px.bar(trend, x="HOUR", y="count", color="TIME_BUCKET",
-                                          category_orders={"HOUR": hours, "TIME_BUCKET": bucket_order},
-                                          title="Time Bucket Trend by Hour (0–23)")
-                    fig_tb_trend.update_layout(barmode="stack")
-                    st.plotly_chart(fig_tb_trend, width="stretch")
-                    with st.expander("📊 Time Bucket Trend Data Table", expanded=False):
-                        st.dataframe(trend)
+                    run_durations["WEEK"] = "Unknown"
+
+                trend = run_durations.groupby(["WEEK","TIME_BUCKET"]).size().reset_index(name="count")
+
+                fig_tb_trend = px.bar(
+                    trend, x="WEEK", y="count", color="TIME_BUCKET",
+                    category_orders={"TIME_BUCKET": bucket_order},
+                    title="Weekly Time Bucket Trend (Continuous Runs Before Stops)",
+                    color_discrete_map={
+                        "0-20":"#d73027","20-40":"#fc8d59","40-60":"#fee090",
+                        "60-80":"#91bfdb","80-100":"#4575b4","100-120":"#313695",
+                        "120-140":"#253494","140-160":"#081d58",">160":"#000000"
+                    }
+                )
+                fig_tb_trend.update_layout(barmode="stack")
+                st.plotly_chart(fig_tb_trend, use_container_width=True)
+
+                with st.expander("📊 Weekly Time Bucket Trend Data Table", expanded=False):
+                    st.dataframe(trend)
 
                 # 3) MTTR & MTBF Trend by Hour
                 hourly = results["hourly"].copy()
