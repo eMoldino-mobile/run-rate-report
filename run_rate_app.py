@@ -214,20 +214,20 @@ if uploaded_file:
     if page == "📊 Analysis Dashboard":
     results = st.session_state.get("results", {})  # ✅ always define safely
 
-    if not results:
-        st.info("👈 Please generate a report first from the sidebar.")
-    else:
-        st.title("📊 Run Rate Report")
-        st.subheader(f"Tool: {tool} | Date: {date.strftime('%Y-%m-%d')}")
-
-        # --- Shot Counts & Efficiency ---
-        st.markdown("### Shot Counts & Efficiency")
-        st.table(pd.DataFrame({
-            "Total Shot Count": [results.get('total_shots', 0)],
-            "Normal Shot Count": [results.get('normal_shots', 0)],
-            "Efficiency": [f"{results.get('efficiency', 0)*100:.2f}%"],
-            "Stop Count": [results.get('stop_events', 0)]
-        }))
+        if not results:
+            st.info("👈 Please generate a report first from the sidebar.")
+        else:
+            st.title("📊 Run Rate Report")
+            st.subheader(f"Tool: {tool} | Date: {date.strftime('%Y-%m-%d')}")
+    
+            # --- Shot Counts & Efficiency ---
+            st.markdown("### Shot Counts & Efficiency")
+            st.table(pd.DataFrame({
+                "Total Shot Count": [results.get('total_shots', 0)],
+                "Normal Shot Count": [results.get('normal_shots', 0)],
+                "Efficiency": [f"{results.get('efficiency', 0)*100:.2f}%"],
+                "Stop Count": [results.get('stop_events', 0)]
+            }))
     
             # --- Reliability Metrics ---
             df_res = results.get("df", pd.DataFrame()).copy()
