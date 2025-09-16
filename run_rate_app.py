@@ -637,4 +637,4 @@ if uploaded_file:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 else:
-    st.info("👈 Upload a cleaned run rate Excel file to begin. Headers in ROW 1 please")
+    st.info("👈 Upload a cleaned run rate Excel file to begin. Headers in ROW 1 please.")
