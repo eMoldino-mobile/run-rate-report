@@ -90,11 +90,14 @@ def calculate_run_rate_excel_like(df):
     run_durations = run_durations[run_durations["RUN_DURATION"] > 0]
 
     # Assign buckets (0–20, 20–40, …)
-    run_durations["TIME_BUCKET"] = pd.cut(
+    run_durations["TIME_BUCKET"] = (
+    pd.cut(
         run_durations["RUN_DURATION"],
         bins=[0,20,40,60,80,100,120,140,160,999999],
-        labels=["0-20","20-40","40-60","60-80","80-100","100-120","120-140","140-160",">160"]
-    )
+        labels=["0-20","20-40","40-60","60-80","80-100",
+                "100-120","120-140","140-160",">160"]
+    ).cat.add_categories("Unclassified")
+)
 
     # Bucket counts for overall distribution
     bucket_counts = run_durations["TIME_BUCKET"].value_counts().sort_index().fillna(0).astype(int)
@@ -272,7 +275,7 @@ if uploaded_file:
                     hover_data={"Occurrences":True,"Percentage":True}
                 )
                 fig_bucket.update_traces(textposition="outside")
-                st.plotly_chart(fig_bucket, use_container_width=True)
+                st.plotly_chart(fig_bucket, width="stretch")
 
                 with st.expander("📊 Time Bucket Analysis Data Table", expanded=False):
                     st.dataframe(bucket_df)
@@ -312,7 +315,7 @@ if uploaded_file:
                     xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5,23.5]),
                     yaxis=dict(title="Number of Runs")
                 )
-                st.plotly_chart(fig_tb_trend, use_container_width=True)
+                st.plotly_chart(fig_tb_trend, width="stretch")
 
                 with st.expander("📊 Hourly Time Bucket Trend Data Table", expanded=False):
                     st.dataframe(trend)
@@ -446,7 +449,7 @@ if uploaded_file:
                             table = stoppage_alerts[["SHOT TIME","Duration (min)","Shots Since Last Stop","Reason","Alert"]]
                             table = table.rename(columns={"SHOT TIME":"Event Time"})
                 
-                            st.dataframe(table, use_container_width=True)
+                            st.dataframe(table, width="stretch")
                             st.markdown(f"""
                             **Summary**
                             - Total Stoppage Alerts: {len(stoppage_alerts)}
