@@ -244,29 +244,38 @@ if uploaded_file:
                 with st.expander("📊 Time Bucket Analysis Data Table", expanded=False):
                     st.dataframe(bucket_df)
 
-                # 2) Time Bucket Trend (group by week instead of hour)
+                # 2) Time Bucket Trend (group by hour of day instead of week)
                 if "SHOT TIME" in results["df"].columns:
-                    run_durations["WEEK"] = results["df"]["SHOT TIME"].dt.to_period("W").astype(str)
+                    run_durations["HOUR"] = results["df"]["SHOT TIME"].dt.hour
                 else:
-                    run_durations["WEEK"] = "Unknown"
+                    run_durations["HOUR"] = -1  # fallback if no timestamps
 
-                trend = run_durations.groupby(["WEEK","TIME_BUCKET"]).size().reset_index(name="count")
+                trend = run_durations.groupby(["HOUR","TIME_BUCKET"]).size().reset_index(name="count")
+
+                # Ensure all hours 0–23 appear, even if empty
+                hours = list(range(24))
+                grid = pd.MultiIndex.from_product([hours, bucket_order], names=["HOUR","TIME_BUCKET"]).to_frame(index=False)
+                trend = grid.merge(trend, on=["HOUR","TIME_BUCKET"], how="left").fillna({"count":0})
 
                 fig_tb_trend = px.bar(
-                    trend, x="WEEK", y="count", color="TIME_BUCKET",
+                    trend, x="HOUR", y="count", color="TIME_BUCKET",
                     category_orders={"TIME_BUCKET": bucket_order},
-                    title="Weekly Time Bucket Trend (Continuous Runs Before Stops)",
+                    title="Hourly Time Bucket Trend (Continuous Runs Before Stops)",
                     color_discrete_map={
                         "1: 0-20 min":"#d73027","2: 20-40 min":"#fc8d59","3: 40-60 min":"#fee090",
                         "4: 60-80 min":"#91bfdb","5: 80-100 min":"#4575b4","6: 100-120 min":"#313695",
                         "7: 120-140 min":"#253494","8: 140-160 min":"#081d58","9: >160 min":"#542788"
                     },
-                    hover_data={"count":True}
+                    hover_data={"count":True,"HOUR":True}
                 )
-                fig_tb_trend.update_layout(barmode="stack")
+                fig_tb_trend.update_layout(
+                    barmode="stack",
+                    xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5,23.5]),
+                    yaxis=dict(title="Number of Runs")
+                )
                 st.plotly_chart(fig_tb_trend, use_container_width=True)
 
-                with st.expander("📊 Weekly Time Bucket Trend Data Table", expanded=False):
+                with st.expander("📊 Hourly Time Bucket Trend Data Table", expanded=False):
                     st.dataframe(trend)
 
                 # 3) MTTR & MTBF Trend by Hour
