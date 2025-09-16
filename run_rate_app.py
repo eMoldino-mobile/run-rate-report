@@ -274,48 +274,48 @@ if uploaded_file:
         }
         run_durations["TIME_BUCKET"] = run_durations["TIME_BUCKET"].map(label_map)
 
-                # 1) Time Bucket Analysis (overall distribution of run durations)
-                bucket_counts = run_durations["TIME_BUCKET"].value_counts().reindex(bucket_order).fillna(0).astype(int)
-                total_runs = bucket_counts.sum()
-                bucket_df = bucket_counts.reset_index()
-                bucket_df.columns = ["Time Bucket", "Occurrences"]
-                bucket_df["Percentage"] = (bucket_df["Occurrences"] / total_runs * 100).round(2)
+        # 1) Time Bucket Analysis (overall distribution of run durations)
+        bucket_counts = run_durations["TIME_BUCKET"].value_counts().reindex(bucket_order).fillna(0).astype(int)
+        total_runs = bucket_counts.sum()
+        bucket_df = bucket_counts.reset_index()
+        bucket_df.columns = ["Time Bucket", "Occurrences"]
+        bucket_df["Percentage"] = (bucket_df["Occurrences"] / total_runs * 100).round(2)
 
-                fig_bucket = px.bar(
-                    bucket_df[bucket_df["Time Bucket"].notna()],
-                    x="Occurrences", y="Time Bucket",
-                    orientation="h", text="Occurrences",
-                    title="Time Bucket Analysis (Continuous Runs Before Stops)",
-                    category_orders={"Time Bucket": bucket_order},
-                    color="Time Bucket",
-                    color_discrete_map = {
-                        "1: 0-20 min":   "#d73027",  # red
-                        "2: 20-40 min":  "#fc8d59",  # orange-red
-                        "3: 40-60 min":  "#fee090",  # yellow
-                        "4: 60-80 min":  "#c6dbef",  # very light grey-blue
-                        "5: 80-100 min": "#9ecae1",  # light steel blue
-                        "6: 100-120 min":"#6baed6",  # medium blue-grey
-                        "7: 120-140 min":"#4292c6",  # stronger blue-grey
-                        "8: 140-160 min":"#2171b5",  # dark muted blue
-                        "9: >160 min":  "#084594"    # deep navy blue
-                    },
-                    hover_data={"Occurrences":True,"Percentage":True}
-                )
-                fig_bucket.update_traces(textposition="outside")
-                st.plotly_chart(fig_bucket, width="stretch")
+        fig_bucket = px.bar(
+            bucket_df[bucket_df["Time Bucket"].notna()],
+            x="Occurrences", y="Time Bucket",
+            orientation="h", text="Occurrences",
+            title="Time Bucket Analysis (Continuous Runs Before Stops)",
+            category_orders={"Time Bucket": bucket_order},
+            color="Time Bucket",
+            color_discrete_map = {
+                "1: 0-20 min":   "#d73027",  # red
+                "2: 20-40 min":  "#fc8d59",  # orange-red
+                "3: 40-60 min":  "#fee090",  # yellow
+                "4: 60-80 min":  "#c6dbef",  # very light grey-blue
+                "5: 80-100 min": "#9ecae1",  # light steel blue
+                "6: 100-120 min":"#6baed6",  # medium blue-grey
+                "7: 120-140 min":"#4292c6",  # stronger blue-grey
+                "8: 140-160 min":"#2171b5",  # dark muted blue
+                "9: >160 min":  "#084594"    # deep navy blue
+            },
+            hover_data={"Occurrences":True,"Percentage":True}
+        )
+        fig_bucket.update_traces(textposition="outside")
+        st.plotly_chart(fig_bucket, width="stretch")
 
-                with st.expander("📊 Time Bucket Analysis Data Table", expanded=False):
-                    st.dataframe(bucket_df)
+        with st.expander("📊 Time Bucket Analysis Data Table", expanded=False):
+            st.dataframe(bucket_df)
 
-                # 2) Time Bucket Trend (group by hour of day instead of week)
-                if "SHOT TIME" in results["df"].columns:
-                    run_durations["HOUR"] = results["df"]["SHOT TIME"].dt.hour
-                else:
-                    run_durations["HOUR"] = -1  # fallback if no timestamps
+        # 2) Time Bucket Trend (group by hour of day instead of week)
+        if "SHOT TIME" in results["df"].columns:
+            run_durations["HOUR"] = results["df"]["SHOT TIME"].dt.hour
+        else:
+            run_durations["HOUR"] = -1  # fallback if no timestamps
 
-                trend = run_durations.groupby(["HOUR","TIME_BUCKET"]).size().reset_index(name="count")
+        trend = run_durations.groupby(["HOUR","TIME_BUCKET"]).size().reset_index(name="count")
 
-                # Ensure all hours 0–23 appear, even if empty
+        # Ensure all hours 0–23 appear, even if empty
                 hours = list(range(24))
                 grid = pd.MultiIndex.from_product([hours, bucket_order], names=["HOUR","TIME_BUCKET"]).to_frame(index=False)
                 trend = grid.merge(trend, on=["HOUR","TIME_BUCKET"], how="left").fillna({"count":0})
