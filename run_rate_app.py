@@ -205,19 +205,19 @@ if uploaded_file:
         )
         threshold_label = f"{threshold:.2f} sec (manual)" if threshold else ""
 
-            # --- Page 1: Analysis Dashboard ---
-            if page == "📊 Analysis Dashboard":
-                st.title("📊 Run Rate Report")
-                st.subheader(f"Tool: {tool} | Date: {date.strftime('%Y-%m-%d')}")
+    # --- Page 1: Analysis Dashboard ---
+    if page == "📊 Analysis Dashboard":
+        st.title("📊 Run Rate Report")
+        st.subheader(f"Tool: {tool} | Date: {date.strftime('%Y-%m-%d')}")
 
-                # Summaries
-                st.markdown("### Shot Counts & Efficiency")
-                st.table(pd.DataFrame({
-                    "Total Shot Count": [results['total_shots']],
-                    "Normal Shot Count": [results['normal_shots']],
-                    "Efficiency": [f"{results['efficiency']*100:.2f}%"],
-                    "Stop Count": [results['stop_events']]
-                }))
+        # Summaries
+        st.markdown("### Shot Counts & Efficiency")
+        st.table(pd.DataFrame({
+            "Total Shot Count": [results['total_shots']],
+            "Normal Shot Count": [results['normal_shots']],
+            "Efficiency": [f"{results['efficiency']*100:.2f}%"],
+            "Stop Count": [results['stop_events']]
+        }))
 
                 st.markdown("### Reliability Metrics")
 
