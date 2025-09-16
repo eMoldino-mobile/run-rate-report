@@ -399,7 +399,7 @@ if uploaded_file:
 
                 # 5) 🚨 Stoppage Alerts (Improved Table)
                 st.markdown("### 🚨 Stoppage Alert Reporting")
-
+                
                 if "results" in st.session_state:
                     results = st.session_state.results
                     df_vis = results["df"].copy()
@@ -454,28 +454,6 @@ if uploaded_file:
                             """)
                     else:
                         st.warning("No stoppage event data available for this dataset.")
-
-                if stoppage_alerts.empty:
-                    st.info("✅ No stoppage alerts found (≥ Mode CT × 2).")
-                else:
-                    # Shots since last stop (cumulative cycle count)
-                    stoppage_alerts["Shots Since Last Stop"] = stoppage_alerts.groupby(
-                        stoppage_alerts["STOP_EVENT"].cumsum()
-                    ).cumcount()
-
-                    stoppage_alerts["Duration (min)"] = (stoppage_alerts["CT_diff_sec"] / 60).round(1)
-                    stoppage_alerts["Reason"] = "to be added"
-                    stoppage_alerts["Alert"] = "🔴"
-
-                    table = stoppage_alerts[["SHOT TIME","Duration (min)","Shots Since Last Stop","Reason","Alert"]]
-                    table = table.rename(columns={"SHOT TIME":"Event Time"})
-
-                    st.dataframe(table, width="stretch")
-                    st.markdown(f"""
-                    **Summary**
-                    - Total Stoppage Alerts: {len(stoppage_alerts)}
-                    - Threshold Applied: {results['mode_ct']:.2f} sec × 2 = {threshold:.2f} sec
-                    """)
 
             # ---------- Page 2: Raw & Processed Data ----------
             elif page == "📂 Raw & Processed Data":
