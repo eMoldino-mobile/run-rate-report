@@ -495,7 +495,7 @@ if uploaded_file:
             df_res = results["df"].copy()
             df_vis = results["df"].copy()
     
-            # --- Shot Counts & Efficiency ---
+            # --- Summary (same as Page 1) ---
             st.markdown("### Shot Counts & Efficiency")
             st.table(pd.DataFrame({
                 "Total Shot Count": [results['total_shots']],
@@ -504,7 +504,7 @@ if uploaded_file:
                 "Stop Count": [results['stop_events']]
             }))
     
-            # --- Reliability Metrics ---
+            # --- Reliability Metrics (calculated dynamically like Page 1) ---
             mttr = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].mean() / 60 if results["stop_events"] > 0 else None
             uptimes = df_res.loc[~df_res["STOP_EVENT"], "CT_diff_sec"]
             mtbf = uptimes.mean() / 60 if results["stop_events"] > 0 and not uptimes.empty else None
@@ -520,7 +520,6 @@ if uploaded_file:
                     f"{avg_ct:.2f}" if avg_ct else "N/A"
                 ]
             })
-    
             st.markdown("### Reliability Metrics")
             st.table(reliability_df)
     
