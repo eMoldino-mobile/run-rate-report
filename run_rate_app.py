@@ -231,6 +231,8 @@ if uploaded_file:
         st.markdown("### Reliability Metrics")
 
         # --- Reliability Metrics ---
+        stop_events = results.get("stop_events", 0)  # ✅ define stop_events safely
+        
         # MTTR = average downtime duration (minutes)
         mttr = (
             df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].mean() / 60
