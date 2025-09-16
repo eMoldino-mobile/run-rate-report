@@ -235,13 +235,14 @@ if uploaded_file:
             df_res = results.get("df", pd.DataFrame()).copy()
             stop_events = results.get("stop_events", 0)
             
-            if stop_events > 0 and "STOP_EVENT" in df_res.columns:
-                # Total downtime from stop events
-                total_downtime = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].sum() / 60
+            if stop_events > 0 and "STOP_FLAG" in df_res.columns:
+                # --- Downtime: include all stop intervals (like Excel) ---
+                downtime_events = df_res.loc[df_res["STOP_FLAG"] == 1, "CT_diff_sec"] / 60
+                total_downtime = downtime_events.sum()
                 mttr = total_downtime / stop_events if stop_events > 0 else None
             
-                # Total uptime between stop events
-                stop_indices = df_res.index[df_res["STOP_EVENT"]].tolist()
+                # --- Uptime: time between stops (still counted against all stops) ---
+                stop_indices = df_res.index[df_res["STOP_FLAG"] == 1].tolist()
                 total_uptime = 0
                 for i in range(1, len(stop_indices)):
                     prev_stop = stop_indices[i-1]
@@ -251,10 +252,8 @@ if uploaded_file:
             
                 mtbf = total_uptime / stop_events if stop_events > 0 else None
             
-                # Time to First Downtime (first stop event duration)
-                first_dt = (df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].iloc[0] / 60
-                            if not df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].empty
-                            else None)
+                # --- Time to First Downtime (first STOP_FLAG interval) ---
+                first_dt = downtime_events.iloc[0] if not downtime_events.empty else None
             else:
                 mttr, mtbf, first_dt = None, None, None
             
