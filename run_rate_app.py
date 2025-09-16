@@ -236,21 +236,22 @@ if uploaded_file:
             stop_events = results.get("stop_events", 0)
             
             if stop_events > 0 and "STOP_EVENT" in df_res.columns:
-                # Group downtimes per STOP_EVENT
-                downtime_events = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"] / 60  # minutes
+                # Downtime durations
+                downtime_events = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"] / 60
                 mttr = downtime_events.mean() if not downtime_events.empty else None
             
-                # Group uptimes = time between stop events
+                # Uptime durations = intervals between stop events
                 stop_indices = df_res.index[df_res["STOP_EVENT"]].tolist()
                 uptime_durations = []
                 for i in range(1, len(stop_indices)):
                     prev_stop = stop_indices[i-1]
                     this_stop = stop_indices[i]
                     uptime = df_res.loc[prev_stop+1:this_stop-1, "CT_diff_sec"].sum() / 60
-                    uptime_durations.append(uptime)
+                    if uptime > 0:
+                        uptime_durations.append(uptime)
                 mtbf = np.mean(uptime_durations) if uptime_durations else None
             
-                # First downtime
+                # Time to first downtime
                 first_dt = downtime_events.iloc[0] if not downtime_events.empty else None
             else:
                 mttr, mtbf, first_dt = None, None, None
