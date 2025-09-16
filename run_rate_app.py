@@ -284,213 +284,213 @@ if uploaded_file:
             }))
     
             # --- Visual Analysis ---
-        st.subheader("📈 Visual Analysis")
-        run_durations = results["run_durations"].copy()
-        bucket_order = [f"{i+1}: {rng}" for i, rng in enumerate(
-            ["0-20 min","20-40 min","40-60 min","60-80 min","80-100 min","100-120 min","120-140 min","140-160 min",">160 min"]
-        )]
-
-        # Re-map bucket labels in run_durations
-        label_map = {
-            "0-20":"1: 0-20 min", "20-40":"2: 20-40 min", "40-60":"3: 40-60 min",
-            "60-80":"4: 60-80 min", "80-100":"5: 80-100 min", "100-120":"6: 100-120 min",
-            "120-140":"7: 120-140 min", "140-160":"8: 140-160 min", ">160":"9: >160 min"
-        }
-        run_durations["TIME_BUCKET"] = run_durations["TIME_BUCKET"].map(label_map)
-
-        # 1) Time Bucket Analysis (overall distribution of run durations)
-        bucket_counts = run_durations["TIME_BUCKET"].value_counts().reindex(bucket_order).fillna(0).astype(int)
-        total_runs = bucket_counts.sum()
-        bucket_df = bucket_counts.reset_index()
-        bucket_df.columns = ["Time Bucket", "Occurrences"]
-        bucket_df["Percentage"] = (bucket_df["Occurrences"] / total_runs * 100).round(2)
-
-        fig_bucket = px.bar(
-            bucket_df[bucket_df["Time Bucket"].notna()],
-            x="Occurrences", y="Time Bucket",
-            orientation="h", text="Occurrences",
-            title="Time Bucket Analysis (Continuous Runs Before Stops)",
-            category_orders={"Time Bucket": bucket_order},
-            color="Time Bucket",
-            color_discrete_map = {
-                "1: 0-20 min":   "#d73027",  # red
-                "2: 20-40 min":  "#fc8d59",  # orange-red
-                "3: 40-60 min":  "#fee090",  # yellow
-                "4: 60-80 min":  "#c6dbef",  # very light grey-blue
-                "5: 80-100 min": "#9ecae1",  # light steel blue
-                "6: 100-120 min":"#6baed6",  # medium blue-grey
-                "7: 120-140 min":"#4292c6",  # stronger blue-grey
-                "8: 140-160 min":"#2171b5",  # dark muted blue
-                "9: >160 min":  "#084594"    # deep navy blue
-            },
-            hover_data={"Occurrences":True,"Percentage":True}
-        )
-        fig_bucket.update_traces(textposition="outside")
-        st.plotly_chart(fig_bucket, width="stretch")
-
-        with st.expander("📊 Time Bucket Analysis Data Table", expanded=False):
-            st.dataframe(bucket_df)
-
-        # 2) Time Bucket Trend (group by hour of day instead of week)
-
-        if "SHOT TIME" in results.get("df", pd.DataFrame()).columns:
-            # Get run end time for each RUN_GROUP
-            run_end_times = results["df"].groupby("RUN_GROUP")["SHOT TIME"].max().reset_index(name="RUN_END")
-            run_durations = run_durations.merge(run_end_times, on="RUN_GROUP", how="left")
-            run_durations["HOUR"] = run_durations["RUN_END"].dt.hour
-        else:
-            run_durations["HOUR"] = -1  # fallback if no timestamps
-        
-        trend = run_durations.groupby(["HOUR","TIME_BUCKET"]).size().reset_index(name="count")
-        
-        # Ensure all hours 0–23 appear, even if empty
-        hours = list(range(24))
-        grid = pd.MultiIndex.from_product([hours, bucket_order], names=["HOUR","TIME_BUCKET"]).to_frame(index=False)
-        trend = grid.merge(trend, on=["HOUR","TIME_BUCKET"], how="left").fillna({"count":0})
-        
-        fig_tb_trend = px.bar(
-            trend, x="HOUR", y="count", color="TIME_BUCKET",
-            category_orders={"TIME_BUCKET": bucket_order},
-            title="Hourly Time Bucket Trend (Continuous Runs Before Stops)",
-            color_discrete_map = {
-                "1: 0-20 min":   "#d73027",
-                "2: 20-40 min":  "#fc8d59",
-                "3: 40-60 min":  "#fee090",
-                "4: 60-80 min":  "#c6dbef",
-                "5: 80-100 min": "#9ecae1",
-                "6: 100-120 min":"#6baed6",
-                "7: 120-140 min":"#4292c6",
-                "8: 140-160 min":"#2171b5",
-                "9: >160 min":  "#084594"
-            },
-            hover_data={"count":True,"HOUR":True}
-        )
-        fig_tb_trend.update_layout(
-            barmode="stack",
-            xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5,23.5]),
-            yaxis=dict(title="Number of Runs")
-        )
-        st.plotly_chart(fig_tb_trend, width="stretch")
-        
-        with st.expander("📊 Hourly Time Bucket Trend Data Table", expanded=False):
-            st.dataframe(trend)
-
-        # 3) MTTR & MTBF Trend by Hour
-        hourly = results.get("hourly", pd.DataFrame()).copy()
-        all_hours = pd.DataFrame({"HOUR": list(range(24))})
-        hourly = all_hours.merge(hourly, on="HOUR", how="left")
-        fig_mt = go.Figure()
-        fig_mt.add_trace(go.Scatter(x=hourly["HOUR"], y=hourly["mttr"], mode="lines+markers",
-                                    name="MTTR (min)", line=dict(color="red", width=2), yaxis="y"))
-        fig_mt.add_trace(go.Scatter(x=hourly["HOUR"], y=hourly["mtbf"], mode="lines+markers",
-                                    name="MTBF (min)", line=dict(color="green", width=2, dash="dot"), yaxis="y2"))
-        fig_mt.update_layout(title="MTTR & MTBF Trend by Hour",
-                             xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5,23.5]),
-                             yaxis=dict(title="MTTR (min)", tickfont=dict(color="red"), side="left"),
-                             yaxis2=dict(title="MTBF (min)", tickfont=dict(color="green"), overlaying="y", side="right"),
-                             margin=dict(l=60,r=60,t=60,b=40),
-                             legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center"))
-        st.plotly_chart(fig_mt, width="stretch")
-        with st.expander("📊 MTTR & MTBF Data Table", expanded=False):
-            st.dataframe(hourly)
-
-        # 4) Stability Index
-        hourly["stability_index"] = np.where((hourly["stops"] == 0) & (hourly["mtbf"].isna()),
-                                             100, hourly["stability_index"])
-        hourly["stability_change_%"] = hourly["stability_index"].pct_change() * 100
-        colors = ["gray" if pd.isna(v) else "red" if v <= 50 else "yellow" if v <= 70 else "green" for v in hourly["stability_index"]]
-        fig_stability = go.Figure()
-        fig_stability.add_trace(go.Scatter(x=hourly["HOUR"], y=hourly["stability_index"],
-                                           mode="lines+markers", name="Stability Index (%)",
-                                           line=dict(color="blue", width=2), marker=dict(color=colors, size=8)))
-        for y0,y1,c in [(0,50,"red"),(50,70,"yellow"),(70,100,"green")]:
-            fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=y0, y1=y1,
-                                    fillcolor=c, opacity=0.1, line_width=0, yref="y")
-        fig_stability.update_layout(title="Stability Index by Hour",
-                                    xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5,23.5]),
-                                    yaxis=dict(title="Stability Index (%)", range=[0,100], side="left"),
-                                    margin=dict(l=60,r=60,t=60,b=40),
-                                    legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center"))
-        st.plotly_chart(fig_stability, width="stretch")
-        with st.expander("📊 Stability Index Data Table", expanded=False):
-            table_data = hourly[["HOUR","stability_index","stability_change_%","mttr","mtbf","stops"]].copy()
-            table_data.rename(columns={
-                "HOUR":"Hour",
-                "stability_index":"Stability Index (%)",
-                "stability_change_%":"Change vs Prev Hour (%)",
-                "mttr":"MTTR (min)",
-                "mtbf":"MTBF (min)",
-                "stops":"Stop Count"
-            }, inplace=True)
-        
-            # Highlight only the Stability Index column
-            def highlight_stability(val):
-                if pd.isna(val):
-                    return ""
-                elif val <= 50:
-                    return "background-color: rgba(255, 0, 0, 0.3);"   # soft red
-                elif val <= 70:
-                    return "background-color: rgba(255, 255, 0, 0.3);" # soft yellow
-                else:
-                    return ""
-            
-            st.dataframe(
-                table_data.style
-                .applymap(highlight_stability, subset=["Stability Index (%)"])
-                .format({
-                    "Stability Index (%)": "{:.2f}",
-                    "Change vs Prev Hour (%)": "{:+.2f}%",
-                    "MTTR (min)": "{:.2f}",
-                    "MTBF (min)": "{:.2f}"
-                })
+            st.subheader("📈 Visual Analysis")
+            run_durations = results["run_durations"].copy()
+            bucket_order = [f"{i+1}: {rng}" for i, rng in enumerate(
+                ["0-20 min","20-40 min","40-60 min","60-80 min","80-100 min","100-120 min","120-140 min","140-160 min",">160 min"]
+            )]
+    
+            # Re-map bucket labels in run_durations
+            label_map = {
+                "0-20":"1: 0-20 min", "20-40":"2: 20-40 min", "40-60":"3: 40-60 min",
+                "60-80":"4: 60-80 min", "80-100":"5: 80-100 min", "100-120":"6: 100-120 min",
+                "120-140":"7: 120-140 min", "140-160":"8: 140-160 min", ">160":"9: >160 min"
+            }
+            run_durations["TIME_BUCKET"] = run_durations["TIME_BUCKET"].map(label_map)
+    
+            # 1) Time Bucket Analysis (overall distribution of run durations)
+            bucket_counts = run_durations["TIME_BUCKET"].value_counts().reindex(bucket_order).fillna(0).astype(int)
+            total_runs = bucket_counts.sum()
+            bucket_df = bucket_counts.reset_index()
+            bucket_df.columns = ["Time Bucket", "Occurrences"]
+            bucket_df["Percentage"] = (bucket_df["Occurrences"] / total_runs * 100).round(2)
+    
+            fig_bucket = px.bar(
+                bucket_df[bucket_df["Time Bucket"].notna()],
+                x="Occurrences", y="Time Bucket",
+                orientation="h", text="Occurrences",
+                title="Time Bucket Analysis (Continuous Runs Before Stops)",
+                category_orders={"Time Bucket": bucket_order},
+                color="Time Bucket",
+                color_discrete_map = {
+                    "1: 0-20 min":   "#d73027",  # red
+                    "2: 20-40 min":  "#fc8d59",  # orange-red
+                    "3: 40-60 min":  "#fee090",  # yellow
+                    "4: 60-80 min":  "#c6dbef",  # very light grey-blue
+                    "5: 80-100 min": "#9ecae1",  # light steel blue
+                    "6: 100-120 min":"#6baed6",  # medium blue-grey
+                    "7: 120-140 min":"#4292c6",  # stronger blue-grey
+                    "8: 140-160 min":"#2171b5",  # dark muted blue
+                    "9: >160 min":  "#084594"    # deep navy blue
+                },
+                hover_data={"Occurrences":True,"Percentage":True}
             )
-
-        st.markdown("""
-        **ℹ️ Stability Index Formula**
-        - Stability Index (%) = (MTBF / (MTBF + MTTR)) × 100
-        - If no stoppages occur in an hour, Stability Index is forced to **100%**
-        - Alert Zones:
-          - 🟥 0–50% → High Risk (Frequent stoppages with long recovery times. Production is highly unstable.)
-          - 🟨 50–70% → Medium Risk (Minor but frequent stoppages or slower-than-normal recoveries. Production flow is inconsistent and requires attention to prevent escalation.)
-          - 🟩 70–100% → Low Risk (stable operation)
-        """)
-
-        # 5) 🚨 Stoppage Alerts (Improved Table)
-        st.markdown("### 🚨 Stoppage Alert Reporting")
-        
-        if "results" in st.session_state:
-            results = st.session_state.results
-            df_vis = results.get("df", pd.DataFrame()).copy()
-        
-            # --- Read threshold values from sidebar ---
-            threshold_mode = st.session_state.get("threshold_mode")
-            threshold = st.session_state.get("threshold")
-            threshold_label = st.session_state.get("threshold_label")
-        
-            if threshold is None:
-                st.warning("⚠️ Please set a stoppage threshold in the sidebar.")
+            fig_bucket.update_traces(textposition="outside")
+            st.plotly_chart(fig_bucket, width="stretch")
+    
+            with st.expander("📊 Time Bucket Analysis Data Table", expanded=False):
+                st.dataframe(bucket_df)
+    
+            # 2) Time Bucket Trend (group by hour of day instead of week)
+    
+            if "SHOT TIME" in results.get("df", pd.DataFrame()).columns:
+                # Get run end time for each RUN_GROUP
+                run_end_times = results["df"].groupby("RUN_GROUP")["SHOT TIME"].max().reset_index(name="RUN_END")
+                run_durations = run_durations.merge(run_end_times, on="RUN_GROUP", how="left")
+                run_durations["HOUR"] = run_durations["RUN_END"].dt.hour
             else:
-                # --- Filter stoppages ---
-                if "STOP_EVENT" in df_vis.columns and "CT_diff_sec" in df_vis.columns:
-                    stoppage_alerts = df_vis[df_vis["CT_diff_sec"] >= threshold].copy()
-        
-                    if stoppage_alerts.empty:
-                        st.info(f"✅ No stoppage alerts found (≥ {threshold_label}).")
+                run_durations["HOUR"] = -1  # fallback if no timestamps
+            
+            trend = run_durations.groupby(["HOUR","TIME_BUCKET"]).size().reset_index(name="count")
+            
+            # Ensure all hours 0–23 appear, even if empty
+            hours = list(range(24))
+            grid = pd.MultiIndex.from_product([hours, bucket_order], names=["HOUR","TIME_BUCKET"]).to_frame(index=False)
+            trend = grid.merge(trend, on=["HOUR","TIME_BUCKET"], how="left").fillna({"count":0})
+            
+            fig_tb_trend = px.bar(
+                trend, x="HOUR", y="count", color="TIME_BUCKET",
+                category_orders={"TIME_BUCKET": bucket_order},
+                title="Hourly Time Bucket Trend (Continuous Runs Before Stops)",
+                color_discrete_map = {
+                    "1: 0-20 min":   "#d73027",
+                    "2: 20-40 min":  "#fc8d59",
+                    "3: 40-60 min":  "#fee090",
+                    "4: 60-80 min":  "#c6dbef",
+                    "5: 80-100 min": "#9ecae1",
+                    "6: 100-120 min":"#6baed6",
+                    "7: 120-140 min":"#4292c6",
+                    "8: 140-160 min":"#2171b5",
+                    "9: >160 min":  "#084594"
+                },
+                hover_data={"count":True,"HOUR":True}
+            )
+            fig_tb_trend.update_layout(
+                barmode="stack",
+                xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5,23.5]),
+                yaxis=dict(title="Number of Runs")
+            )
+            st.plotly_chart(fig_tb_trend, width="stretch")
+            
+            with st.expander("📊 Hourly Time Bucket Trend Data Table", expanded=False):
+                st.dataframe(trend)
+    
+            # 3) MTTR & MTBF Trend by Hour
+            hourly = results.get("hourly", pd.DataFrame()).copy()
+            all_hours = pd.DataFrame({"HOUR": list(range(24))})
+            hourly = all_hours.merge(hourly, on="HOUR", how="left")
+            fig_mt = go.Figure()
+            fig_mt.add_trace(go.Scatter(x=hourly["HOUR"], y=hourly["mttr"], mode="lines+markers",
+                                        name="MTTR (min)", line=dict(color="red", width=2), yaxis="y"))
+            fig_mt.add_trace(go.Scatter(x=hourly["HOUR"], y=hourly["mtbf"], mode="lines+markers",
+                                        name="MTBF (min)", line=dict(color="green", width=2, dash="dot"), yaxis="y2"))
+            fig_mt.update_layout(title="MTTR & MTBF Trend by Hour",
+                                 xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5,23.5]),
+                                 yaxis=dict(title="MTTR (min)", tickfont=dict(color="red"), side="left"),
+                                 yaxis2=dict(title="MTBF (min)", tickfont=dict(color="green"), overlaying="y", side="right"),
+                                 margin=dict(l=60,r=60,t=60,b=40),
+                                 legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center"))
+            st.plotly_chart(fig_mt, width="stretch")
+            with st.expander("📊 MTTR & MTBF Data Table", expanded=False):
+                st.dataframe(hourly)
+    
+            # 4) Stability Index
+            hourly["stability_index"] = np.where((hourly["stops"] == 0) & (hourly["mtbf"].isna()),
+                                                 100, hourly["stability_index"])
+            hourly["stability_change_%"] = hourly["stability_index"].pct_change() * 100
+            colors = ["gray" if pd.isna(v) else "red" if v <= 50 else "yellow" if v <= 70 else "green" for v in hourly["stability_index"]]
+            fig_stability = go.Figure()
+            fig_stability.add_trace(go.Scatter(x=hourly["HOUR"], y=hourly["stability_index"],
+                                               mode="lines+markers", name="Stability Index (%)",
+                                               line=dict(color="blue", width=2), marker=dict(color=colors, size=8)))
+            for y0,y1,c in [(0,50,"red"),(50,70,"yellow"),(70,100,"green")]:
+                fig_stability.add_shape(type="rect", x0=-0.5, x1=23.5, y0=y0, y1=y1,
+                                        fillcolor=c, opacity=0.1, line_width=0, yref="y")
+            fig_stability.update_layout(title="Stability Index by Hour",
+                                        xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5,23.5]),
+                                        yaxis=dict(title="Stability Index (%)", range=[0,100], side="left"),
+                                        margin=dict(l=60,r=60,t=60,b=40),
+                                        legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center"))
+            st.plotly_chart(fig_stability, width="stretch")
+            with st.expander("📊 Stability Index Data Table", expanded=False):
+                table_data = hourly[["HOUR","stability_index","stability_change_%","mttr","mtbf","stops"]].copy()
+                table_data.rename(columns={
+                    "HOUR":"Hour",
+                    "stability_index":"Stability Index (%)",
+                    "stability_change_%":"Change vs Prev Hour (%)",
+                    "mttr":"MTTR (min)",
+                    "mtbf":"MTBF (min)",
+                    "stops":"Stop Count"
+                }, inplace=True)
+            
+                # Highlight only the Stability Index column
+                def highlight_stability(val):
+                    if pd.isna(val):
+                        return ""
+                    elif val <= 50:
+                        return "background-color: rgba(255, 0, 0, 0.3);"   # soft red
+                    elif val <= 70:
+                        return "background-color: rgba(255, 255, 0, 0.3);" # soft yellow
                     else:
-                        # Add context columns
-                        stoppage_alerts["Shots Since Last Stop"] = stoppage_alerts.groupby(
-                            stoppage_alerts["STOP_EVENT"].cumsum()
-                        ).cumcount()
-                        stoppage_alerts["Duration (min)"] = (stoppage_alerts["CT_diff_sec"] / 60).round(1)
-                        stoppage_alerts["Reason"] = "to be added"
-                        stoppage_alerts["Alert"] = "🔴"
-        
-                        # Final clean table
-                        table = stoppage_alerts[[
-                            "SHOT TIME", "Duration (min)", "Shots Since Last Stop", "Reason", "Alert"
-                        ]].rename(columns={"SHOT TIME": "Event Time"})
-        
-                        st.dataframe(table, width="stretch")
+                        return ""
+                
+                st.dataframe(
+                    table_data.style
+                    .applymap(highlight_stability, subset=["Stability Index (%)"])
+                    .format({
+                        "Stability Index (%)": "{:.2f}",
+                        "Change vs Prev Hour (%)": "{:+.2f}%",
+                        "MTTR (min)": "{:.2f}",
+                        "MTBF (min)": "{:.2f}"
+                    })
+                )
+    
+            st.markdown("""
+            **ℹ️ Stability Index Formula**
+            - Stability Index (%) = (MTBF / (MTBF + MTTR)) × 100
+            - If no stoppages occur in an hour, Stability Index is forced to **100%**
+            - Alert Zones:
+              - 🟥 0–50% → High Risk (Frequent stoppages with long recovery times. Production is highly unstable.)
+              - 🟨 50–70% → Medium Risk (Minor but frequent stoppages or slower-than-normal recoveries. Production flow is inconsistent and requires attention to prevent escalation.)
+              - 🟩 70–100% → Low Risk (stable operation)
+            """)
+    
+            # 5) 🚨 Stoppage Alerts (Improved Table)
+            st.markdown("### 🚨 Stoppage Alert Reporting")
+            
+            if "results" in st.session_state:
+                results = st.session_state.results
+                df_vis = results.get("df", pd.DataFrame()).copy()
+            
+                # --- Read threshold values from sidebar ---
+                threshold_mode = st.session_state.get("threshold_mode")
+                threshold = st.session_state.get("threshold")
+                threshold_label = st.session_state.get("threshold_label")
+            
+                if threshold is None:
+                    st.warning("⚠️ Please set a stoppage threshold in the sidebar.")
+                else:
+                    # --- Filter stoppages ---
+                    if "STOP_EVENT" in df_vis.columns and "CT_diff_sec" in df_vis.columns:
+                        stoppage_alerts = df_vis[df_vis["CT_diff_sec"] >= threshold].copy()
+            
+                        if stoppage_alerts.empty:
+                            st.info(f"✅ No stoppage alerts found (≥ {threshold_label}).")
+                        else:
+                            # Add context columns
+                            stoppage_alerts["Shots Since Last Stop"] = stoppage_alerts.groupby(
+                                stoppage_alerts["STOP_EVENT"].cumsum()
+                            ).cumcount()
+                            stoppage_alerts["Duration (min)"] = (stoppage_alerts["CT_diff_sec"] / 60).round(1)
+                            stoppage_alerts["Reason"] = "to be added"
+                            stoppage_alerts["Alert"] = "🔴"
+            
+                            # Final clean table
+                            table = stoppage_alerts[[
+                                "SHOT TIME", "Duration (min)", "Shots Since Last Stop", "Reason", "Alert"
+                            ]].rename(columns={"SHOT TIME": "Event Time"})
+            
+                            st.dataframe(table, width="stretch")
 
         # ---------- Page 2: Raw & Processed Data ----------
         elif page == "📂 Raw & Processed Data":
