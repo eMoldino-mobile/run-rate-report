@@ -492,9 +492,8 @@ if uploaded_file:
         if "results" not in st.session_state:
             st.info("👈 Please generate a report first from the Analysis Dashboard.")
         else:
-            # ✅ only access results inside this block
             results = st.session_state.results
-            df_res = results["df"].copy()   # safe now
+            df_res = results["df"].copy()
             df_vis = results["df"].copy()
     
             # --- Shot Counts & Efficiency ---
