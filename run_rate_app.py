@@ -486,43 +486,43 @@ if uploaded_file:
 
     # ---------- Page 2: Raw & Processed Data ----------
     elif page == "📂 Raw & Processed Data":
-    st.title("📋 Raw & Processed Cycle Data")
-
-    if "results" not in st.session_state:
-        st.info("👈 Please generate a report first from the Analysis Dashboard.")
-    else:
-        # everything that needs "results" stays indented inside this block
-        results = st.session_state.results
-        df_res = results["df"].copy()
-        df_vis = results["df"].copy()
-
-        # --- Summary ---
-        st.markdown("### Shot Counts & Efficiency")
-        st.table(pd.DataFrame({
-            "Total Shot Count": [results['total_shots']],
-            "Normal Shot Count": [results['normal_shots']],
-            "Efficiency": [f"{results['efficiency']*100:.2f}%"],
-            "Stop Count": [results['stop_events']]
-        }))
-
-        # --- Reliability Metrics ---
-        mttr = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].mean() / 60 if results["stop_events"] > 0 else None
-        uptimes = df_res.loc[~df_res["STOP_EVENT"], "CT_diff_sec"]
-        mtbf = uptimes.mean() / 60 if results["stop_events"] > 0 and not uptimes.empty else None
-        first_dt = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].iloc[0] / 60 if results["stop_events"] > 0 else None
-        avg_ct = df_res["ACTUAL CT"].mean()
-
-        reliability_df = pd.DataFrame({
-            "Metric": ["MTTR (min)", "MTBF (min)", "Time to First DT (min)", "Avg Cycle Time (sec)"],
-            "Value": [
-                f"{mttr:.2f}" if mttr else "N/A",
-                f"{mtbf:.2f}" if mtbf else "N/A",
-                f"{first_dt:.2f}" if first_dt else "N/A",
-                f"{avg_ct:.2f}" if avg_ct else "N/A"
-            ]
-        })
-        st.markdown("### Reliability Metrics")
-        st.table(reliability_df)
+        st.title("📋 Raw & Processed Cycle Data")
+    
+        if "results" not in st.session_state:
+            st.info("👈 Please generate a report first from the Analysis Dashboard.")
+        else:
+            # everything that needs "results" stays indented inside this block
+            results = st.session_state.results
+            df_res = results["df"].copy()
+            df_vis = results["df"].copy()
+    
+            # --- Summary ---
+            st.markdown("### Shot Counts & Efficiency")
+            st.table(pd.DataFrame({
+                "Total Shot Count": [results['total_shots']],
+                "Normal Shot Count": [results['normal_shots']],
+                "Efficiency": [f"{results['efficiency']*100:.2f}%"],
+                "Stop Count": [results['stop_events']]
+            }))
+    
+            # --- Reliability Metrics ---
+            mttr = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].mean() / 60 if results["stop_events"] > 0 else None
+            uptimes = df_res.loc[~df_res["STOP_EVENT"], "CT_diff_sec"]
+            mtbf = uptimes.mean() / 60 if results["stop_events"] > 0 and not uptimes.empty else None
+            first_dt = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].iloc[0] / 60 if results["stop_events"] > 0 else None
+            avg_ct = df_res["ACTUAL CT"].mean()
+    
+            reliability_df = pd.DataFrame({
+                "Metric": ["MTTR (min)", "MTBF (min)", "Time to First DT (min)", "Avg Cycle Time (sec)"],
+                "Value": [
+                    f"{mttr:.2f}" if mttr else "N/A",
+                    f"{mtbf:.2f}" if mtbf else "N/A",
+                    f"{first_dt:.2f}" if first_dt else "N/A",
+                    f"{avg_ct:.2f}" if avg_ct else "N/A"
+                ]
+            })
+            st.markdown("### Reliability Metrics")
+            st.table(reliability_df)
     
             # --- Production & Downtime Summary ---
             st.markdown("### Production & Downtime Summary")
