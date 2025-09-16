@@ -492,150 +492,150 @@ if uploaded_file:
             
                             st.dataframe(table, width="stretch")
 
-            # ---------- Page 2: Raw & Processed Data ----------
-            elif page == "📂 Raw & Processed Data":
-                st.title("📋 Raw & Processed Cycle Data")
-    
-                results = st.session_state.get("results", {})
-                st.write("DEBUG - Results keys:", list(results.keys()))
-                if not results:
-                    st.info("👈 Please generate a report first from the Analysis Dashboard.")
-                else:
-                    df_res = results.get("df", pd.DataFrame()).copy()
-                    df_vis = results.get("df", pd.DataFrame()).copy()
-                    stop_events = results.get("stop_events", 0)
-    
-                    # --- Summary ---
-                    st.markdown("### Shot Counts & Efficiency")
-                    st.table(pd.DataFrame({
-                        "Total Shot Count": [results.get("total_shots", 0)],
-                        "Normal Shot Count": [results.get("normal_shots", 0)],
-                        "Efficiency": [f"{results.get('efficiency', 0)*100:.2f}%"],
-                        "Stop Count": [stop_events]
-                    }))
-    
-                    # --- Reliability Metrics ---
-                    if stop_events > 0 and "STOP_EVENT" in df_res.columns:
-                        mttr = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].mean() / 60
-                        uptimes = df_res.loc[~df_res["STOP_EVENT"], "CT_diff_sec"]
-                        mtbf = uptimes.mean() / 60 if not uptimes.empty else None
-                        first_dt = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].iloc[0] / 60
+    # ---------- Page 2: Raw & Processed Data ----------
+    elif page == "📂 Raw & Processed Data":
+        st.title("📋 Raw & Processed Cycle Data")
+
+        results = st.session_state.get("results", {})
+        st.write("DEBUG - Results keys:", list(results.keys()))
+        if not results:
+            st.info("👈 Please generate a report first from the Analysis Dashboard.")
+        else:
+            df_res = results.get("df", pd.DataFrame()).copy()
+            df_vis = results.get("df", pd.DataFrame()).copy()
+            stop_events = results.get("stop_events", 0)
+
+            # --- Summary ---
+            st.markdown("### Shot Counts & Efficiency")
+            st.table(pd.DataFrame({
+                "Total Shot Count": [results.get("total_shots", 0)],
+                "Normal Shot Count": [results.get("normal_shots", 0)],
+                "Efficiency": [f"{results.get('efficiency', 0)*100:.2f}%"],
+                "Stop Count": [stop_events]
+            }))
+
+            # --- Reliability Metrics ---
+            if stop_events > 0 and "STOP_EVENT" in df_res.columns:
+                mttr = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].mean() / 60
+                uptimes = df_res.loc[~df_res["STOP_EVENT"], "CT_diff_sec"]
+                mtbf = uptimes.mean() / 60 if not uptimes.empty else None
+                first_dt = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].iloc[0] / 60
+            else:
+                mttr, mtbf, first_dt = None, None, None
+
+            avg_ct = df_res["ACTUAL CT"].mean() if "ACTUAL CT" in df_res.columns else None
+
+            reliability_df = pd.DataFrame({
+                "Metric": ["MTTR (min)", "MTBF (min)", "Time to First DT (min)", "Avg Cycle Time (sec)"],
+                "Value": [
+                    f"{mttr:.2f}" if mttr else "N/A",
+                    f"{mtbf:.2f}" if mtbf else "N/A",
+                    f"{first_dt:.2f}" if first_dt else "N/A",
+                    f"{avg_ct:.2f}" if avg_ct else "N/A"
+                ]
+            })
+            st.markdown("### Reliability Metrics")
+            st.table(reliability_df)
+
+            # --- Production & Downtime Summary ---
+            st.markdown("### Production & Downtime Summary")
+            st.table(pd.DataFrame({
+                "Mode CT": [f"{results.get('mode_ct', 0):.2f}"],
+                "Lower Limit": [f"{results.get('lower_limit', 0):.2f}"],
+                "Upper Limit": [f"{results.get('upper_limit', 0):.2f}"],
+                "Production Time (hrs)": [
+                    f"{results.get('production_time', 0)/60:.1f} hrs "
+                    f"({results.get('production_time', 0)/results.get('total_runtime', 1)*100:.2f}%)"
+                ],
+                "Downtime (hrs)": [
+                    f"{results.get('downtime', 0)/60:.1f} hrs "
+                    f"({results.get('downtime', 0)/results.get('total_runtime', 1)*100:.2f}%)"
+                ],
+                "Total Run Time (hrs)": [f"{results.get('run_hours', 0):.2f}"],
+                "Total Stops": [stop_events]
+            }))
+
+            st.markdown("---")
+
+            # --- Supplier / Equipment / Approved CT ---
+            df_vis["Supplier Name"] = df_vis.get("SUPPLIER NAME", "not provided")
+            df_vis["Equipment Code"] = df_vis.get("EQUIPMENT CODE", "not provided")
+            df_vis["Approved CT"] = df_vis.get("APPROVED CT", "not provided")
+
+            # --- Enrich cycle data ---
+            df_vis["Actual CT"] = df_vis["ACTUAL CT"].round(1)
+            df_vis["Time Diff Sec"] = df_vis["CT_diff_sec"].round(2)
+            df_vis["Stop"] = df_vis["STOP_ADJ"]
+            df_vis["Cumulative Count"] = df_vis.groupby(df_vis["Stop"].cumsum()).cumcount()
+            df_vis["Run Duration"] = np.where(
+                df_vis["Stop"] == 1,
+                (df_vis["CT_diff_sec"] / 60).round(2),
+                0
+            )
+
+            # --- Final cleaned table ---
+            df_clean = df_vis[[
+                "Supplier Name", "Equipment Code", "SHOT TIME",
+                "Approved CT", "Actual CT", "Time Diff Sec",
+                "Stop", "Cumulative Count", "Run Duration"
+            ]].rename(columns={"SHOT TIME": "Shot Time"})
+
+            # --- Interactive data editor ---
+            st.markdown("### Cycle Data Table (Processed)")
+            st.data_editor(
+                df_clean,
+                width="stretch",
+                column_config={
+                    "Stop": st.column_config.CheckboxColumn(
+                        "Stop",
+                        help="Marked as stoppage event",
+                        default=False
+                    )
+                }
+            )
+
+            # --- Download options ---
+            # 1) CSV Export
+            csv = df_clean.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="💾 Download Processed Data (CSV)",
+                data=csv,
+                file_name="processed_cycle_data.csv",
+                mime="text/csv"
+            )
+
+            # 2) Excel Export with formulas
+            from io import BytesIO
+            from openpyxl import Workbook
+
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Cycle Data"
+
+            # Write headers
+            ws.append(df_clean.columns.tolist())
+
+            # Write rows with formulas where useful
+            for i, row in df_clean.iterrows():
+                excel_row = []
+                for j, col in enumerate(df_clean.columns):
+                    if col == "Run Duration":
+                        # Example formula: if Stop=1, use Time Diff Sec / 60
+                        excel_row.append(f"=IF(H{i+2}=1, F{i+2}/60, 0)")  # H=Stop col, F=Time Diff Sec col
                     else:
-                        mttr, mtbf, first_dt = None, None, None
-    
-                    avg_ct = df_res["ACTUAL CT"].mean() if "ACTUAL CT" in df_res.columns else None
-    
-                    reliability_df = pd.DataFrame({
-                        "Metric": ["MTTR (min)", "MTBF (min)", "Time to First DT (min)", "Avg Cycle Time (sec)"],
-                        "Value": [
-                            f"{mttr:.2f}" if mttr else "N/A",
-                            f"{mtbf:.2f}" if mtbf else "N/A",
-                            f"{first_dt:.2f}" if first_dt else "N/A",
-                            f"{avg_ct:.2f}" if avg_ct else "N/A"
-                        ]
-                    })
-                    st.markdown("### Reliability Metrics")
-                    st.table(reliability_df)
-    
-                    # --- Production & Downtime Summary ---
-                    st.markdown("### Production & Downtime Summary")
-                    st.table(pd.DataFrame({
-                        "Mode CT": [f"{results.get('mode_ct', 0):.2f}"],
-                        "Lower Limit": [f"{results.get('lower_limit', 0):.2f}"],
-                        "Upper Limit": [f"{results.get('upper_limit', 0):.2f}"],
-                        "Production Time (hrs)": [
-                            f"{results.get('production_time', 0)/60:.1f} hrs "
-                            f"({results.get('production_time', 0)/results.get('total_runtime', 1)*100:.2f}%)"
-                        ],
-                        "Downtime (hrs)": [
-                            f"{results.get('downtime', 0)/60:.1f} hrs "
-                            f"({results.get('downtime', 0)/results.get('total_runtime', 1)*100:.2f}%)"
-                        ],
-                        "Total Run Time (hrs)": [f"{results.get('run_hours', 0):.2f}"],
-                        "Total Stops": [stop_events]
-                    }))
-    
-                    st.markdown("---")
-    
-                    # --- Supplier / Equipment / Approved CT ---
-                    df_vis["Supplier Name"] = df_vis.get("SUPPLIER NAME", "not provided")
-                    df_vis["Equipment Code"] = df_vis.get("EQUIPMENT CODE", "not provided")
-                    df_vis["Approved CT"] = df_vis.get("APPROVED CT", "not provided")
-    
-                    # --- Enrich cycle data ---
-                    df_vis["Actual CT"] = df_vis["ACTUAL CT"].round(1)
-                    df_vis["Time Diff Sec"] = df_vis["CT_diff_sec"].round(2)
-                    df_vis["Stop"] = df_vis["STOP_ADJ"]
-                    df_vis["Cumulative Count"] = df_vis.groupby(df_vis["Stop"].cumsum()).cumcount()
-                    df_vis["Run Duration"] = np.where(
-                        df_vis["Stop"] == 1,
-                        (df_vis["CT_diff_sec"] / 60).round(2),
-                        0
-                    )
-    
-                    # --- Final cleaned table ---
-                    df_clean = df_vis[[
-                        "Supplier Name", "Equipment Code", "SHOT TIME",
-                        "Approved CT", "Actual CT", "Time Diff Sec",
-                        "Stop", "Cumulative Count", "Run Duration"
-                    ]].rename(columns={"SHOT TIME": "Shot Time"})
-    
-                    # --- Interactive data editor ---
-                    st.markdown("### Cycle Data Table (Processed)")
-                    st.data_editor(
-                        df_clean,
-                        width="stretch",
-                        column_config={
-                            "Stop": st.column_config.CheckboxColumn(
-                                "Stop",
-                                help="Marked as stoppage event",
-                                default=False
-                            )
-                        }
-                    )
-    
-                    # --- Download options ---
-                    # 1) CSV Export
-                    csv = df_clean.to_csv(index=False).encode("utf-8")
-                    st.download_button(
-                        label="💾 Download Processed Data (CSV)",
-                        data=csv,
-                        file_name="processed_cycle_data.csv",
-                        mime="text/csv"
-                    )
-    
-                    # 2) Excel Export with formulas
-                    from io import BytesIO
-                    from openpyxl import Workbook
-    
-                    wb = Workbook()
-                    ws = wb.active
-                    ws.title = "Cycle Data"
-    
-                    # Write headers
-                    ws.append(df_clean.columns.tolist())
-    
-                    # Write rows with formulas where useful
-                    for i, row in df_clean.iterrows():
-                        excel_row = []
-                        for j, col in enumerate(df_clean.columns):
-                            if col == "Run Duration":
-                                # Example formula: if Stop=1, use Time Diff Sec / 60
-                                excel_row.append(f"=IF(H{i+2}=1, F{i+2}/60, 0)")  # H=Stop col, F=Time Diff Sec col
-                            else:
-                                excel_row.append(row[col])
-                        ws.append(excel_row)
-    
-                    # Save to buffer
-                    buffer = BytesIO()
-                    wb.save(buffer)
-                    buffer.seek(0)
-    
-                    st.download_button(
-                        label="📊 Download Processed Data (Excel with formulas)",
-                        data=buffer,
-                        file_name="processed_cycle_data.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
+                        excel_row.append(row[col])
+                ws.append(excel_row)
+
+            # Save to buffer
+            buffer = BytesIO()
+            wb.save(buffer)
+            buffer.seek(0)
+
+            st.download_button(
+                label="📊 Download Processed Data (Excel with formulas)",
+                data=buffer,
+                file_name="processed_cycle_data.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin. Headers in ROW 1 please")
