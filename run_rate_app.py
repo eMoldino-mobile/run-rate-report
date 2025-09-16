@@ -219,7 +219,7 @@ if uploaded_file:
             st.title("📊 Run Rate Report")
             st.subheader(f"Tool: {tool} | Date: {date.strftime('%Y-%m-%d')}")
     
-            # Summaries
+            # --- Shot Counts & Efficiency ---
             st.markdown("### Shot Counts & Efficiency")
             st.table(pd.DataFrame({
                 "Total Shot Count": [results.get('total_shots', 0)],
@@ -227,13 +227,11 @@ if uploaded_file:
                 "Efficiency": [f"{results.get('efficiency', 0)*100:.2f}%"],
                 "Stop Count": [results.get('stop_events', 0)]
             }))
-
-        # --- Reliability Metrics ---
-        if "results" in st.session_state and st.session_state.results:
-            results = st.session_state.results
+    
+            # --- Reliability Metrics ---
             df_res = results.get("df", pd.DataFrame()).copy()
             stop_events = results.get("stop_events", 0)
-
+    
             mttr = (
                 df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].mean() / 60
                 if stop_events > 0 and "STOP_EVENT" in df_res.columns
@@ -251,7 +249,7 @@ if uploaded_file:
                 else None
             )
             avg_ct = df_res["ACTUAL CT"].mean() if "ACTUAL CT" in df_res.columns else None
-
+    
             reliability_df = pd.DataFrame({
                 "Metric": ["MTTR (min)", "MTBF (min)", "Time to First DT (min)", "Avg Cycle Time (sec)"],
                 "Value": [
@@ -261,22 +259,27 @@ if uploaded_file:
                     f"{avg_ct:.2f}" if avg_ct else "N/A"
                 ]
             })
-
+    
             st.markdown("### Reliability Metrics")
             st.table(reliability_df)
-        else:
-            st.info("👈 No reliability data available yet.")
-
+    
+            # --- Production & Downtime Summary ---
             st.markdown("### Production & Downtime Summary")
             st.table(pd.DataFrame({
-            "Mode CT": [f"{results.get('mode_ct', 0):.2f}"],
-            "Lower Limit": [f"{results.get('lower_limit', 0):.2f}"],
-            "Upper Limit": [f"{results.get('upper_limit', 0):.2f}"],
-            "Production Time (hrs)": [f"{results.get('production_time', 0)/60:.1f} hrs ({results.get('production_time', 0)/results.get('total_runtime', 1)*100:.2f}%)"],
-            "Downtime (hrs)": [f"{results.get('downtime', 0)/60:.1f} hrs ({results.get('downtime', 0)/results.get('total_runtime', 1)*100:.2f}%)"],
-            "Total Run Time (hrs)": [f"{results.get('run_hours', 0):.2f}"],
-            "Total Stops": [results.get('stop_events', 0)]
-        }))
+                "Mode CT": [f"{results.get('mode_ct', 0):.2f}"],
+                "Lower Limit": [f"{results.get('lower_limit', 0):.2f}"],
+                "Upper Limit": [f"{results.get('upper_limit', 0):.2f}"],
+                "Production Time (hrs)": [
+                    f"{results.get('production_time', 0)/60:.1f} hrs "
+                    f"({results.get('production_time', 0)/results.get('total_runtime', 1)*100:.2f}%)"
+                ],
+                "Downtime (hrs)": [
+                    f"{results.get('downtime', 0)/60:.1f} hrs "
+                    f"({results.get('downtime', 0)/results.get('total_runtime', 1)*100:.2f}%)"
+                ],
+                "Total Run Time (hrs)": [f"{results.get('run_hours', 0):.2f}"],
+                "Total Stops": [results.get('stop_events', 0)]
+            }))
 
         # Graphs + Collapsible Tables
         st.subheader("📈 Visual Analysis")
