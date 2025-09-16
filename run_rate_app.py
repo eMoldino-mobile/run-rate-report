@@ -494,10 +494,9 @@ if uploaded_file:
         else:
             results = st.session_state.results
             df_vis = results["df"].copy()
-            df_res = results["df"]  # ✅ so df_res exists here too
-            run_durations = results["run_durations"]["RUN_DURATION"]
+            df_res = results["df"]
     
-            # --- Summary (same as Page 1) ---
+            # --- Shot Counts & Efficiency ---
             st.markdown("### Shot Counts & Efficiency")
             st.table(pd.DataFrame({
                 "Total Shot Count": [results['total_shots']],
@@ -506,9 +505,7 @@ if uploaded_file:
                 "Stop Count": [results['stop_events']]
             }))
     
-            # --- Reliability Metrics (calculated dynamically like Page 1) ---
-            df_res = results["df"]
-    
+            # --- Reliability Metrics (calculated dynamically, same logic as Page 1) ---
             mttr = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].mean() / 60 if results["stop_events"] > 0 else None
             uptimes = df_res.loc[~df_res["STOP_EVENT"], "CT_diff_sec"]
             mtbf = uptimes.mean() / 60 if results["stop_events"] > 0 and not uptimes.empty else None
@@ -542,42 +539,30 @@ if uploaded_file:
     
             st.markdown("---")
     
-            # --- Supplier Name ---
+            # --- Supplier / Equipment / Approved CT ---
             df_vis["Supplier Name"] = df_vis.get("SUPPLIER NAME", "not provided")
-    
-            # --- Equipment Code ---
             df_vis["Equipment Code"] = df_vis.get("EQUIPMENT CODE", "not provided")
-    
-            # --- Approved CT ---
             df_vis["Approved CT"] = df_vis.get("APPROVED CT", "not provided")
     
-            # --- Actual CT (1 decimal) ---
+            # --- Enrich cycle data ---
             df_vis["Actual CT"] = df_vis["ACTUAL CT"].round(1)
-    
-            # --- Time Diff Sec (2 decimals) ---
             df_vis["Time Diff Sec"] = df_vis["CT_diff_sec"].round(2)
-    
-            # --- Stop Flag (use STOP_ADJ so back-to-backs are also marked) ---
             df_vis["Stop"] = df_vis["STOP_ADJ"]
-    
-            # --- Cumulative Count (cycles since last stop) ---
             df_vis["Cumulative Count"] = df_vis.groupby(df_vis["Stop"].cumsum()).cumcount()
-    
-            # --- Run Duration (update only when stop occurs) ---
             df_vis["Run Duration"] = np.where(
                 df_vis["Stop"] == 1,
                 (df_vis["CT_diff_sec"] / 60).round(2),
                 0
             )
     
-            # --- Select only required columns ---
+            # --- Final cleaned table ---
             df_clean = df_vis[[
                 "Supplier Name", "Equipment Code", "SHOT TIME",
                 "Approved CT", "Actual CT", "Time Diff Sec",
                 "Stop", "Cumulative Count", "Run Duration"
             ]].rename(columns={"SHOT TIME": "Shot Time"})
     
-            # --- Display with checkboxes for Stop ---
+            # --- Interactive data editor ---
             st.markdown("### Cycle Data Table (Processed)")
             st.data_editor(
                 df_clean,
@@ -592,7 +577,7 @@ if uploaded_file:
             )
     
             # --- Download options ---
-            # 1. CSV Export
+            # 1) CSV Export
             csv = df_clean.to_csv(index=False).encode("utf-8")
             st.download_button(
                 label="💾 Download Processed Data (CSV)",
@@ -601,7 +586,7 @@ if uploaded_file:
                 mime="text/csv"
             )
     
-            # 2. Excel Export with formulas
+            # 2) Excel Export with formulas
             from io import BytesIO
             from openpyxl import Workbook
     
@@ -634,6 +619,5 @@ if uploaded_file:
                 file_name="processed_cycle_data.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin. Headers in ROW 1 please")
