@@ -475,7 +475,76 @@ if uploaded_file:
                         ]].rename(columns={"SHOT TIME": "Event Time"})
         
                         st.dataframe(table, width="stretch")
+        # ---------- Page 2: Raw & Processed Data ----------
+        elif page == "📂 Raw & Processed Data":
+            st.title("📋 Raw & Processed Cycle Data")
         
+            if "results" not in st.session_state or not st.session_state.results:
+                st.info("👈 Please generate a report first from the Analysis Dashboard.")
+            else:
+                # ✅ Safely unpack results
+                results = st.session_state.results
+                df_res = results.get("df", pd.DataFrame()).copy()
+                df_vis = results.get("df", pd.DataFrame()).copy()
+                stop_events = results.get("stop_events", 0)
+        
+                # --- Summary ---
+                st.markdown("### Shot Counts & Efficiency")
+                st.table(pd.DataFrame({
+                    "Total Shot Count": [results.get("total_shots", 0)],
+                    "Normal Shot Count": [results.get("normal_shots", 0)],
+                    "Efficiency": [f"{results.get('efficiency', 0)*100:.2f}%"],
+                    "Stop Count": [stop_events]
+                }))
+        
+                # --- Reliability Metrics ---
+                mttr = (
+                    df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].mean() / 60
+                    if stop_events > 0 and "STOP_EVENT" in df_res.columns
+                    else None
+                )
+                uptimes = (
+                    df_res.loc[~df_res["STOP_EVENT"], "CT_diff_sec"]
+                    if "STOP_EVENT" in df_res.columns
+                    else pd.Series(dtype=float)
+                )
+                mtbf = uptimes.mean() / 60 if stop_events > 0 and not uptimes.empty else None
+                first_dt = (
+                    df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].iloc[0] / 60
+                    if stop_events > 0 and "STOP_EVENT" in df_res.columns
+                    else None
+                )
+                avg_ct = df_res["ACTUAL CT"].mean() if "ACTUAL CT" in df_res.columns else None
+        
+                reliability_df = pd.DataFrame({
+                    "Metric": ["MTTR (min)", "MTBF (min)", "Time to First DT (min)", "Avg Cycle Time (sec)"],
+                    "Value": [
+                        f"{mttr:.2f}" if mttr else "N/A",
+                        f"{mtbf:.2f}" if mtbf else "N/A",
+                        f"{first_dt:.2f}" if first_dt else "N/A",
+                        f"{avg_ct:.2f}" if avg_ct else "N/A"
+                    ]
+                })
+                st.markdown("### Reliability Metrics")
+                st.table(reliability_df)
+        
+                # --- Production & Downtime Summary ---
+                st.markdown("### Production & Downtime Summary")
+                st.table(pd.DataFrame({
+                    "Mode CT": [f"{results.get('mode_ct', 0):.2f}"],
+                    "Lower Limit": [f"{results.get('lower_limit', 0):.2f}"],
+                    "Upper Limit": [f"{results.get('upper_limit', 0):.2f}"],
+                    "Production Time (hrs)": [
+                        f"{results.get('production_time', 0)/60:.1f} hrs "
+                        f"({results.get('production_time', 0)/results.get('total_runtime', 1)*100:.2f}%)"
+                    ],
+                    "Downtime (hrs)": [
+                        f"{results.get('downtime', 0)/60:.1f} hrs "
+                        f"({results.get('downtime', 0)/results.get('total_runtime', 1)*100:.2f}%)"
+                    ],
+                    "Total Run Time (hrs)": [f"{results.get('run_hours', 0):.2f}"],
+                    "Total Stops": [stop_events]
+                }))
                         st.markdown(f"""
                         **Summary**
                         - Total Stoppage Alerts: {len(stoppage_alerts)}
@@ -485,75 +554,7 @@ if uploaded_file:
                     st.warning("⚠️ No stoppage event data available for this dataset.")
 
     # ---------- Page 2: Raw & Processed Data ----------
-    elif page == "📂 Raw & Processed Data":
-        st.title("📋 Raw & Processed Cycle Data")
     
-        if "results" not in st.session_state or not st.session_state.results:
-            st.info("👈 Please generate a report first from the Analysis Dashboard.")
-        else:
-            # Safely load results
-            results = st.session_state.get("results", {})
-            df_res = results.get("df", pd.DataFrame()).copy()
-            df_vis = results.get("df", pd.DataFrame()).copy()
-            stop_events = results.get("stop_events", 0)
-    
-            # --- Summary ---
-            st.markdown("### Shot Counts & Efficiency")
-            st.table(pd.DataFrame({
-                "Total Shot Count": [results.get("total_shots", 0)],
-                "Normal Shot Count": [results.get("normal_shots", 0)],
-                "Efficiency": [f"{results.get('efficiency', 0)*100:.2f}%"],
-                "Stop Count": [stop_events]
-            }))
-    
-            # --- Reliability Metrics ---
-            mttr = (
-                df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].mean() / 60
-                if stop_events > 0 and "STOP_EVENT" in df_res.columns
-                else None
-            )
-            uptimes = (
-                df_res.loc[~df_res["STOP_EVENT"], "CT_diff_sec"]
-                if "STOP_EVENT" in df_res.columns
-                else pd.Series()
-            )
-            mtbf = uptimes.mean() / 60 if stop_events > 0 and not uptimes.empty else None
-            first_dt = (
-                df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"].iloc[0] / 60
-                if stop_events > 0 and "STOP_EVENT" in df_res.columns
-                else None
-            )
-            avg_ct = df_res["ACTUAL CT"].mean() if "ACTUAL CT" in df_res.columns else None
-    
-            reliability_df = pd.DataFrame({
-                "Metric": ["MTTR (min)", "MTBF (min)", "Time to First DT (min)", "Avg Cycle Time (sec)"],
-                "Value": [
-                    f"{mttr:.2f}" if mttr else "N/A",
-                    f"{mtbf:.2f}" if mtbf else "N/A",
-                    f"{first_dt:.2f}" if first_dt else "N/A",
-                    f"{avg_ct:.2f}" if avg_ct else "N/A"
-                ]
-            })
-            st.markdown("### Reliability Metrics")
-            st.table(reliability_df)
-    
-            # --- Production & Downtime Summary ---
-            st.markdown("### Production & Downtime Summary")
-            st.table(pd.DataFrame({
-                "Mode CT": [f"{results.get('mode_ct', 0):.2f}"],
-                "Lower Limit": [f"{results.get('lower_limit', 0):.2f}"],
-                "Upper Limit": [f"{results.get('upper_limit', 0):.2f}"],
-                "Production Time (hrs)": [
-                    f"{results.get('production_time', 0)/60:.1f} hrs "
-                    f"({results.get('production_time', 0)/results.get('total_runtime', 1)*100:.2f}%)"
-                ],
-                "Downtime (hrs)": [
-                    f"{results.get('downtime', 0)/60:.1f} hrs "
-                    f"({results.get('downtime', 0)/results.get('total_runtime', 1)*100:.2f}%)"
-                ],
-                "Total Run Time (hrs)": [f"{results.get('run_hours', 0):.2f}"],
-                "Total Stops": [stop_events]
-            }))
     
             st.markdown("---")
     
