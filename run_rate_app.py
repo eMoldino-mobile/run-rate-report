@@ -63,11 +63,11 @@ def calculate_run_rate_excel_like(df):
     total_runtime = (df["SHOT TIME"].max() - df["SHOT TIME"].min()).total_seconds() / 60  # minutes
     run_hours = total_runtime / 60
 
-    # Production time = normal shots × mode CT (in minutes)
-    production_time = (normal_shots * mode_ct) / 60
-
-    # Downtime = total runtime - production time
-    downtime = total_runtime - production_time
+    # Downtime = sum of adjusted stop intervals
+    downtime = df.loc[df["STOP_ADJ"] == 1, "CT_diff_sec"].sum() / 60  # minutes
+    
+    # Production time = runtime - downtime
+    production_time = total_runtime - downtime
 
     gross_rate = total_shots / run_hours if run_hours else None
     net_rate = normal_shots / run_hours if run_hours else None
