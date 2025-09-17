@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pkl
+
+# Streamlit
+.streamlit/
+
+# Mac / Windows
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints
+
+# Data files (optional, don’t upload big Excels to repo)
+*.xlsx
+*.csv
