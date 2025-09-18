@@ -568,11 +568,28 @@ if uploaded_file:
             df_vis["Supplier Name"] = df_vis.get("SUPPLIER NAME", "not provided")
             df_vis["Equipment Code"] = df_vis.get("EQUIPMENT CODE", "not provided")
             df_vis["Approved CT"] = df_vis.get("APPROVED CT", "not provided")
-
+            
             # --- Enrich cycle data ---
             df_vis["Actual CT"] = df_vis["ACTUAL CT"].round(1)
             df_vis["Time Diff Sec"] = df_vis["CT_diff_sec"].round(2)
-            df_vis["Stop"] = df_vis["STOP_ADJ"]
+            
+            # New stop columns
+            df_vis["Stop_All"] = np.where(
+                (df_vis["Time Diff Sec"] < results["lower_limit"]) | 
+                (df_vis["Time Diff Sec"] > results["upper_limit"]), 1, 0
+            )
+            df_vis["Stop_Event"] = df_vis["STOP_EVENT"].astype(int)
+            
+            # Display logic for UI
+            def stop_marker(row):
+                if row["Stop_Event"] == 1:
+                    return "🔴"   # red tick
+                elif row["Stop_All"] == 1:
+                    return "⚪"   # grey tick
+                else:
+                    return ""
+            
+            df_vis["Stop_Flag"] = df_vis.apply(stop_marker, axis=1)
             
             # Initialise
             df_vis["Cumulative Count"] = 0.0
