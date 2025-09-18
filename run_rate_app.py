@@ -36,14 +36,17 @@ def calculate_run_rate_excel_like(df):
         st.stop()
 
     # --- CT Difference Handling ---
-    # Step 1: raw time difference
-    df["CT_diff_sec"] = df["SHOT TIME"].diff().dt.total_seconds()
+    # Step 1: raw time difference (true gap)
+    df["CT_diff_raw"] = df["SHOT TIME"].diff().dt.total_seconds()
     
     # Step 2: mode & threshold
     mode_ct = df["ACTUAL CT"].mode().iloc[0]
     threshold = mode_ct * 2
     
-    # Step 3: replace with ACTUAL CT when valid
+    # Step 3: decide CT_diff_sec
+    df["CT_diff_sec"] = df["CT_diff_raw"]  # start with raw gap
+    
+    # Replace with ACTUAL CT only if it's valid (< threshold and not 999.9)
     valid_mask = (
         df["ACTUAL CT"].notna() &
         (df["ACTUAL CT"] < threshold) &
@@ -51,15 +54,13 @@ def calculate_run_rate_excel_like(df):
     )
     df.loc[valid_mask, "CT_diff_sec"] = df.loc[valid_mask, "ACTUAL CT"]
     
-    # Step 4: for 999.9 values, force SHOT TIME diff
+    # Step 4: if ACTUAL CT == 999.9 → force raw gap
     maxed_mask = (df["ACTUAL CT"] == 999.9)
-    df.loc[maxed_mask, "CT_diff_sec"] = df["SHOT TIME"].diff().dt.total_seconds()
+    df.loc[maxed_mask, "CT_diff_sec"] = df.loc[maxed_mask, "CT_diff_raw"]
     
-    # Step 5: carry stop values forward one row
-    stop_idx = df.index[df["CT_diff_sec"] > threshold]
-    for idx in stop_idx:
-        if idx + 1 in df.index:
-            df.at[idx + 1, "CT_diff_sec"] = df.at[idx, "CT_diff_sec"]
+    # Step 5: if raw gap is a stop (> threshold), keep raw gap no matter what
+    stop_mask = df["CT_diff_raw"] > threshold
+    df.loc[stop_mask, "CT_diff_sec"] = df.loc[stop_mask, "CT_diff_raw"]
 
     # Mode CT (seconds)
     mode_ct = df["ACTUAL CT"].mode().iloc[0]
