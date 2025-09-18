@@ -678,7 +678,7 @@ if uploaded_file:
             ws_dash.append(["Total Run Time (hrs)", f"{results.get('run_hours', 0):.2f}"])
             ws_dash.append(["Total Stops", results.get("stop_events", 0)])
         
-            # Auto-size
+            # Auto-size dashboard columns
             for col in ws_dash.columns:
                 max_len = max(len(str(c.value)) if c.value else 0 for c in col)
                 ws_dash.column_dimensions[col[0].column_letter].width = max_len + 2
@@ -709,7 +709,7 @@ if uploaded_file:
                     if row[run_idx - 1].value and row[run_idx - 1].value > 0:
                         row[run_idx - 1].fill = red_fill
         
-            # Auto-size columns
+            # Auto-size data columns
             for col in ws_data.columns:
                 max_len = max(len(str(c.value)) if c.value else 0 for c in col)
                 ws_data.column_dimensions[col[0].column_letter].width = max_len + 2
