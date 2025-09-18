@@ -6,6 +6,12 @@ import plotly.graph_objects as go
 from datetime import timedelta
 import warnings
 
+# Excel export helpers
+from openpyxl import Workbook
+from openpyxl.utils.dataframe import dataframe_to_rows
+from openpyxl.styles import PatternFill
+from io import BytesIO
+
 # Suppress deprecation warnings during dev (optional but recommended)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
