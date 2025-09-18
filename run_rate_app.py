@@ -35,32 +35,18 @@ def calculate_run_rate_excel_like(df):
         st.error("Input file must contain either 'SHOT TIME' or YEAR/MONTH/DAY/TIME columns.")
         st.stop()
 
-    # --- CT Difference Handling ---
-    # Step 1: raw time difference (true gap)
+    # --- CT Difference Handling (row-shifted) ---
     df["CT_diff_raw"] = df["SHOT TIME"].diff().dt.total_seconds()
     
-    # Step 2: mode & threshold
-    mode_ct = df["ACTUAL CT"].mode().iloc[0]
-    threshold = mode_ct * 2
+    # Shift ACTUAL CT down so each row uses previous cycle’s ACTUAL CT
+    df["CT_diff_sec"] = df["ACTUAL CT"].shift()
     
-    # Step 3: decide CT_diff_sec
-    df["CT_diff_sec"] = df["CT_diff_raw"]  # start with raw gap
+    # Rule: if previous ACTUAL CT == 999.9 → fall back to raw gap
+    mask_maxed = df["CT_diff_sec"] == 999.9
+    df.loc[mask_maxed, "CT_diff_sec"] = df.loc[mask_maxed, "CT_diff_raw"]
     
-    # Replace with ACTUAL CT only if it's valid (< threshold and not 999.9)
-    valid_mask = (
-        df["ACTUAL CT"].notna() &
-        (df["ACTUAL CT"] < threshold) &
-        (df["ACTUAL CT"] != 999.9)
-    )
-    df.loc[valid_mask, "CT_diff_sec"] = df.loc[valid_mask, "ACTUAL CT"]
-    
-    # Step 4: if ACTUAL CT == 999.9 → force raw gap
-    maxed_mask = (df["ACTUAL CT"] == 999.9)
-    df.loc[maxed_mask, "CT_diff_sec"] = df.loc[maxed_mask, "CT_diff_raw"]
-    
-    # Step 5: if raw gap is a stop (> threshold), keep raw gap no matter what
-    stop_mask = df["CT_diff_raw"] > threshold
-    df.loc[stop_mask, "CT_diff_sec"] = df.loc[stop_mask, "CT_diff_raw"]
+    # First row: always use raw gap (or NaN if no diff)
+    df.loc[df.index[0], "CT_diff_sec"] = df.loc[df.index[0], "CT_diff_raw"]
 
     # Mode CT (seconds)
     mode_ct = df["ACTUAL CT"].mode().iloc[0]
