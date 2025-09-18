@@ -792,110 +792,110 @@ if uploaded_file:
             
     # ---------- Page 3: Weekly/Monthly Trends ----------
     elif page == "📅 Weekly Trends":
-    st.title("📅 Weekly Trends")
-
-    # Use the full dataset for the selected tool (ignore date filter)
-    df_tool = df[df[selection_column] == tool].copy()
-    if df_tool.empty:
-        st.warning("⚠️ No data found for this tool across the full dataset.")
-    else:
-        # Re-run calculations across all days for this tool
-        wk_res = calculate_run_rate_excel_like(df_tool)
-        dfx = wk_res.get("df", pd.DataFrame()).copy()
-
-        if dfx.empty or "SHOT TIME" not in dfx.columns:
-            st.warning("⚠️ No cycle-level data available for weekly analysis.")
+        st.title("📅 Weekly Trends")
+    
+        # Use the full dataset for the selected tool (ignore date filter)
+        df_tool = df[df[selection_column] == tool].copy()
+        if df_tool.empty:
+            st.warning("⚠️ No data found for this tool across the full dataset.")
         else:
-            dfx["SHOT TIME"] = pd.to_datetime(dfx["SHOT TIME"], errors="coerce")
-            dfx = dfx.dropna(subset=["SHOT TIME"])
-            dfx["WEEK"] = dfx["SHOT TIME"].dt.to_period("W").apply(lambda r: r.start_time)
-
-            if dfx["WEEK"].nunique() == 0:
-                st.info("ℹ️ No weekly data could be grouped (maybe only one day available).")
+            # Re-run calculations across all days for this tool
+            wk_res = calculate_run_rate_excel_like(df_tool)
+            dfx = wk_res.get("df", pd.DataFrame()).copy()
+    
+            if dfx.empty or "SHOT TIME" not in dfx.columns:
+                st.warning("⚠️ No cycle-level data available for weekly analysis.")
             else:
-                lower, upper = wk_res["lower_limit"], wk_res["upper_limit"]
-
-                def safe_mean(series):
-                    return float(np.nanmean(series)) if series.notna().any() else np.nan
-
-                # ---------- Weekly summary ----------
-                weekly_summary = (
-                    dfx.groupby("WEEK")
-                       .apply(lambda g: pd.Series({
-                           "Total Shots": len(g),
-                           "Normal Shots": ((g["CT_diff_sec"] >= lower) & (g["CT_diff_sec"] <= upper)).sum(),
-                           "Stop Count": g["STOP_EVENT"].sum(),
-                           "Downtime (hrs)": g.loc[g["STOP_FLAG"] == 1, "CT_diff_sec"].sum() / 3600,
-                           "Production Time (hrs)": (
-                               g["CT_diff_sec"].sum() - g.loc[g["STOP_FLAG"] == 1, "CT_diff_sec"].sum()
-                           ) / 3600,
-                           "MTTR (min)": safe_mean(g.loc[g["STOP_EVENT"], "CT_diff_sec"] / 60),
-                           "MTBF (min)": safe_mean(g.loc[~g["STOP_EVENT"], "CT_diff_sec"] / 60),
-                       }))
-                       .reset_index()
-                )
-
-                if weekly_summary.empty:
-                    st.info("ℹ️ No weekly summary could be calculated.")
+                dfx["SHOT TIME"] = pd.to_datetime(dfx["SHOT TIME"], errors="coerce")
+                dfx = dfx.dropna(subset=["SHOT TIME"])
+                dfx["WEEK"] = dfx["SHOT TIME"].dt.to_period("W").apply(lambda r: r.start_time)
+    
+                if dfx["WEEK"].nunique() == 0:
+                    st.info("ℹ️ No weekly data could be grouped (maybe only one day available).")
                 else:
-                    weekly_summary["Efficiency (%)"] = (
-                        weekly_summary["Normal Shots"] / weekly_summary["Total Shots"] * 100
-                    ).round(2)
-                    weekly_summary["Stability Index (%)"] = (
-                        weekly_summary["MTBF (min)"] /
-                        (weekly_summary["MTBF (min)"] + weekly_summary["MTTR (min)"]) * 100
-                    ).round(2)
-
-                    st.markdown("### 📊 Weekly Summary")
-                    st.dataframe(
-                        weekly_summary.style.format({
-                            "Downtime (hrs)": "{:.2f}",
-                            "Production Time (hrs)": "{:.2f}",
-                            "MTTR (min)": "{:.2f}",
-                            "MTBF (min)": "{:.2f}",
-                            "Efficiency (%)": "{:.2f}",
-                            "Stability Index (%)": "{:.2f}",
-                        })
+                    lower, upper = wk_res["lower_limit"], wk_res["upper_limit"]
+    
+                    def safe_mean(series):
+                        return float(np.nanmean(series)) if series.notna().any() else np.nan
+    
+                    # ---------- Weekly summary ----------
+                    weekly_summary = (
+                        dfx.groupby("WEEK")
+                           .apply(lambda g: pd.Series({
+                               "Total Shots": len(g),
+                               "Normal Shots": ((g["CT_diff_sec"] >= lower) & (g["CT_diff_sec"] <= upper)).sum(),
+                               "Stop Count": g["STOP_EVENT"].sum(),
+                               "Downtime (hrs)": g.loc[g["STOP_FLAG"] == 1, "CT_diff_sec"].sum() / 3600,
+                               "Production Time (hrs)": (
+                                   g["CT_diff_sec"].sum() - g.loc[g["STOP_FLAG"] == 1, "CT_diff_sec"].sum()
+                               ) / 3600,
+                               "MTTR (min)": safe_mean(g.loc[g["STOP_EVENT"], "CT_diff_sec"] / 60),
+                               "MTBF (min)": safe_mean(g.loc[~g["STOP_EVENT"], "CT_diff_sec"] / 60),
+                           }))
+                           .reset_index()
                     )
-
-                    # ---------- Graphs ----------
-                    # Only build charts if there is at least 2 weeks
-                    if weekly_summary.shape[0] > 0:
-                        # MTTR & MTBF Trend
-                        fig_mt = go.Figure()
-                        fig_mt.add_trace(go.Scatter(
-                            x=weekly_summary["WEEK"], y=weekly_summary["MTTR (min)"],
-                            mode="lines+markers", name="MTTR (min)", line=dict(color="red", width=2)
-                        ))
-                        fig_mt.add_trace(go.Scatter(
-                            x=weekly_summary["WEEK"], y=weekly_summary["MTBF (min)"],
-                            mode="lines+markers", name="MTBF (min)",
-                            line=dict(color="green", width=2, dash="dot"), yaxis="y2"
-                        ))
-                        fig_mt.update_layout(
-                            title="MTTR & MTBF by Week",
-                            xaxis=dict(title="Week"),
-                            yaxis=dict(title="MTTR (min)", side="left"),
-                            yaxis2=dict(title="MTBF (min)", overlaying="y", side="right")
+    
+                    if weekly_summary.empty:
+                        st.info("ℹ️ No weekly summary could be calculated.")
+                    else:
+                        weekly_summary["Efficiency (%)"] = (
+                            weekly_summary["Normal Shots"] / weekly_summary["Total Shots"] * 100
+                        ).round(2)
+                        weekly_summary["Stability Index (%)"] = (
+                            weekly_summary["MTBF (min)"] /
+                            (weekly_summary["MTBF (min)"] + weekly_summary["MTTR (min)"]) * 100
+                        ).round(2)
+    
+                        st.markdown("### 📊 Weekly Summary")
+                        st.dataframe(
+                            weekly_summary.style.format({
+                                "Downtime (hrs)": "{:.2f}",
+                                "Production Time (hrs)": "{:.2f}",
+                                "MTTR (min)": "{:.2f}",
+                                "MTBF (min)": "{:.2f}",
+                                "Efficiency (%)": "{:.2f}",
+                                "Stability Index (%)": "{:.2f}",
+                            })
                         )
-                        st.plotly_chart(fig_mt, use_container_width=True)
-
-                        # Stability Index
-                        stab = weekly_summary[["WEEK", "Stability Index (%)"]].copy()
-                        colors = [
-                            "gray" if pd.isna(v) else
-                            "red" if v <= 50 else
-                            "yellow" if v <= 70 else
-                            "green"
-                            for v in stab["Stability Index (%)"]
-                        ]
-                        fig_stab = go.Figure()
-                        fig_stab.add_trace(go.Scatter(
-                            x=stab["WEEK"], y=stab["Stability Index (%)"],
-                            mode="lines+markers", name="Stability Index (%)",
-                            line=dict(color="blue", width=2),
-                            marker=dict(color=colors, size=8)
-                        ))
-                        st.plotly_chart(fig_stab, use_container_width=True)
+    
+                        # ---------- Graphs ----------
+                        # Only build charts if there is at least 2 weeks
+                        if weekly_summary.shape[0] > 0:
+                            # MTTR & MTBF Trend
+                            fig_mt = go.Figure()
+                            fig_mt.add_trace(go.Scatter(
+                                x=weekly_summary["WEEK"], y=weekly_summary["MTTR (min)"],
+                                mode="lines+markers", name="MTTR (min)", line=dict(color="red", width=2)
+                            ))
+                            fig_mt.add_trace(go.Scatter(
+                                x=weekly_summary["WEEK"], y=weekly_summary["MTBF (min)"],
+                                mode="lines+markers", name="MTBF (min)",
+                                line=dict(color="green", width=2, dash="dot"), yaxis="y2"
+                            ))
+                            fig_mt.update_layout(
+                                title="MTTR & MTBF by Week",
+                                xaxis=dict(title="Week"),
+                                yaxis=dict(title="MTTR (min)", side="left"),
+                                yaxis2=dict(title="MTBF (min)", overlaying="y", side="right")
+                            )
+                            st.plotly_chart(fig_mt, use_container_width=True)
+    
+                            # Stability Index
+                            stab = weekly_summary[["WEEK", "Stability Index (%)"]].copy()
+                            colors = [
+                                "gray" if pd.isna(v) else
+                                "red" if v <= 50 else
+                                "yellow" if v <= 70 else
+                                "green"
+                                for v in stab["Stability Index (%)"]
+                            ]
+                            fig_stab = go.Figure()
+                            fig_stab.add_trace(go.Scatter(
+                                x=stab["WEEK"], y=stab["Stability Index (%)"],
+                                mode="lines+markers", name="Stability Index (%)",
+                                line=dict(color="blue", width=2),
+                                marker=dict(color=colors, size=8)
+                            ))
+                            st.plotly_chart(fig_stab, use_container_width=True)
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin. Headers in ROW 1 please.")
