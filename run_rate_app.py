@@ -35,13 +35,10 @@ def calculate_run_rate_excel_like(df):
         st.error("Input file must contain either 'SHOT TIME' or YEAR/MONTH/DAY/TIME columns.")
         st.stop()
 
-    # Step 1: raw timestamp differences
     df["CT_diff_sec"] = df["SHOT TIME"].diff().dt.total_seconds()
-    
-    # Step 2: replace "normal" cycles with ACTUAL CT for precision
-    if "ACTUAL CT" in df.columns:
-        mask_normal = df["CT_diff_sec"].between(df["ACTUAL CT"] * 0.5, df["ACTUAL CT"] * 2)
-        df.loc[mask_normal, "CT_diff_sec"] = df.loc[mask_normal, "ACTUAL CT"]
+
+    # If ACTUAL CT is present, use it when the difference is within a reasonable band (say < 2x mode_ct)
+    df.loc[df["ACTUAL CT"].notna() & (df["CT_diff_sec"] < mode_ct * 2), "CT_diff_sec"] = df["ACTUAL CT"]
 
     # Mode CT (seconds)
     mode_ct = df["ACTUAL CT"].mode().iloc[0]
