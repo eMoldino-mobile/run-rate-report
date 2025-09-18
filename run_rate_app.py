@@ -789,12 +789,12 @@ if uploaded_file:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-            
+
     # ---------- Page 3: Weekly Trends ----------
     elif page == "📅 Weekly Trends":
         st.title("📅 Weekly Trends")
     
-        # Use full dataset for the selected tool (ignore date filter)
+        # Use full dataset for the selected tool
         df_tool = df[df[selection_column] == tool].copy()
         if df_tool.empty:
             st.warning("⚠️ No data found for this tool across the full dataset.")
@@ -810,17 +810,23 @@ if uploaded_file:
                 dfx["WEEK"] = dfx["SHOT TIME"].dt.to_period("W").apply(lambda r: r.start_time)
                 dfx["DAY"] = dfx["SHOT TIME"].dt.date
     
-                if dfx["WEEK"].nunique() == 0:
-                    st.info("ℹ️ No weekly data could be grouped (maybe only one day available).")
+                weeks = sorted(dfx["WEEK"].unique())
+                if not weeks:
+                    st.info("ℹ️ No weekly data found.")
                 else:
+                    selected_week = st.selectbox("Select Week", weeks)
+                    dfw = dfx[dfx["WEEK"] == selected_week].copy()
+    
+                    st.subheader(f"📅 Week of {selected_week.strftime('%Y-%m-%d')}")
+    
+                    # --- Reuse daily-style calculations but grouped by DAY ---
                     lower, upper = wk_res["lower_limit"], wk_res["upper_limit"]
     
                     def safe_mean(series):
                         return float(np.nanmean(series)) if series.notna().any() else np.nan
     
-                    # ---------- Weekly summary (1 row per week) ----------
-                    weekly_summary = (
-                        dfx.groupby("WEEK")
+                    daily_summary = (
+                        dfw.groupby("DAY")
                            .apply(lambda g: pd.Series({
                                "Total Shots": len(g),
                                "Normal Shots": ((g["CT_diff_sec"] >= lower) & (g["CT_diff_sec"] <= upper)).sum(),
@@ -835,78 +841,86 @@ if uploaded_file:
                            .reset_index()
                     )
     
-                    if not weekly_summary.empty:
-                        weekly_summary["Efficiency (%)"] = (
-                            weekly_summary["Normal Shots"] / weekly_summary["Total Shots"] * 100
-                        ).round(2)
-                        weekly_summary["Stability Index (%)"] = (
-                            weekly_summary["MTBF (min)"] /
-                            (weekly_summary["MTBF (min)"] + weekly_summary["MTTR (min)"]) * 100
-                        ).round(2)
+                    daily_summary["Efficiency (%)"] = (
+                        daily_summary["Normal Shots"] / daily_summary["Total Shots"] * 100
+                    ).round(2)
+                    daily_summary["Stability Index (%)"] = (
+                        daily_summary["MTBF (min)"] /
+                        (daily_summary["MTBF (min)"] + daily_summary["MTTR (min)"]) * 100
+                    ).round(2)
     
-                        st.markdown("### 📊 Weekly Summary")
-                        st.dataframe(
-                            weekly_summary.style.format({
-                                "Downtime (hrs)": "{:.2f}",
-                                "Production Time (hrs)": "{:.2f}",
-                                "MTTR (min)": "{:.2f}",
-                                "MTBF (min)": "{:.2f}",
-                                "Efficiency (%)": "{:.2f}",
-                                "Stability Index (%)": "{:.2f}",
-                            })
-                        )
+                    st.markdown("### 📊 Daily Summary (within Week)")
+                    st.dataframe(daily_summary)
     
-                    # ---------- Daily trend within each week ----------
-                    daily_summary = (
-                        dfx.groupby(["WEEK", "DAY"])
-                           .apply(lambda g: pd.Series({
-                               "stops": g["STOP_EVENT"].sum(),
-                               "mttr": safe_mean(g.loc[g["STOP_EVENT"], "CT_diff_sec"] / 60),
-                               "mtbf": safe_mean(g.loc[~g["STOP_EVENT"], "CT_diff_sec"] / 60),
-                           }))
-                           .reset_index()
+                    # --- Bucket Analysis by Day ---
+                    run_durations = wk_res["run_durations"].copy()
+                    run_durations = run_durations.merge(
+                        dfw.groupby("RUN_GROUP")["SHOT TIME"].max().reset_index(name="RUN_END"),
+                        on="RUN_GROUP", how="left"
                     )
-                    daily_summary["stability_index"] = (
-                        daily_summary["mtbf"] /
-                        (daily_summary["mtbf"] + daily_summary["mttr"]) * 100
+                    run_durations["DAY"] = run_durations["RUN_END"].dt.date
+    
+                    label_map = {
+                        "0-20":"1: 0-20 min", "20-40":"2: 20-40 min", "40-60":"3: 40-60 min",
+                        "60-80":"4: 60-80 min", "80-100":"5: 80-100 min", "100-120":"6: 100-120 min",
+                        "120-140":"7: 120-140 min", "140-160":"8: 140-160 min", ">160":"9: >160 min"
+                    }
+                    run_durations["TIME_BUCKET"] = run_durations["TIME_BUCKET"].map(label_map)
+    
+                    bucket_order = list(label_map.values())
+                    bucket_trend = (
+                        run_durations.groupby(["DAY","TIME_BUCKET"]).size().reset_index(name="count")
                     )
     
-                    # ---------- Graphs ----------
-                    st.markdown("### 📈 Weekly Trend Visuals (by Day)")
+                    fig_bucket_trend = px.bar(
+                        bucket_trend, x="DAY", y="count", color="TIME_BUCKET",
+                        category_orders={"TIME_BUCKET": bucket_order},
+                        title="Time Bucket Trend by Day",
+                        color_discrete_map={
+                            "1: 0-20 min":   "#d73027",
+                            "2: 20-40 min":  "#fc8d59",
+                            "3: 40-60 min":  "#fee090",
+                            "4: 60-80 min":  "#c6dbef",
+                            "5: 80-100 min": "#9ecae1",
+                            "6: 100-120 min":"#6baed6",
+                            "7: 120-140 min":"#4292c6",
+                            "8: 140-160 min":"#2171b5",
+                            "9: >160 min":  "#084594"
+                        },
+                        hover_data={"count":True,"DAY":True}
+                    )
+                    fig_bucket_trend.update_layout(barmode="stack", xaxis=dict(title="Day"), yaxis=dict(title="Runs"))
+                    st.plotly_chart(fig_bucket_trend, use_container_width=True)
     
-                    # MTTR & MTBF Trend by Day
+                    # --- MTTR & MTBF Trend by Day ---
                     fig_mt = go.Figure()
                     fig_mt.add_trace(go.Scatter(
-                        x=daily_summary["DAY"], y=daily_summary["mttr"],
-                        mode="lines+markers", name="MTTR (min)",
-                        line=dict(color="red", width=2), yaxis="y"
+                        x=daily_summary["DAY"], y=daily_summary["MTTR (min)"],
+                        mode="lines+markers", name="MTTR (min)", line=dict(color="red", width=2), yaxis="y"
                     ))
                     fig_mt.add_trace(go.Scatter(
-                        x=daily_summary["DAY"], y=daily_summary["mtbf"],
-                        mode="lines+markers", name="MTBF (min)",
-                        line=dict(color="green", width=2, dash="dot"), yaxis="y2"
+                        x=daily_summary["DAY"], y=daily_summary["MTBF (min)"],
+                        mode="lines+markers", name="MTBF (min)", line=dict(color="green", width=2, dash="dot"), yaxis="y2"
                     ))
                     fig_mt.update_layout(
                         title="MTTR & MTBF by Day",
                         xaxis=dict(title="Day"),
                         yaxis=dict(title="MTTR (min)", side="left"),
-                        yaxis2=dict(title="MTBF (min)", overlaying="y", side="right"),
-                        legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center"),
-                        margin=dict(l=60,r=60,t=60,b=40),
+                        yaxis2=dict(title="MTBF (min)", overlaying="y", side="right")
                     )
                     st.plotly_chart(fig_mt, use_container_width=True)
     
-                    # Stability Index
+                    # --- Stability Index by Day ---
                     colors = [
                         "gray" if pd.isna(v) else
                         "red" if v <= 50 else
                         "yellow" if v <= 70 else
                         "green"
-                        for v in daily_summary["stability_index"]
+                        for v in daily_summary["Stability Index (%)"]
                     ]
                     fig_stab = go.Figure()
                     fig_stab.add_trace(go.Scatter(
-                        x=daily_summary["DAY"], y=daily_summary["stability_index"],
+                        x=daily_summary["DAY"], y=daily_summary["Stability Index (%)"],
                         mode="lines+markers", name="Stability Index (%)",
                         line=dict(color="blue", width=2), marker=dict(color=colors, size=8)
                     ))
@@ -916,9 +930,7 @@ if uploaded_file:
                     fig_stab.update_layout(
                         title="Stability Index by Day",
                         xaxis=dict(title="Day"),
-                        yaxis=dict(title="Stability Index (%)", range=[0,100]),
-                        margin=dict(l=60,r=60,t=60,b=40),
-                        legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center"),
+                        yaxis=dict(title="Stability Index (%)", range=[0,100])
                     )
                     st.plotly_chart(fig_stab, use_container_width=True)
 else:
