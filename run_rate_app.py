@@ -652,6 +652,7 @@ if uploaded_file:
             from openpyxl import Workbook
             from openpyxl.utils.dataframe import dataframe_to_rows
             from openpyxl.styles import PatternFill
+            from openpyxl.utils import get_column_letter
             from io import BytesIO
             
             def export_to_excel(df, results):
@@ -665,10 +666,8 @@ if uploaded_file:
                 ws_dash.append(["Total Shot Count", results.get("total_shots", 0)])
                 ws_dash.append(["Normal Shot Count", results.get("normal_shots", 0)])
                 ws_dash.append(["Bad Shot Count", results.get("bad_shots", 0)])
-                ws_dash.append([
-                    "Efficiency (%)",
-                    round((results.get("normal_shots", 0) / results.get("total_shots", 1)) * 100, 2)
-                ])
+                ws_dash.append(["Efficiency (%)",
+                                round((results.get("normal_shots", 0) / results.get("total_shots", 1)) * 100, 2)])
                 ws_dash.append(["Stop Count", results.get("stop_events", 0)])
                 ws_dash.append([])
             
@@ -676,20 +675,15 @@ if uploaded_file:
                 ws_dash.append(["Mode CT (sec)", round(results.get("mode_ct", 0), 2)])
                 ws_dash.append(["Lower Limit (sec)", round(results.get("lower_limit", 0), 2)])
                 ws_dash.append(["Upper Limit (sec)", round(results.get("upper_limit", 0), 2)])
-                ws_dash.append([
-                    "Production Time (hrs)",
-                    f"{results.get('production_time', 0)/60:.2f} hrs "
-                    f"({results.get('production_time', 0)/results.get('total_runtime', 1)*100:.2f}%)"
-                ])
-                ws_dash.append([
-                    "Downtime (hrs)",
-                    f"{results.get('downtime', 0)/60:.2f} hrs "
-                    f"({results.get('downtime', 0)/results.get('total_runtime', 1)*100:.2f}%)"
-                ])
+                ws_dash.append(["Production Time (hrs)",
+                                f"{results.get('production_time', 0)/60:.2f} hrs "
+                                f"({results.get('production_time', 0)/results.get('total_runtime', 1)*100:.2f}%)"])
+                ws_dash.append(["Downtime (hrs)",
+                                f"{results.get('downtime', 0)/60:.2f} hrs "
+                                f"({results.get('downtime', 0)/results.get('total_runtime', 1)*100:.2f}%)"])
                 ws_dash.append(["Total Run Time (hrs)", f"{results.get('run_hours', 0):.2f}"])
                 ws_dash.append(["Total Stops", results.get("stop_events", 0)])
             
-                # Auto-size dashboard
                 for col in ws_dash.columns:
                     max_len = max(len(str(c.value)) if c.value else 0 for c in col)
                     ws_dash.column_dimensions[col[0].column_letter].width = max_len + 2
@@ -697,6 +691,7 @@ if uploaded_file:
                 # ---------------- Sheet 2: Processed Data ----------------
                 ws_data = wb.create_sheet("Processed Data")
             
+                # keep only existing columns in the specified order
                 cols_to_keep = [
                     "Shot Time", "Supplier Name", "Equipment Code", "Approved CT",
                     "Actual CT", "Time Diff Sec", "Stop_All", "Stop_Event",
@@ -705,28 +700,60 @@ if uploaded_file:
                 existing_cols = [c for c in cols_to_keep if c in df.columns]
                 df_export = df[existing_cols]
             
-                # Write header row
+                # header
                 ws_data.append(list(df_export.columns))
             
-                # Write rows with formulas for Cumulative Count & Run Duration
-                for r_idx, row in enumerate(dataframe_to_rows(df_export, index=False, header=False), start=2):
-                    excel_row = []
-                    for c_idx, value in enumerate(row, 1):
-                        col_name = df_export.columns[c_idx - 1]
-                        if col_name == "Cumulative Count":
+                # precompute column letters by name (works for any order)
+                def col_letter(col_name):
+                    return get_column_letter(df_export.columns.get_loc(col_name) + 1)
+            
+                # these names must exist for formulas
+                td_col = col_letter("Time Diff Sec")               # seconds
+                se_col = col_letter("Stop_Event")                  # 1/0
+                cc_col = col_letter("Cumulative Count")            # minutes (computed)
+                rd_col = col_letter("Run Duration")                # minutes (computed)
+            
+                # write rows with formulas for cumulative & run duration
+                for r_idx, row_vals in enumerate(dataframe_to_rows(df_export, index=False, header=False), start=2):
+                    row_out = []
+                    for c_idx, value in enumerate(row_vals, 1):
+                        header = df_export.columns[c_idx - 1]
+            
+                        if header == "Cumulative Count":
                             if r_idx == 2:
-                                excel_row.append(f"=IF(H{r_idx}=1,0,F{r_idx}/60)")
+                                # first data row: no previous cumulative
+                                row_out.append(f"=IF({se_col}{r_idx}=1,0,IF({td_col}{r_idx}=\"\",0,{td_col}{r_idx}/60))")
                             else:
-                                excel_row.append(f"=IF(H{r_idx}=1,0,J{r_idx-1}+F{r_idx}/60)")
-                        elif col_name == "Run Duration":
-                            excel_row.append(f"=IF(H{r_idx}=1,F{r_idx}/60,0)")
+                                row_out.append(
+                                    f"=IF({se_col}{r_idx}=1,0,"
+                                    f"IF({cc_col}{r_idx-1}=\"\",0,{cc_col}{r_idx-1})+IF({td_col}{r_idx}=\"\",0,{td_col}{r_idx}/60))"
+                                )
+            
+                        elif header == "Run Duration":
+                            # at stop event row, show the run duration accumulated BEFORE this row
+                            if r_idx == 2:
+                                row_out.append(f"=IF({se_col}{r_idx}=1,0,0)")
+                            else:
+                                row_out.append(f"=IF({se_col}{r_idx}=1,IF({cc_col}{r_idx-1}=\"\",0,{cc_col}{r_idx-1}),0)")
+            
                         else:
-                            excel_row.append(value)
-                    ws_data.append(excel_row)
+                            row_out.append(value)
+            
+                    ws_data.append(row_out)
             
                 ws_data.freeze_panes = "A2"
             
-                # Highlight Stop columns
+                # number format for the two computed columns
+                cc_idx = df_export.columns.get_loc("Cumulative Count") + 1 if "Cumulative Count" in df_export.columns else None
+                rd_idx = df_export.columns.get_loc("Run Duration") + 1 if "Run Duration" in df_export.columns else None
+                if cc_idx:
+                    for r in ws_data.iter_rows(min_row=2, max_row=ws_data.max_row, min_col=cc_idx, max_col=cc_idx):
+                        r[0].number_format = "0.00"
+                if rd_idx:
+                    for r in ws_data.iter_rows(min_row=2, max_row=ws_data.max_row, min_col=rd_idx, max_col=rd_idx):
+                        r[0].number_format = "0.00"
+            
+                # Highlight stops
                 grey_fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
                 red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
             
@@ -742,12 +769,12 @@ if uploaded_file:
                         if row[idx - 1].value == 1:
                             row[idx - 1].fill = red_fill
             
-                # Auto-size Processed Data
+                # autosize
                 for col in ws_data.columns:
                     max_len = max(len(str(c.value)) if c.value else 0 for c in col)
                     ws_data.column_dimensions[col[0].column_letter].width = max_len + 2
             
-                # ---------------- Save ----------------
+                # save
                 buffer = BytesIO()
                 wb.save(buffer)
                 buffer.seek(0)
