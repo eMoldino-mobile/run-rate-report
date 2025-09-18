@@ -103,6 +103,12 @@ def calculate_run_rate_excel_like(df):
           .apply(lambda g: g["CT_diff_sec"].sum() / 60)  # minutes
           .reset_index(name="RUN_DURATION")
     )
+    
+    # --- Force close last run if dataset ends without a stop ---
+    if df["STOP_ADJ"].iloc[-1] == 0:  # last row is not marked as a stop
+        last_group = df["RUN_GROUP"].iloc[-1]
+        last_duration = df.loc[df["RUN_GROUP"] == last_group, "CT_diff_sec"].sum() / 60
+        run_durations.loc[run_durations["RUN_GROUP"] == last_group, "RUN_DURATION"] = last_duration
 
     # Remove first run if it starts with a stop (edge case)
     run_durations = run_durations[run_durations["RUN_DURATION"] > 0]
