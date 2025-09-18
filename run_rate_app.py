@@ -35,10 +35,15 @@ def calculate_run_rate_excel_like(df):
         st.error("Input file must contain either 'SHOT TIME' or YEAR/MONTH/DAY/TIME columns.")
         st.stop()
 
+    # Base: time difference between consecutive shots
     df["CT_diff_sec"] = df["SHOT TIME"].diff().dt.total_seconds()
-
-    # If ACTUAL CT is present, use it when the difference is within a reasonable band (say < 2x mode_ct)
-    df.loc[df["ACTUAL CT"].notna() & (df["CT_diff_sec"] < mode_ct * 2), "CT_diff_sec"] = df["ACTUAL CT"]
+    
+    # Mode CT from ACTUAL CT (useful for threshold)
+    mode_ct = df["ACTUAL CT"].mode().iloc[0]
+    
+    # Hybrid fix: replace with ACTUAL CT when it's valid and the diff is within 2 × mode_ct
+    mask = df["ACTUAL CT"].notna() & (df["CT_diff_sec"] < mode_ct * 2)
+    df.loc[mask, "CT_diff_sec"] = df.loc[mask, "ACTUAL CT"]
 
     # Mode CT (seconds)
     mode_ct = df["ACTUAL CT"].mode().iloc[0]
