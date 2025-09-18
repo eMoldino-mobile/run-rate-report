@@ -626,80 +626,107 @@ if uploaded_file:
             from io import BytesIO
             from openpyxl import Workbook
             from openpyxl.utils import get_column_letter
+            from openpyxl.styles import PatternFill
+            from openpyxl.formatting.rule import FormulaRule
             
             wb = Workbook()
             ws = wb.active
             ws.title = "Cycle Data"
             
-            headers = ["Supplier Name", "Equipment Code", "Shot Time",
-                       "Approved CT", "Actual CT", "Time Diff Sec",
-                       "Stop", "Cumulative Count", "Run Duration"]
+            headers = ["Supplier Name","Equipment Code","Shot Time",
+                       "Approved CT","Actual CT","Time Diff Sec",
+                       "Stop (All)","Cumulative Count","Run Duration","Stop Event"]
             ws.append(headers)
             
+            nrows = len(df_clean)
             for i, row in df_clean.iterrows():
-                excel_row = []
-                idx = i + 2  # Excel row index
+                r = i + 2  # Excel row index
             
-                # A–E (basic values)
-                excel_row.append(row["Supplier Name"])
-                excel_row.append(row["Equipment Code"])
-                excel_row.append(pd.to_datetime(row["Shot Time"]))  # ensure datetime
-                excel_row.append(row["Approved CT"])
-                excel_row.append(row["Actual CT"])
+                # Base values
+                ws.append([
+                    row["Supplier Name"],
+                    row["Equipment Code"],
+                    pd.to_datetime(row["Shot Time"]),  # write real datetime
+                    row["Approved CT"],
+                    row["Actual CT"],
+                    "",   # F: Time Diff Sec (formula below)
+                    "",   # G: Stop (All)
+                    "",   # H: Cumulative Count
+                    "",   # I: Run Duration
+                    ""    # J: Stop Event
+                ])
             
-                # F: Time Diff Sec
-                if i == 0:
-                    excel_row.append("")
+                # F: Time Diff Sec = (ShotTime - previous ShotTime) * 86400
+                if r == 2:
+                    ws[f"F{r}"] = ""   # first row has no diff
                 else:
-                    excel_row.append(f"=(C{idx}-C{idx-1})*86400")
+                    ws[f"F{r}"] = f"=(C{r}-C{r-1})*86400"
             
-                # G: Stop → flag all bad shots (outside limits)
-                excel_row.append(
-                    f"=IF(OR(F{idx}<Dashboard!B6,F{idx}>Dashboard!C6),1,0)"
-                )
+                # G: Stop (All) = outside limits -> 1 else 0
+                ws[f"G{r}"] = f"=IF(OR(F{r}<Dashboard!B6,F{r}>Dashboard!C6),1,0)"
             
-                # H: Cumulative Count
-                if i == 0:
-                    excel_row.append(0)
+                # H: Cumulative Count (min) = accumulate while not stop, reset at stop
+                if r == 2:
+                    ws[f"H{r}"] = 0
                 else:
-                    excel_row.append(f"=IF(G{idx}=1,0,H{idx-1}+F{idx}/60)")
+                    ws[f"H{r}"] = f"=IF(G{r}=1,0,H{r-1}+F{r}/60)"
             
-                # I: Run Duration
-                excel_row.append(f"=IF(G{idx}=1,H{idx},0)")
+                # I: Run Duration (min) = show the accumulated value on stop rows
+                ws[f"I{r}"] = f"=IF(G{r}=1,H{r},0)"
             
-                ws.append(excel_row)
+                # J: Stop Event = first stop in a cluster
+                if r == 2:
+                    ws[f"J{r}"] = f"=G{r}"
+                else:
+                    ws[f"J{r}"] = f"=IF(AND(G{r}=1,G{r-1}=0),1,0)"
             
-            for col in range(1, len(headers)+1):
-                ws.column_dimensions[get_column_letter(col)].width = 18
+            # Column widths
+            for c in range(1, len(headers)+1):
+                ws.column_dimensions[get_column_letter(c)].width = 18
             
-            # Dashboard
-            dash = wb.create_sheet(title="Dashboard")
-            dash.append(["Metric", "Value"])
-            dash.append(["Total Shot Count", f"=COUNTA('Cycle Data'!C2:C{len(df_clean)+1})"])
-            dash.append(["Normal Shot Count", f"=COUNTIFS('Cycle Data'!G2:G{len(df_clean)+1},0)"])
-            dash.append(["Bad Shot Count", f"=COUNTIFS('Cycle Data'!G2:G{len(df_clean)+1},1)"])
-            dash.append(["Efficiency (%)", "=B3/B2"])
-            dash.append(["Stop Count", f"=COUNTIFS('Cycle Data'!G2:G{len(df_clean)+1},1)"])
+            # ----- Conditional formatting (red = stop event, grey = back-to-back stop) -----
+            red = PatternFill(fill_type="solid", fgColor="FFC7CE")   # light red
+            grey = PatternFill(fill_type="solid", fgColor="D9D9D9")  # light grey
             
-            dash.append([])
-            dash.append(["Mode CT", results.get("mode_ct", 0)])
-            dash.append(["Lower Limit", results.get("lower_limit", 0)])
-            dash.append(["Upper Limit", results.get("upper_limit", 0)])
-            dash.append(["Production Time (hrs)", results.get("production_time", 0)/60])
-            dash.append(["Downtime (hrs)", results.get("downtime", 0)/60])
-            dash.append(["Total Run Time (hrs)", results.get("run_hours", 0)])
-            dash.append(["Total Stops", results.get("stop_events", 0)])
-            
-            buffer = BytesIO()
-            wb.save(buffer)
-            buffer.seek(0)
-            
-            st.download_button(
-                label="📊 Download Processed Data (Excel with formulas & Dashboard)",
-                data=buffer,
-                file_name="processed_cycle_data.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            data_range = f"A2:J{nrows+1}"
+            # Red for Stop Event
+            ws.conditional_formatting.add(
+                data_range,
+                FormulaRule(formula=[f"=$J2=1"], fill=red)
             )
+            # Grey for back-to-back stops: Stop(All)=1 AND StopEvent=0
+            ws.conditional_formatting.add(
+                data_range,
+                FormulaRule(formula=[f"=AND($G2=1,$J2=0)"], fill=grey)
+            )
+
+# ----- Dashboard sheet with limits and quick KPIs -----
+dash = wb.create_sheet(title="Dashboard")
+dash.append(["Metric","Value"])
+dash.append(["Total Shot Count", f"=COUNTA('Cycle Data'!C2:C{nrows+1})"])      # B2
+dash.append(["Normal Shot Count", f"=COUNTIFS('Cycle Data'!G2:G{nrows+1},0)"]) # B3
+dash.append(["Bad Shot Count", f"=COUNTIFS('Cycle Data'!G2:G{nrows+1},1)"])    # B4
+dash.append(["Efficiency (%)", "=B3/B2"])                                      # B5
+dash.append([])                                                                 # row 6 separator
+dash.append(["Lower Limit", results.get("lower_limit", 0)])                     # B6
+dash.append(["Upper Limit", results.get("upper_limit", 0)])                     # B7
+dash.append(["Mode CT", results.get("mode_ct", 0)])
+dash.append(["Production Time (hrs)", results.get("production_time", 0)/60])
+dash.append(["Downtime (hrs)", results.get("downtime", 0)/60])
+dash.append(["Total Run Time (hrs)", results.get("run_hours", 0)])
+dash.append(["Stop Events (first in cluster)", results.get("stop_events", 0)])
+
+# Save & offer download
+buffer = BytesIO()
+wb.save(buffer)
+buffer.seek(0)
+
+st.download_button(
+    "📊 Download Processed Data (Excel with formulas & Dashboard)",
+    buffer,
+    file_name="processed_cycle_data.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+)
             
     # ---------- Page 3: Weekly/Monthly Trends ----------
     elif page == "📅 Weekly/Monthly Trends":
