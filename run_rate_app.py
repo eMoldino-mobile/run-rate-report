@@ -561,16 +561,17 @@ if uploaded_file:
             df_vis["Time Diff Sec"] = df_vis["CT_diff_sec"].round(2)
             df_vis["Stop"] = df_vis["STOP_ADJ"]
             # Correct cumulative count = accumulate run time until stop, then reset
-            df_vis["Cumulative Count"] = 0.0
-            running_total = 0.0
+            df["Cumulative Count"] = 0
+            df["Run Duration"] = 0
             
-            for i in range(len(df_vis)):
-                if df_vis.loc[i, "Stop"] == 0:  # normal shot
-                    running_total += df_vis.loc[i, "Time Diff Sec"]
-                    df_vis.loc[i, "Cumulative Count"] = round(running_total / 60, 2)  # minutes
-                else:  # stop event
-                    running_total = 0.0
-                    df_vis.loc[i, "Cumulative Count"] = 0.0
+            current_sum = 0
+            for i in range(len(df)):
+                if df.loc[i, "Stop"] == 1:  # if stop row
+                    df.loc[i, "Run Duration"] = round(current_sum / 60, 2)  # in minutes
+                    current_sum = 0  # reset
+                else:
+                    current_sum += df.loc[i, "Time Diff Sec"]
+                    df.loc[i, "Cumulative Count"] = round(current_sum / 60, 2)  # in minutes
             df_vis["Run Duration"] = np.where(
                 df_vis["Stop"] == 1,
                 (df_vis["CT_diff_sec"] / 60).round(2),
