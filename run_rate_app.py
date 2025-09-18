@@ -688,7 +688,7 @@ if uploaded_file:
                     ws1.append([
                         row.get("Supplier Name", ""),
                         row.get("Equipment Code", ""),
-                        row["Shot Time"].strftime("%Y-%m-%d %H:%M:%S") if pd.notna(row["Shot Time"]) else "",
+                        row["SHOT TIME"].strftime("%Y-%m-%d %H:%M:%S") if pd.notna(row.get("SHOT TIME", None)) else "",
                         row.get("Approved CT", ""),
                         row.get("Actual CT", ""),
                         row.get("Time Diff Sec", ""),
