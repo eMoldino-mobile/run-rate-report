@@ -597,8 +597,9 @@ if uploaded_file:
             
             current_sum = 0.0
             for i, row in df_vis.iterrows():
-                if row["Stop_Event"] == 1:  # only reset at true stop events
-                    df_vis.at[i, "Run Duration"] = round(current_sum / 60, 2)
+                if row["Stop_All"] == 1:  # any stop resets the run
+                    if row["Stop_Event"] == 1:  # only true stop events record duration
+                        df_vis.at[i, "Run Duration"] = round(current_sum / 60, 2)
                     current_sum = 0.0
                     df_vis.at[i, "Cumulative Count"] = 0.0
                 else:
