@@ -641,79 +641,65 @@ if uploaded_file:
             # 2) Excel Export with formulas
             from io import BytesIO
             from openpyxl import Workbook
-            from openpyxl.utils import get_column_letter
-            from openpyxl.styles import PatternFill
+            from openpyxl.styles import PatternFill, Font
             from openpyxl.formatting.rule import FormulaRule
             
             wb = Workbook()
             ws = wb.active
-            ws.title = "Cycle Data"
+            ws.title = "Processed Data"
             
-            headers = ["Supplier Name","Equipment Code","Shot Time",
-                       "Approved CT","Actual CT","Time Diff Sec",
-                       "Stop (All)","Cumulative Count","Run Duration","Stop Event"]
-            ws.append(headers)
+            # Write headers
+            ws.append(df_clean.columns.tolist())
             
-            nrows = len(df_clean)
+            # Write rows with formulas
             for i, row in df_clean.iterrows():
-                r = i + 2  # Excel row index
+                excel_row = []
+                for j, col in enumerate(df_clean.columns):
+                    if col == "Run Duration":
+                        excel_row.append(f"=IF(G{i+2}=1,F{i+2}/60,0)")  # If Stop=1, calculate duration
+                    elif col == "Cumulative Count":
+                        excel_row.append(f"=IF(G{i+2}=1,0,SUM($F$2:F{i+2})/60)")  # Reset at stop, else cumulative
+                    else:
+                        excel_row.append(row[col])
+                ws.append(excel_row)
             
-                # Base values
-                ws.append([
-                    row["Supplier Name"],
-                    row["Equipment Code"],
-                    pd.to_datetime(row["Shot Time"]),  # write real datetime
-                    row["Approved CT"],
-                    row["Actual CT"],
-                    "",   # F: Time Diff Sec (formula below)
-                    "",   # G: Stop (All)
-                    "",   # H: Cumulative Count
-                    "",   # I: Run Duration
-                    ""    # J: Stop Event
-                ])
+            # --- Conditional Formatting ---
+            data_range = f"A2:K{ws.max_row}"
             
-                # F: Time Diff Sec = (ShotTime - previous ShotTime) * 86400
-                if r == 2:
-                    ws[f"F{r}"] = ""   # first row has no diff
-                else:
-                    ws[f"F{r}"] = f"=(C{r}-C{r-1})*86400"
+            # Rule 1: Stop Event (J=1 → red fill, white text)
+            red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
+            red_text = Font(color="FFFFFF", bold=True)
+            rule1 = FormulaRule(formula=["$J2=1"], fill=red_fill, font=red_text)
+            ws.conditional_formatting.add(data_range, rule1)
             
-                # G: Stop (All) = outside limits -> 1 else 0
-                ws[f"G{r}"] = f"=IF(OR(F{r}<Dashboard!B6,F{r}>Dashboard!C6),1,0)"
+            # Rule 2: Other Stops (G=1 and J=0 → grey fill)
+            grey_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+            rule2 = FormulaRule(formula=["AND($G2=1,$J2=0)"], fill=grey_fill)
+            ws.conditional_formatting.add(data_range, rule2)
             
-                # H: Cumulative Count (min) = accumulate while not stop, reset at stop
-                if r == 2:
-                    ws[f"H{r}"] = 0
-                else:
-                    ws[f"H{r}"] = f"=IF(G{r}=1,0,H{r-1}+F{r}/60)"
+            # Autosize columns (make them wide enough)
+            for col in ws.columns:
+                max_length = 0
+                col_letter = col[0].column_letter
+                for cell in col:
+                    try:
+                        if cell.value:
+                            max_length = max(max_length, len(str(cell.value)))
+                    except:
+                        pass
+                adjusted_width = max_length + 2
+                ws.column_dimensions[col_letter].width = adjusted_width
             
-                # I: Run Duration (min) = show the accumulated value on stop rows
-                ws[f"I{r}"] = f"=IF(G{r}=1,H{r},0)"
+            # Save to buffer
+            buffer = BytesIO()
+            wb.save(buffer)
+            buffer.seek(0)
             
-                # J: Stop Event = first stop in a cluster
-                if r == 2:
-                    ws[f"J{r}"] = f"=G{r}"
-                else:
-                    ws[f"J{r}"] = f"=IF(AND(G{r}=1,G{r-1}=0),1,0)"
-            
-            # Column widths
-            for c in range(1, len(headers)+1):
-                ws.column_dimensions[get_column_letter(c)].width = 18
-            
-            # ----- Conditional formatting (red = stop event, grey = back-to-back stop) -----
-            red = PatternFill(fill_type="solid", fgColor="FFC7CE")   # light red
-            grey = PatternFill(fill_type="solid", fgColor="D9D9D9")  # light grey
-            
-            data_range = f"A2:J{nrows+1}"
-            # Red for Stop Event
-            ws.conditional_formatting.add(
-                data_range,
-                FormulaRule(formula=[f"=$J2=1"], fill=red)
-            )
-            # Grey for back-to-back stops: Stop(All)=1 AND StopEvent=0
-            ws.conditional_formatting.add(
-                data_range,
-                FormulaRule(formula=[f"=AND($G2=1,$J2=0)"], fill=grey)
+            st.download_button(
+                label="📊 Download Processed Data (Excel with formatting)",
+                data=buffer,
+                file_name="processed_cycle_data.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
             # ----- Dashboard sheet with limits and quick KPIs -----
