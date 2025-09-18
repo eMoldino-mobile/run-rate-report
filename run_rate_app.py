@@ -698,7 +698,10 @@ if uploaded_file:
                     "Actual CT", "Time Diff Sec", "Stop", "Stop Event",
                     "Cumulative Count", "Run Duration"
                 ]
-                df_export = df[cols_to_keep]
+                
+                # only keep columns that exist in df
+                existing_cols = [c for c in cols_to_keep if c in df.columns]
+                df_export = df[existing_cols]
                 
                 for r in dataframe_to_rows(df_export, index=False, header=True):
                     ws1.append(r)
