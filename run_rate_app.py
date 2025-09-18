@@ -95,27 +95,26 @@ def calculate_run_rate_excel_like(df):
     net_rate = normal_shots / run_hours if run_hours else None
     efficiency = normal_shots / total_shots if total_shots else None
 
-    # --- NEW: Continuous Run Durations ---
     # Each run = time between two stop events (using STOP_ADJ to collapse back-to-back)
+    # --- Continuous Run Durations ---
     df["RUN_GROUP"] = df["STOP_ADJ"].cumsum()
+    
     run_durations = (
         df.groupby("RUN_GROUP")
           .apply(lambda g: g["CT_diff_sec"].sum() / 60)  # minutes
           .reset_index(name="RUN_DURATION")
     )
     
-    # --- Force close last run if dataset ends without a stop ---
-    if df["STOP_ADJ"].iloc[-1] == 0:  # last row is not marked as a stop
-        last_group = df["RUN_GROUP"].iloc[-1]
-        last_duration = df.loc[df["RUN_GROUP"] == last_group, "CT_diff_sec"].sum() / 60
-        run_durations.loc[run_durations["RUN_GROUP"] == last_group, "RUN_DURATION"] = last_duration
-
     # Remove first run if it starts with a stop (edge case)
     run_durations = run_durations[run_durations["RUN_DURATION"] > 0]
-
-    # Assign buckets (0–20, 20–40, …)
-    run_durations["TIME_BUCKET"] = (
-    pd.cut(
+    
+    # 🔹 Remove last run if it didn’t end in a stop (incomplete run)
+    if df["STOP_ADJ"].iloc[-1] == 0:
+        last_group = df["RUN_GROUP"].iloc[-1]
+        run_durations = run_durations[run_durations["RUN_GROUP"] != last_group]
+    
+    # --- Assign buckets (only complete runs) ---
+    run_durations["TIME_BUCKET"] = pd.cut(
         run_durations["RUN_DURATION"],
         bins=[0,20,40,60,80,100,120,140,160,999999],
         labels=["0-20","20-40","40-60","60-80","80-100",
