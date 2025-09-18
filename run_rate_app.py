@@ -561,18 +561,21 @@ if uploaded_file:
             df_vis["Time Diff Sec"] = df_vis["CT_diff_sec"].round(2)
             df_vis["Stop"] = df_vis["STOP_ADJ"]
             
-            # Initialise columns
+            # Initialise
             df_vis["Cumulative Count"] = 0.0
             df_vis["Run Duration"] = 0.0
             
-            # Correct cumulative count = accumulate run time until stop, then reset
-            current_sum = 0
+            current_sum = 0.0
             for i, row in df_vis.iterrows():
                 if row["Stop"] == 1:  # stop row
-                    df_vis.at[i, "Run Duration"] = round(current_sum / 60, 2)  # minutes
-                    current_sum = 0
+                    # record the accumulated runtime in minutes
+                    df_vis.at[i, "Run Duration"] = round(current_sum / 60, 2)
+                    # reset counter after stop
+                    current_sum = 0.0
+                    df_vis.at[i, "Cumulative Count"] = 0.0
                 else:
-                    current_sum += row["Time Diff Sec"]
+                    # accumulate runtime
+                    current_sum += row["Time Diff Sec"] if pd.notna(row["Time Diff Sec"]) else 0
                     df_vis.at[i, "Cumulative Count"] = round(current_sum / 60, 2)
 
             # --- Final cleaned table ---
