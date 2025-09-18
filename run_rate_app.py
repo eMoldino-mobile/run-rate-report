@@ -71,7 +71,14 @@ def calculate_run_rate_excel_like(df):
 
     # --- Core Metrics ---
     total_shots = len(df)
-    normal_shots = (df["STOP_ADJ"] == 0).sum()
+    
+    # Normal shots = CT_diff_sec inside band
+    normal_shots = ((df["CT_diff_sec"] >= lower_limit) & (df["CT_diff_sec"] <= upper_limit)).sum()
+    
+    # Bad shots = outside band (but still counted as shots)
+    bad_shots = total_shots - normal_shots
+    
+    # Stop events = first flagged stop in a sequence
     stop_events = df["STOP_EVENT"].sum()
 
     # --- Time-based Calculations ---
@@ -142,6 +149,7 @@ def calculate_run_rate_excel_like(df):
         "upper_limit": upper_limit,
         "total_shots": total_shots,
         "normal_shots": normal_shots,
+        "bad_shots": bad_shots,
         "stop_events": stop_events,
         "run_hours": run_hours,
         "gross_rate": gross_rate,
@@ -240,7 +248,8 @@ if uploaded_file:
             st.table(pd.DataFrame({
                 "Total Shot Count": [results.get('total_shots', 0)],
                 "Normal Shot Count": [results.get('normal_shots', 0)],
-                "Efficiency": [f"{results.get('efficiency', 0)*100:.2f}%"],
+                "Bad Shot Count": [results.get('bad_shots', 0)],
+                "Efficiency": [f"{(results.get('normal_shots', 0) / results.get('total_shots', 1)) * 100:.2f}%"],
                 "Stop Count": [results.get('stop_events', 0)]
             }))
             
