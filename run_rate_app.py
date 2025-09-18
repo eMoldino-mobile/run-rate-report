@@ -731,6 +731,15 @@ if uploaded_file:
                 wb.save(buffer)
                 buffer.seek(0)
                 return buffer
+            
+            # --- Inside your app ---
+            excel_buffer = export_to_excel(df_vis, results)
+            st.download_button(
+                label="📊 Download Excel Report (with Dashboard)",
+                data=excel_buffer,
+                file_name="processed_cycle_data.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 
             
     # ---------- Page 3: Weekly/Monthly Trends ----------
