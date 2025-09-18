@@ -38,12 +38,12 @@ def calculate_run_rate_excel_like(df):
     # Base: time difference between consecutive shots
     df["CT_diff_sec"] = df["SHOT TIME"].diff().dt.total_seconds()
     
-    # Mode CT from ACTUAL CT (useful for threshold)
-    mode_ct = df["ACTUAL CT"].mode().iloc[0]
-    
-    # Hybrid fix: replace with ACTUAL CT when it's valid and the diff is within 2 × mode_ct
-    mask = df["ACTUAL CT"].notna() & (df["CT_diff_sec"] < mode_ct * 2)
-    df.loc[mask, "CT_diff_sec"] = df.loc[mask, "ACTUAL CT"]
+    # Always prefer ACTUAL CT if available, otherwise fall back to time diff
+    df["CT_diff_sec"] = np.where(
+        df["ACTUAL CT"].notna(),
+        df["ACTUAL CT"],
+        df["CT_diff_sec"]
+    )
 
     # Mode CT (seconds)
     mode_ct = df["ACTUAL CT"].mode().iloc[0]
