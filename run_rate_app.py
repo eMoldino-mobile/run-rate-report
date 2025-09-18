@@ -627,68 +627,60 @@ if uploaded_file:
             from openpyxl import Workbook
             from openpyxl.utils import get_column_letter
             
-            # --- Excel Export with formulas + dashboard ---
             wb = Workbook()
             ws = wb.active
             ws.title = "Cycle Data"
             
-            # Write headers
             headers = ["Supplier Name", "Equipment Code", "Shot Time",
                        "Approved CT", "Actual CT", "Time Diff Sec",
                        "Stop", "Cumulative Count", "Run Duration"]
             ws.append(headers)
             
-            # Write rows with formulas
             for i, row in df_clean.iterrows():
                 excel_row = []
-                excel_idx = i + 2  # Excel row index (header is row 1)
+                idx = i + 2  # Excel row index
             
-                # Columns
-                excel_row.append(row["Supplier Name"])       # A
-                excel_row.append(row["Equipment Code"])      # B
-                excel_row.append(row["Shot Time"])           # C
-                excel_row.append(row["Approved CT"])         # D
-                excel_row.append(row["Actual CT"])           # E
+                # A–E (basic values)
+                excel_row.append(row["Supplier Name"])
+                excel_row.append(row["Equipment Code"])
+                excel_row.append(pd.to_datetime(row["Shot Time"]))  # ensure datetime
+                excel_row.append(row["Approved CT"])
+                excel_row.append(row["Actual CT"])
             
-                # --- Time Diff Sec (col F) ---
+                # F: Time Diff Sec
                 if i == 0:
-                    excel_row.append("")  # first row no diff
+                    excel_row.append("")
                 else:
-                    excel_row.append(f"=(C{excel_idx}-C{excel_idx-1})*86400")
+                    excel_row.append(f"=(C{idx}-C{idx-1})*86400")
             
-                # --- Stop (col G) ---
+                # G: Stop → flag all bad shots (outside limits)
                 excel_row.append(
-                    f"=IF(OR(F{excel_idx}<$Dashboard.$B$5,F{excel_idx}>$Dashboard.$C$5),1,0)"
+                    f"=IF(OR(F{idx}<Dashboard!B6,F{idx}>Dashboard!C6),1,0)"
                 )
             
-                # --- Cumulative Count (col H) ---
+                # H: Cumulative Count
                 if i == 0:
                     excel_row.append(0)
                 else:
-                    excel_row.append(f"=IF(G{excel_idx}=1,0,H{excel_idx-1}+F{excel_idx}/60)")
+                    excel_row.append(f"=IF(G{idx}=1,0,H{idx-1}+F{idx}/60)")
             
-                # --- Run Duration (col I) ---
-                excel_row.append(f"=IF(G{excel_idx}=1,H{excel_idx},0)")
+                # I: Run Duration
+                excel_row.append(f"=IF(G{idx}=1,H{idx},0)")
             
                 ws.append(excel_row)
             
-            # Adjust column widths
             for col in range(1, len(headers)+1):
                 ws.column_dimensions[get_column_letter(col)].width = 18
             
-            # --- Dashboard sheet ---
+            # Dashboard
             dash = wb.create_sheet(title="Dashboard")
             dash.append(["Metric", "Value"])
-            dash.append(["Total Shot Count", f"=COUNTA(Cycle Data!C2:C{len(df_clean)+1})"])
-            dash.append(["Normal Shot Count", f"=COUNTIFS(Cycle Data!G2:G{len(df_clean)+1},0)"])
-            dash.append(["Bad Shot Count", f"=COUNTIFS(Cycle Data!G2:G{len(df_clean)+1},1)"])
-            dash.append([
-                "Efficiency (%)",
-                f"=B3/B2"  # normal / total
-            ])
-            dash.append(["Stop Count", f"=COUNTIFS(Cycle Data!G2:G{len(df_clean)+1},1)"])
+            dash.append(["Total Shot Count", f"=COUNTA('Cycle Data'!C2:C{len(df_clean)+1})"])
+            dash.append(["Normal Shot Count", f"=COUNTIFS('Cycle Data'!G2:G{len(df_clean)+1},0)"])
+            dash.append(["Bad Shot Count", f"=COUNTIFS('Cycle Data'!G2:G{len(df_clean)+1},1)"])
+            dash.append(["Efficiency (%)", "=B3/B2"])
+            dash.append(["Stop Count", f"=COUNTIFS('Cycle Data'!G2:G{len(df_clean)+1},1)"])
             
-            # Production/Downtime Summary
             dash.append([])
             dash.append(["Mode CT", results.get("mode_ct", 0)])
             dash.append(["Lower Limit", results.get("lower_limit", 0)])
@@ -698,7 +690,6 @@ if uploaded_file:
             dash.append(["Total Run Time (hrs)", results.get("run_hours", 0)])
             dash.append(["Total Stops", results.get("stop_events", 0)])
             
-            # Save to buffer
             buffer = BytesIO()
             wb.save(buffer)
             buffer.seek(0)
