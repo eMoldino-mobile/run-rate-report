@@ -597,12 +597,16 @@ if uploaded_file:
             
             current_sum = 0.0
             for i, row in df_vis.iterrows():
-                if row["Stop_All"] == 1:  # any stop resets the run
-                    if row["Stop_Event"] == 1:  # only true stop events record duration
-                        df_vis.at[i, "Run Duration"] = round(current_sum / 60, 2)
-                    current_sum = 0.0
+                if row["Stop_Event"] == 1:  # first stop in cluster (red tick)
+                    # write run duration into this stop row
+                    df_vis.at[i, "Run Duration"] = round(current_sum / 60, 2)
+                    current_sum = 0.0  # reset after stop
                     df_vis.at[i, "Cumulative Count"] = 0.0
+                elif row["Stop_All"] == 1:  # grey stop (bad shot but not event)
+                    df_vis.at[i, "Cumulative Count"] = 0.0
+                    df_vis.at[i, "Run Duration"] = 0.0
                 else:
+                    # accumulate production time
                     current_sum += row["Time Diff Sec"] if pd.notna(row["Time Diff Sec"]) else 0
                     df_vis.at[i, "Cumulative Count"] = round(current_sum / 60, 2)
 
@@ -641,63 +645,127 @@ if uploaded_file:
             # 2) Excel Export with formulas
             from io import BytesIO
             from openpyxl import Workbook
-            from openpyxl.styles import PatternFill, Font
-            from openpyxl.formatting.rule import FormulaRule
+            from openpyxl.styles import Font, PatternFill, Alignment
+            from openpyxl.chart import BarChart, Reference, LineChart
+            from openpyxl.utils import get_column_letter
             
-            wb = Workbook()
-            ws = wb.active
-            ws.title = "Processed Data"
+            def export_to_excel(df_vis, results):
+                wb = Workbook()
             
-            # Write headers
-            ws.append(df_clean.columns.tolist())
+                # ------------------------
+                # 1. Cycle Data Sheet
+                # ------------------------
+                ws1 = wb.active
+                ws1.title = "Cycle Data"
             
-            # Write rows with formulas
-            for i, row in df_clean.iterrows():
-                excel_row = []
-                for j, col in enumerate(df_clean.columns):
-                    if col == "Run Duration":
-                        excel_row.append(f"=IF(G{i+2}=1,F{i+2}/60,0)")  # If Stop=1, calculate duration
-                    elif col == "Cumulative Count":
-                        excel_row.append(f"=IF(G{i+2}=1,0,SUM($F$2:F{i+2})/60)")  # Reset at stop, else cumulative
+                headers = ["Supplier Name", "Equipment Code", "Shot Time",
+                           "Approved CT", "Actual CT", "Time Diff Sec",
+                           "Stop", "Cumulative Count", "Run Duration"]
+                ws1.append(headers)
+            
+                current_sum = 0.0
+                for i, row in df_vis.iterrows():
+                    stop_flag = row["Stop"]
+            
+                    # Format stop display
+                    if stop_flag == 1 and row["STOP_EVENT"]:
+                        stop_display = "🔴"  # red stop
+                    elif stop_flag == 1:
+                        stop_display = "⚪"  # greyed back-to-back
                     else:
-                        excel_row.append(row[col])
-                ws.append(excel_row)
+                        stop_display = ""
             
-            # --- Conditional Formatting ---
-            data_range = f"A2:K{ws.max_row}"
+                    # Handle cumulative count logic
+                    if stop_flag == 1 and row["STOP_EVENT"]:  # reset on red stop
+                        run_duration = round(current_sum / 60, 2)
+                        current_sum = 0.0
+                        cumulative_count = 0.0
+                    else:
+                        current_sum += row["Time Diff Sec"] if pd.notna(row["Time Diff Sec"]) else 0
+                        cumulative_count = round(current_sum / 60, 2)
+                        run_duration = 0.0
             
-            # Rule 1: Stop Event (J=1 → red fill, white text)
-            red_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
-            red_text = Font(color="FFFFFF", bold=True)
-            rule1 = FormulaRule(formula=["$J2=1"], fill=red_fill, font=red_text)
-            ws.conditional_formatting.add(data_range, rule1)
+                    ws1.append([
+                        row.get("Supplier Name", ""),
+                        row.get("Equipment Code", ""),
+                        row["Shot Time"].strftime("%Y-%m-%d %H:%M:%S") if pd.notna(row["Shot Time"]) else "",
+                        row.get("Approved CT", ""),
+                        row.get("Actual CT", ""),
+                        row.get("Time Diff Sec", ""),
+                        stop_display,
+                        cumulative_count,
+                        run_duration
+                    ])
             
-            # Rule 2: Other Stops (G=1 and J=0 → grey fill)
-            grey_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
-            rule2 = FormulaRule(formula=["AND($G2=1,$J2=0)"], fill=grey_fill)
-            ws.conditional_formatting.add(data_range, rule2)
+                # Auto column width
+                for col in ws1.columns:
+                    max_len = max(len(str(cell.value)) if cell.value else 0 for cell in col)
+                    ws1.column_dimensions[get_column_letter(col[0].column)].width = max_len + 2
             
-            # Autosize columns (make them wide enough)
-            for col in ws.columns:
-                max_length = 0
-                col_letter = col[0].column_letter
-                for cell in col:
-                    try:
-                        if cell.value:
-                            max_length = max(max_length, len(str(cell.value)))
-                    except:
-                        pass
-                adjusted_width = max_length + 2
-                ws.column_dimensions[col_letter].width = adjusted_width
+                # ------------------------
+                # 2. Dashboard Sheet
+                # ------------------------
+                ws2 = wb.create_sheet("Dashboard")
             
-            # Save to buffer
-            buffer = BytesIO()
-            wb.save(buffer)
-            buffer.seek(0)
+                ws2["A1"] = "Run Rate Dashboard"
+                ws2["A1"].font = Font(size=14, bold=True)
             
+                ws2.append(["Metric", "Value", "Percentage"])
+                dashboard_rows = [
+                    ("Total Shots", results.get("total_shots", 0), ""),
+                    ("Normal Shots", results.get("normal_shots", 0),
+                     f"=B3/B2"),  # efficiency
+                    ("Bad Shots", results.get("bad_shots", 0),
+                     f"=B4/B2"),
+                    ("Stops", results.get("stop_events", 0), ""),
+                    ("Efficiency %", "", f"=B3/B2"),
+                    ("Production Time (hrs)", round(results.get("production_time", 0)/60, 2),
+                     f"=B6/(B6+B7)"),
+                    ("Downtime (hrs)", round(results.get("downtime", 0)/60, 2),
+                     f"=B7/(B6+B7)"),
+                ]
+                for r in dashboard_rows:
+                    ws2.append(list(r))
+            
+                # Format %
+                for cell in ws2["C3:C8"]:
+                    cell[0].number_format = "0.00%"
+            
+                # ------------------------
+                # Charts
+                # ------------------------
+                chart1 = BarChart()
+                chart1.title = "Normal vs Bad Shots"
+                data = Reference(ws2, min_col=2, min_row=3, max_row=4)
+                cats = Reference(ws2, min_col=1, min_row=3, max_row=4)
+                chart1.add_data(data, titles_from_data=False)
+                chart1.set_categories(cats)
+                ws2.add_chart(chart1, "E2")
+            
+                chart2 = LineChart()
+                chart2.title = "Efficiency Trend (Day/Week/Month Ready)"
+                data = Reference(ws2, min_col=3, min_row=5, max_row=5)
+                cats = Reference(ws2, min_col=1, min_row=5, max_row=5)
+                chart2.add_data(data, titles_from_data=False)
+                chart2.set_categories(cats)
+                ws2.add_chart(chart2, "E16")
+            
+                # Auto column width
+                for col in ws2.columns:
+                    max_len = max(len(str(cell.value)) if cell.value else 0 for cell in col)
+                    ws2.column_dimensions[get_column_letter(col[0].column)].width = max_len + 2
+            
+                # Save to buffer
+                buffer = BytesIO()
+                wb.save(buffer)
+                buffer.seek(0)
+                return buffer
+            
+            # --- Inside your app ---
+            excel_buffer = export_to_excel(df_vis, results)
             st.download_button(
-                label="📊 Download Processed Data (Excel with formatting)",
-                data=buffer,
+                label="📊 Download Excel Report (with Dashboard)",
+                data=excel_buffer,
                 file_name="processed_cycle_data.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
