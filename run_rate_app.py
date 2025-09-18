@@ -625,32 +625,86 @@ if uploaded_file:
             # 2) Excel Export with formulas
             from io import BytesIO
             from openpyxl import Workbook
-
+            from openpyxl.utils import get_column_letter
+            
+            # --- Excel Export with formulas + dashboard ---
             wb = Workbook()
             ws = wb.active
             ws.title = "Cycle Data"
-
+            
             # Write headers
-            ws.append(df_clean.columns.tolist())
-
-            # Write rows with formulas where useful
+            headers = ["Supplier Name", "Equipment Code", "Shot Time",
+                       "Approved CT", "Actual CT", "Time Diff Sec",
+                       "Stop", "Cumulative Count", "Run Duration"]
+            ws.append(headers)
+            
+            # Write rows with formulas
             for i, row in df_clean.iterrows():
                 excel_row = []
-                for j, col in enumerate(df_clean.columns):
-                    if col == "Run Duration":
-                        # Example formula: if Stop=1, use Time Diff Sec / 60
-                        excel_row.append(f"=IF(H{i+2}=1, F{i+2}/60, 0)")  # H=Stop col, F=Time Diff Sec col
-                    else:
-                        excel_row.append(row[col])
+                excel_idx = i + 2  # Excel row index (header is row 1)
+            
+                # Columns
+                excel_row.append(row["Supplier Name"])       # A
+                excel_row.append(row["Equipment Code"])      # B
+                excel_row.append(row["Shot Time"])           # C
+                excel_row.append(row["Approved CT"])         # D
+                excel_row.append(row["Actual CT"])           # E
+            
+                # --- Time Diff Sec (col F) ---
+                if i == 0:
+                    excel_row.append("")  # first row no diff
+                else:
+                    excel_row.append(f"=(C{excel_idx}-C{excel_idx-1})*86400")
+            
+                # --- Stop (col G) ---
+                excel_row.append(
+                    f"=IF(OR(F{excel_idx}<$Dashboard.$B$5,F{excel_idx}>$Dashboard.$C$5),1,0)"
+                )
+            
+                # --- Cumulative Count (col H) ---
+                if i == 0:
+                    excel_row.append(0)
+                else:
+                    excel_row.append(f"=IF(G{excel_idx}=1,0,H{excel_idx-1}+F{excel_idx}/60)")
+            
+                # --- Run Duration (col I) ---
+                excel_row.append(f"=IF(G{excel_idx}=1,H{excel_idx},0)")
+            
                 ws.append(excel_row)
-
+            
+            # Adjust column widths
+            for col in range(1, len(headers)+1):
+                ws.column_dimensions[get_column_letter(col)].width = 18
+            
+            # --- Dashboard sheet ---
+            dash = wb.create_sheet(title="Dashboard")
+            dash.append(["Metric", "Value"])
+            dash.append(["Total Shot Count", f"=COUNTA(Cycle Data!C2:C{len(df_clean)+1})"])
+            dash.append(["Normal Shot Count", f"=COUNTIFS(Cycle Data!G2:G{len(df_clean)+1},0)"])
+            dash.append(["Bad Shot Count", f"=COUNTIFS(Cycle Data!G2:G{len(df_clean)+1},1)"])
+            dash.append([
+                "Efficiency (%)",
+                f"=B3/B2"  # normal / total
+            ])
+            dash.append(["Stop Count", f"=COUNTIFS(Cycle Data!G2:G{len(df_clean)+1},1)"])
+            
+            # Production/Downtime Summary
+            dash.append([])
+            dash.append(["Mode CT", results.get("mode_ct", 0)])
+            dash.append(["Lower Limit", results.get("lower_limit", 0)])
+            dash.append(["Upper Limit", results.get("upper_limit", 0)])
+            dash.append(["Production Time (hrs)", results.get("production_time", 0)/60])
+            dash.append(["Downtime (hrs)", results.get("downtime", 0)/60])
+            dash.append(["Total Run Time (hrs)", results.get("run_hours", 0)])
+            dash.append(["Total Stops", results.get("stop_events", 0)])
+            
             # Save to buffer
             buffer = BytesIO()
             wb.save(buffer)
             buffer.seek(0)
-
+            
             st.download_button(
-                label="📊 Download Processed Data (Excel with formulas)",
+                label="📊 Download Processed Data (Excel with formulas & Dashboard)",
                 data=buffer,
                 file_name="processed_cycle_data.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
