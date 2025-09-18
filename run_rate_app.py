@@ -120,7 +120,6 @@ def calculate_run_rate_excel_like(df):
         labels=["0-20","20-40","40-60","60-80","80-100",
                 "100-120","120-140","140-160",">160"]
     ).cat.add_categories("Unclassified")
-)
 
     # Bucket counts for overall distribution
     bucket_counts = run_durations["TIME_BUCKET"].value_counts().sort_index().fillna(0).astype(int)
