@@ -665,7 +665,7 @@ if uploaded_file:
             
                 current_sum = 0.0
                 for i, row in df_vis.iterrows():
-                    stop_flag = row["Stop"]
+                    stop_flag = row.get("Stop", row.get("STOP_ADJ", 0))
             
                     # Format stop display
                     if stop_flag == 1 and row["STOP_EVENT"]:
