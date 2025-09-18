@@ -643,94 +643,82 @@ if uploaded_file:
             )
 
             # 2) Excel Export with formulas
-            from io import BytesIO
-            from openpyxl import Workbook
-            from openpyxl.styles import PatternFill
-            from openpyxl.utils.dataframe import dataframe_to_rows
-            
-            def export_to_excel(df_vis, results):
-                wb = Workbook()
-            
-                # ---------------- Sheet 1: Dashboard ----------------
-                ws_dash = wb.active
-                ws_dash.title = "Dashboard"
-            
-                # Shot Counts & Efficiency
-                ws_dash.append(["📊 Shot Counts & Efficiency"])
-                ws_dash.append(["Total Shot Count", results.get("total_shots", 0)])
-                ws_dash.append(["Normal Shot Count", results.get("normal_shots", 0)])
-                ws_dash.append(["Bad Shot Count", results.get("bad_shots", 0)])
-                ws_dash.append([
-                    "Efficiency (%)",
-                    round((results.get("normal_shots", 0) / results.get("total_shots", 1)) * 100, 2)
-                ])
-                ws_dash.append(["Stop Count", results.get("stop_events", 0)])
-                ws_dash.append([])
-            
-                # Production & Downtime Summary
-                ws_dash.append(["⏱ Production & Downtime Summary"])
-                ws_dash.append(["Mode CT (sec)", round(results.get("mode_ct", 0), 2)])
-                ws_dash.append(["Lower Limit (sec)", round(results.get("lower_limit", 0), 2)])
-                ws_dash.append(["Upper Limit (sec)", round(results.get("upper_limit", 0), 2)])
-                ws_dash.append([
-                    "Production Time (hrs)",
-                    f"{results.get('production_time', 0)/60:.2f} hrs "
-                    f"({results.get('production_time', 0)/results.get('total_runtime', 1)*100:.2f}%)"
-                ])
-                ws_dash.append([
-                    "Downtime (hrs)",
-                    f"{results.get('downtime', 0)/60:.2f} hrs "
-                    f"({results.get('downtime', 0)/results.get('total_runtime', 1)*100:.2f}%)"
-                ])
-                ws_dash.append(["Total Run Time (hrs)", f"{results.get('run_hours', 0):.2f}"])
-                ws_dash.append(["Total Stops", results.get("stop_events", 0)])
-            
-                # Auto-size columns
-                for col in ws_dash.columns:
-                    max_length = max(len(str(cell.value)) if cell.value else 0 for cell in col)
-                    ws_dash.column_dimensions[col[0].column_letter].width = max_length + 2
-            
-                # ---------------- Sheet 2: Processed Data ----------------
-                ws_data = wb.create_sheet(title="Processed Data")
-            
-                # Ensure required columns exist
-                if "Stop" not in df_vis.columns:
-                    df_vis["Stop"] = 0
-                if "STOP_EVENT" not in df_vis.columns:
-                    df_vis["STOP_EVENT"] = 0
-            
-                # Round numbers
-                for col in ["Actual CT", "Time Diff Sec", "Cumulative Count", "Run Duration"]:
-                    if col in df_vis.columns:
-                        df_vis[col] = df_vis[col].round(2)
-            
-                # Write DataFrame
-                for r in dataframe_to_rows(df_vis, index=False, header=True):
-                    ws_data.append(r)
-            
-                # Highlight Stop and Stop Event
-                grey_fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")  # grey
-                red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")  # red
-            
-                stop_idx = df_vis.columns.get_loc("Stop") + 1
-                event_idx = df_vis.columns.get_loc("STOP_EVENT") + 1
-            
+            def export_to_excel(df_clean, results):
+            wb = Workbook()
+        
+            # ---------------- Sheet 1: Dashboard ----------------
+            ws_dash = wb.active
+            ws_dash.title = "Dashboard"
+        
+            ws_dash.append(["📊 Shot Counts & Efficiency"])
+            ws_dash.append(["Total Shot Count", results.get("total_shots", 0)])
+            ws_dash.append(["Normal Shot Count", results.get("normal_shots", 0)])
+            ws_dash.append(["Bad Shot Count", results.get("bad_shots", 0)])
+            ws_dash.append([
+                "Efficiency (%)",
+                round((results.get("normal_shots", 0) / results.get("total_shots", 1)) * 100, 2)
+            ])
+            ws_dash.append(["Stop Count", results.get("stop_events", 0)])
+            ws_dash.append([])
+        
+            ws_dash.append(["⏱ Production & Downtime Summary"])
+            ws_dash.append(["Mode CT (sec)", round(results.get("mode_ct", 0), 2)])
+            ws_dash.append(["Lower Limit (sec)", round(results.get("lower_limit", 0), 2)])
+            ws_dash.append(["Upper Limit (sec)", round(results.get("upper_limit", 0), 2)])
+            ws_dash.append([
+                "Production Time (hrs)",
+                f"{results.get('production_time', 0)/60:.2f} hrs "
+                f"({results.get('production_time', 0)/results.get('total_runtime', 1)*100:.2f}%)"
+            ])
+            ws_dash.append([
+                "Downtime (hrs)",
+                f"{results.get('downtime', 0)/60:.2f} hrs "
+                f"({results.get('downtime', 0)/results.get('total_runtime', 1)*100:.2f}%)"
+            ])
+            ws_dash.append(["Total Run Time (hrs)", f"{results.get('run_hours', 0):.2f}"])
+            ws_dash.append(["Total Stops", results.get("stop_events", 0)])
+        
+            # Auto-size
+            for col in ws_dash.columns:
+                max_len = max(len(str(c.value)) if c.value else 0 for c in col)
+                ws_dash.column_dimensions[col[0].column_letter].width = max_len + 2
+        
+            # ---------------- Sheet 2: Processed Data ----------------
+            ws_data = wb.create_sheet("Processed Data")
+        
+            # Write cleaned DataFrame only
+            for r in dataframe_to_rows(df_clean, index=False, header=True):
+                ws_data.append(r)
+        
+            # Freeze header row
+            ws_data.freeze_panes = "A2"
+        
+            # Highlight Stop and Run Duration
+            grey_fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
+            red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+        
+            if "Stop" in df_clean.columns:
+                stop_idx = df_clean.columns.get_loc("Stop") + 1
                 for row in ws_data.iter_rows(min_row=2, max_row=ws_data.max_row):
                     if row[stop_idx - 1].value == 1:
                         row[stop_idx - 1].fill = grey_fill
-                    if row[event_idx - 1].value == 1:
-                        row[event_idx - 1].fill = red_fill
-            
-                # Auto-size columns
-                for col in ws_data.columns:
-                    max_length = max(len(str(cell.value)) if cell.value else 0 for cell in col)
-                    ws_data.column_dimensions[col[0].column_letter].width = max_length + 2
-            
-                # ---------------- Save to buffer ----------------
-                buffer = BytesIO()
-                wb.save(buffer)
-                buffer.seek(0)
-                return buffer
+        
+            if "Run Duration" in df_clean.columns:
+                run_idx = df_clean.columns.get_loc("Run Duration") + 1
+                for row in ws_data.iter_rows(min_row=2, max_row=ws_data.max_row):
+                    if row[run_idx - 1].value and row[run_idx - 1].value > 0:
+                        row[run_idx - 1].fill = red_fill
+        
+            # Auto-size columns
+            for col in ws_data.columns:
+                max_len = max(len(str(c.value)) if c.value else 0 for c in col)
+                ws_data.column_dimensions[col[0].column_letter].width = max_len + 2
+        
+            # ---------------- Save ----------------
+            buffer = BytesIO()
+            wb.save(buffer)
+            buffer.seek(0)
+            return buffer
             
             # --- Inside your app ---
             excel_buffer = export_to_excel(df_vis, results)
