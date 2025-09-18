@@ -560,23 +560,20 @@ if uploaded_file:
             df_vis["Actual CT"] = df_vis["ACTUAL CT"].round(1)
             df_vis["Time Diff Sec"] = df_vis["CT_diff_sec"].round(2)
             df_vis["Stop"] = df_vis["STOP_ADJ"]
-            # Correct cumulative count = accumulate run time until stop, then reset
-            df["Cumulative Count"] = 0
-            df["Run Duration"] = 0
             
+            # Initialise columns
+            df_vis["Cumulative Count"] = 0.0
+            df_vis["Run Duration"] = 0.0
+            
+            # Correct cumulative count = accumulate run time until stop, then reset
             current_sum = 0
-            for i in range(len(df)):
-                if df.loc[i, "Stop"] == 1:  # if stop row
-                    df.loc[i, "Run Duration"] = round(current_sum / 60, 2)  # in minutes
-                    current_sum = 0  # reset
+            for i, row in df_vis.iterrows():
+                if row["Stop"] == 1:  # stop row
+                    df_vis.at[i, "Run Duration"] = round(current_sum / 60, 2)  # minutes
+                    current_sum = 0
                 else:
-                    current_sum += df.loc[i, "Time Diff Sec"]
-                    df.loc[i, "Cumulative Count"] = round(current_sum / 60, 2)  # in minutes
-            df_vis["Run Duration"] = np.where(
-                df_vis["Stop"] == 1,
-                (df_vis["CT_diff_sec"] / 60).round(2),
-                0
-            )
+                    current_sum += row["Time Diff Sec"]
+                    df_vis.at[i, "Cumulative Count"] = round(current_sum / 60, 2)
 
             # --- Final cleaned table ---
             df_clean = df_vis[[
