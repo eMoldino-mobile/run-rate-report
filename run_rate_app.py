@@ -693,8 +693,15 @@ if uploaded_file:
                 ws_data = wb.create_sheet("Processed Data")
             
                 # Write cleaned DataFrame only
-                for r in dataframe_to_rows(df_clean, index=False, header=True):
-                    ws_data.append(r)
+                cols_to_keep = [
+                    "Shot Time", "Supplier Name", "Equipment Code", "Approved CT",
+                    "Actual CT", "Time Diff Sec", "Stop", "Stop Event",
+                    "Cumulative Count", "Run Duration"
+                ]
+                df_export = df[cols_to_keep]
+                
+                for r in dataframe_to_rows(df_export, index=False, header=True):
+                    ws1.append(r)
             
                 # Freeze header row
                 ws_data.freeze_panes = "A2"
