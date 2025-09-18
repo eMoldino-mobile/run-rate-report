@@ -35,6 +35,7 @@ def calculate_run_rate_excel_like(df):
         st.error("Input file must contain either 'SHOT TIME' or YEAR/MONTH/DAY/TIME columns.")
         st.stop()
 
+    # --- CT Difference Handling ---
     # Step 1: raw time difference
     df["CT_diff_sec"] = df["SHOT TIME"].diff().dt.total_seconds()
     
@@ -42,21 +43,23 @@ def calculate_run_rate_excel_like(df):
     mode_ct = df["ACTUAL CT"].mode().iloc[0]
     threshold = mode_ct * 2
     
-    # Step 3: default to ACTUAL CT where valid (not maxed and under threshold)
-    mask_normal = (
+    # Step 3: replace with ACTUAL CT when valid
+    valid_mask = (
         df["ACTUAL CT"].notna() &
         (df["ACTUAL CT"] < threshold) &
         (df["ACTUAL CT"] != 999.9)
     )
-    df.loc[mask_normal, "CT_diff_sec"] = df.loc[mask_normal, "ACTUAL CT"]
+    df.loc[valid_mask, "CT_diff_sec"] = df.loc[valid_mask, "ACTUAL CT"]
     
-    # Step 4: for 999.9 rows, fall back to SHOT TIME difference
-    mask_maxed = (df["ACTUAL CT"] == 999.9)
-    df.loc[mask_maxed, "CT_diff_sec"] = df.loc[mask_maxed, "SHOT TIME"].diff().dt.total_seconds()
+    # Step 4: for 999.9 values, force SHOT TIME diff
+    maxed_mask = (df["ACTUAL CT"] == 999.9)
+    df.loc[maxed_mask, "CT_diff_sec"] = df["SHOT TIME"].diff().dt.total_seconds()
     
-    # Step 5: carry downtime forward one row
+    # Step 5: carry stop values forward one row
     stop_idx = df.index[df["CT_diff_sec"] > threshold]
-    df.loc[stop_idx + 1, "CT_diff_sec"] = df.loc[stop_idx, "CT_diff_sec"].values
+    for idx in stop_idx:
+        if idx + 1 in df.index:
+            df.at[idx + 1, "CT_diff_sec"] = df.at[idx, "CT_diff_sec"]
 
     # Mode CT (seconds)
     mode_ct = df["ACTUAL CT"].mode().iloc[0]
