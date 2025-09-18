@@ -655,33 +655,6 @@ if uploaded_file:
             def export_to_excel(df, results):
                 wb = Workbook()
             
-                # --- Sheet 1: Processed Data ---
-                ws1 = wb.active
-                ws1.title = "Processed Data"
-            
-                cols_to_keep = [
-                    "Shot Time", "Supplier Name", "Equipment Code", "Approved CT",
-                    "Actual CT", "Time Diff Sec", "Stop", "Stop Event",
-                    "Cumulative Count", "Run Duration"
-                ]
-            
-                # Keep only existing columns
-                existing_cols = [c for c in cols_to_keep if c in df.columns]
-                df_export = df[existing_cols]
-            
-                # Write DataFrame to Excel
-                for r in dataframe_to_rows(df_export, index=False, header=True):
-                    ws1.append(r)
-            
-                # TODO: Add formatting, extra dashboard sheets if needed...
-            
-                # Save to buffer
-                from io import BytesIO
-                excel_buffer = BytesIO()
-                wb.save(excel_buffer)
-                excel_buffer.seek(0)
-                return excel_buffer
-            
                 # ---------------- Sheet 1: Dashboard ----------------
                 ws_dash = wb.active
                 ws_dash.title = "Dashboard"
@@ -714,7 +687,6 @@ if uploaded_file:
                 ws_dash.append(["Total Run Time (hrs)", f"{results.get('run_hours', 0):.2f}"])
                 ws_dash.append(["Total Stops", results.get("stop_events", 0)])
             
-                # Auto-size dashboard columns
                 for col in ws_dash.columns:
                     max_len = max(len(str(c.value)) if c.value else 0 for c in col)
                     ws_dash.column_dimensions[col[0].column_letter].width = max_len + 2
@@ -722,40 +694,36 @@ if uploaded_file:
                 # ---------------- Sheet 2: Processed Data ----------------
                 ws_data = wb.create_sheet("Processed Data")
             
-                # Write cleaned DataFrame only
                 cols_to_keep = [
                     "Shot Time", "Supplier Name", "Equipment Code", "Approved CT",
-                    "Actual CT", "Time Diff Sec", "Stop", "Stop Event",
-                    "Cumulative Count", "Run Duration"
+                    "Actual CT", "Time Diff Sec", "Stop_All", "Stop_Event",
+                    "Stop_Flag", "Cumulative Count", "Run Duration"
                 ]
-                
-                # only keep columns that exist in df
                 existing_cols = [c for c in cols_to_keep if c in df.columns]
                 df_export = df[existing_cols]
-                
-                for r in dataframe_to_rows(df_export, index=False, header=True):
-                    ws1.append(r)
             
-                # Freeze header row
+                for r in dataframe_to_rows(df_export, index=False, header=True):
+                    ws_data.append(r)
+            
                 ws_data.freeze_panes = "A2"
             
-                # Highlight Stop and Run Duration
+                # Highlight Stop columns
                 grey_fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
                 red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
             
-                if "Stop" in df_clean.columns:
-                    stop_idx = df_clean.columns.get_loc("Stop") + 1
+                if "Stop_All" in df_export.columns:
+                    idx = df_export.columns.get_loc("Stop_All") + 1
                     for row in ws_data.iter_rows(min_row=2, max_row=ws_data.max_row):
-                        if row[stop_idx - 1].value == 1:
-                            row[stop_idx - 1].fill = grey_fill
+                        if row[idx - 1].value == 1:
+                            row[idx - 1].fill = grey_fill
             
-                if "Run Duration" in df_clean.columns:
-                    run_idx = df_clean.columns.get_loc("Run Duration") + 1
+                if "Stop_Event" in df_export.columns:
+                    idx = df_export.columns.get_loc("Stop_Event") + 1
                     for row in ws_data.iter_rows(min_row=2, max_row=ws_data.max_row):
-                        if row[run_idx - 1].value and row[run_idx - 1].value > 0:
-                            row[run_idx - 1].fill = red_fill
+                        if row[idx - 1].value == 1:
+                            row[idx - 1].fill = red_fill
             
-                # Auto-size data columns
+                # Auto-size
                 for col in ws_data.columns:
                     max_len = max(len(str(c.value)) if c.value else 0 for c in col)
                     ws_data.column_dimensions[col[0].column_letter].width = max_len + 2
