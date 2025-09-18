@@ -649,8 +649,38 @@ if uploaded_file:
             )
 
             # 2) Excel Export with formulas
-            def export_to_excel(df_clean, results):
+            from openpyxl import Workbook
+            from openpyxl.utils.dataframe import dataframe_to_rows
+            
+            def export_to_excel(df, results):
                 wb = Workbook()
+            
+                # --- Sheet 1: Processed Data ---
+                ws1 = wb.active
+                ws1.title = "Processed Data"
+            
+                cols_to_keep = [
+                    "Shot Time", "Supplier Name", "Equipment Code", "Approved CT",
+                    "Actual CT", "Time Diff Sec", "Stop", "Stop Event",
+                    "Cumulative Count", "Run Duration"
+                ]
+            
+                # Keep only existing columns
+                existing_cols = [c for c in cols_to_keep if c in df.columns]
+                df_export = df[existing_cols]
+            
+                # Write DataFrame to Excel
+                for r in dataframe_to_rows(df_export, index=False, header=True):
+                    ws1.append(r)
+            
+                # TODO: Add formatting, extra dashboard sheets if needed...
+            
+                # Save to buffer
+                from io import BytesIO
+                excel_buffer = BytesIO()
+                wb.save(excel_buffer)
+                excel_buffer.seek(0)
+                return excel_buffer
             
                 # ---------------- Sheet 1: Dashboard ----------------
                 ws_dash = wb.active
@@ -692,38 +722,19 @@ if uploaded_file:
                 # ---------------- Sheet 2: Processed Data ----------------
                 ws_data = wb.create_sheet("Processed Data")
             
-                from openpyxl import Workbook
-                from openpyxl.utils.dataframe import dataframe_to_rows
+                # Write cleaned DataFrame only
+                cols_to_keep = [
+                    "Shot Time", "Supplier Name", "Equipment Code", "Approved CT",
+                    "Actual CT", "Time Diff Sec", "Stop", "Stop Event",
+                    "Cumulative Count", "Run Duration"
+                ]
                 
-                def export_to_excel(df, results):
-                    wb = Workbook()
+                # only keep columns that exist in df
+                existing_cols = [c for c in cols_to_keep if c in df.columns]
+                df_export = df[existing_cols]
                 
-                    # --- Sheet 1: Processed Data ---
-                    ws1 = wb.active
-                    ws1.title = "Processed Data"
-                
-                    cols_to_keep = [
-                        "Shot Time", "Supplier Name", "Equipment Code", "Approved CT",
-                        "Actual CT", "Time Diff Sec", "Stop", "Stop Event",
-                        "Cumulative Count", "Run Duration"
-                    ]
-                
-                    # Keep only existing columns
-                    existing_cols = [c for c in cols_to_keep if c in df.columns]
-                    df_export = df[existing_cols]
-                
-                    # Write DataFrame to Excel
-                    for r in dataframe_to_rows(df_export, index=False, header=True):
-                        ws1.append(r)
-                
-                    # TODO: Add formatting, extra dashboard sheets if needed...
-                
-                    # Save to buffer
-                    from io import BytesIO
-                    excel_buffer = BytesIO()
-                    wb.save(excel_buffer)
-                    excel_buffer.seek(0)
-                    return excel_buffer
+                for r in dataframe_to_rows(df_export, index=False, header=True):
+                    ws1.append(r)
             
                 # Freeze header row
                 ws_data.freeze_panes = "A2"
