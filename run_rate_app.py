@@ -196,7 +196,7 @@ if uploaded_file:
 
     page = st.sidebar.radio(
     "Select Page", 
-    ["📊 Analysis Dashboard", "📂 Raw & Processed Data", "📅 Weekly/Monthly Trends"]
+    ["📊 Analysis Dashboard", "📂 Raw & Processed Data", "📅 Weekly Trends", "📅 Monthly Trends"]
 )
 
     if st.sidebar.button("Generate Report"):
@@ -791,58 +791,134 @@ if uploaded_file:
 
             
     # ---------- Page 3: Weekly/Monthly Trends ----------
-    elif page == "📅 Weekly/Monthly Trends":
-        st.title("📅 Weekly & Monthly Trends")
+    elif page == "📅 Monthly Trends":
+        st.title("📅 Monthly Trends")
     
-        results = st.session_state.get("results", {})
-        if not results or "df" not in results:
-            st.info("👈 Please generate a report first from the Analysis Dashboard.")
+        df_tool = df[df[selection_column] == tool].copy()
+        if df_tool.empty:
+            st.info("No data found for this tool.")
         else:
-            df = results["df"].copy()
+            mo_res = calculate_run_rate_excel_like(df_tool)
+            dfx = mo_res["df"].copy()
     
-            # Ensure datetime
-            if "SHOT TIME" in df.columns:
-                df["SHOT TIME"] = pd.to_datetime(df["SHOT TIME"], errors="coerce")
-                df["WEEK"] = df["SHOT TIME"].dt.to_period("W").apply(lambda r: r.start_time)
-                df["MONTH"] = df["SHOT TIME"].dt.to_period("M").apply(lambda r: r.start_time)
-            else:
-                st.error("SHOT TIME missing from dataset.")
-                st.stop()
+            dfx["SHOT TIME"] = pd.to_datetime(dfx["SHOT TIME"], errors="coerce")
+            dfx["MONTH"] = dfx["SHOT TIME"].dt.to_period("M").apply(lambda r: r.start_time)
     
-            # --- Weekly summary ---
-            weekly = df.groupby("WEEK").agg(
-                total_shots=("ACTUAL CT","count"),
-                avg_ct=("ACTUAL CT","mean"),
-                stops=("STOP_EVENT","sum"),
-                mttr=("CT_diff_sec", lambda x: np.nanmean(x[df["STOP_EVENT"]])) ,
-                mtbf=("CT_diff_sec", lambda x: np.nanmean(x[~df["STOP_EVENT"]]))
-            ).reset_index()
+            lower, upper = mo_res["lower_limit"], mo_res["upper_limit"]
     
-            # --- Monthly summary ---
-            monthly = df.groupby("MONTH").agg(
-                total_shots=("ACTUAL CT","count"),
-                avg_ct=("ACTUAL CT","mean"),
-                stops=("STOP_EVENT","sum"),
-                mttr=("CT_diff_sec", lambda x: np.nanmean(x[df["STOP_EVENT"]])) ,
-                mtbf=("CT_diff_sec", lambda x: np.nanmean(x[~df["STOP_EVENT"]]))
-            ).reset_index()
+            def safe_mean(series):
+                return float(np.nanmean(series)) if np.isfinite(np.nanmean(series)) else np.nan
     
-            # --- Weekly Plot ---
-            st.subheader("📊 Weekly Trends")
-            fig_week = px.line(
-                weekly, x="WEEK", y=["mttr","mtbf"],
-                markers=True, title="Weekly MTTR & MTBF"
+            monthly_summary = (
+                dfx.groupby("MONTH")
+                   .apply(lambda g: pd.Series({
+                       "Total Shots": len(g),
+                       "Normal Shots": ((g["CT_diff_sec"] >= lower) & (g["CT_diff_sec"] <= upper)).sum(),
+                       "Stop Count": g["STOP_EVENT"].sum(),
+                       "Downtime (hrs)": (g.loc[g["STOP_FLAG"] == 1, "CT_diff_sec"].sum() / 3600),
+                       "Production Time (hrs)": ((g["CT_diff_sec"].sum() - g.loc[g["STOP_FLAG"] == 1, "CT_diff_sec"].sum()) / 3600),
+                       "MTTR (min)": safe_mean(g.loc[g["STOP_EVENT"], "CT_diff_sec"] / 60),
+                       "MTBF (min)": safe_mean(g.loc[~g["STOP_EVENT"], "CT_diff_sec"] / 60),
+                   }))
+                   .reset_index()
             )
-            st.plotly_chart(fig_week, use_container_width=True)
-            st.dataframe(weekly)
+            monthly_summary["Efficiency (%)"] = (monthly_summary["Normal Shots"] / monthly_summary["Total Shots"] * 100).round(2)
+            monthly_summary["Stability Index (%)"] = (
+                monthly_summary["MTBF (min)"] / (monthly_summary["MTBF (min)"] + monthly_summary["MTTR (min)"]) * 100
+            ).round(2)
     
-            # --- Monthly Plot ---
-            st.subheader("📊 Monthly Trends")
-            fig_month = px.line(
-                monthly, x="MONTH", y=["mttr","mtbf"],
-                markers=True, title="Monthly MTTR & MTBF"
+            st.markdown("### 📊 Monthly Summary")
+            st.dataframe(
+                monthly_summary.style.format({
+                    "Downtime (hrs)": "{:.2f}",
+                    "Production Time (hrs)": "{:.2f}",
+                    "MTTR (min)": "{:.2f}",
+                    "MTBF (min)": "{:.2f}",
+                    "Efficiency (%)": "{:.2f}",
+                    "Stability Index (%)": "{:.2f}",
+                })
             )
-            st.plotly_chart(fig_month, use_container_width=True)
-            st.dataframe(monthly)
+    
+            # Time bucket trend by month (reuse same color map)
+            buckets = [0, 20, 40, 60, 80, 100, 120, 140, 160, 999999]
+            labels = ["0-20","20-40","40-60","60-80","80-100","100-120","120-140","140-160",">160"]
+            label_map = {
+                "0-20":"1: 0-20 min", "20-40":"2: 20-40 min", "40-60":"3: 40-60 min",
+                "60-80":"4: 60-80 min", "80-100":"5: 80-100 min", "100-120":"6: 100-120 min",
+                "120-140":"7: 120-140 min", "140-160":"8: 140-160 min", ">160":"9: >160 min"
+            }
+            color_map = {
+                "1: 0-20 min":   "#d73027",
+                "2: 20-40 min":  "#fc8d59",
+                "3: 40-60 min":  "#fee090",
+                "4: 60-80 min":  "#c6dbef",
+                "5: 80-100 min": "#9ecae1",
+                "6: 100-120 min":"#6baed6",
+                "7: 120-140 min":"#4292c6",
+                "8: 140-160 min":"#2171b5",
+                "9: >160 min":  "#084594"
+            }
+            bucket_order = [label_map[k] for k in labels]
+    
+            run_dur = (
+                dfx.groupby("RUN_GROUP")["CT_diff_sec"].sum().div(60).reset_index(name="RUN_DURATION")
+            )
+            if dfx["STOP_ADJ"].iloc[-1] == 0:
+                run_dur = run_dur[run_dur["RUN_GROUP"] != dfx["RUN_GROUP"].iloc[-1]]
+    
+            run_end = dfx.groupby("RUN_GROUP")["SHOT TIME"].max().reset_index(name="RUN_END")
+            run_dur = run_dur.merge(run_end, on="RUN_GROUP", how="left")
+            run_dur["MONTH"] = run_dur["RUN_END"].dt.to_period("M").apply(lambda r: r.start_time)
+    
+            run_dur["TIME_BUCKET"] = pd.cut(run_dur["RUN_DURATION"], bins=buckets, labels=labels).astype(str).map(label_map)
+            tb_month = run_dur.groupby(["MONTH","TIME_BUCKET"]).size().reset_index(name="count")
+            tb_month = tb_month[tb_month["TIME_BUCKET"].notna()]
+    
+            fig_tb_trend = px.bar(
+                tb_month, x="MONTH", y="count", color="TIME_BUCKET",
+                category_orders={"TIME_BUCKET": bucket_order},
+                title="Time Bucket Trend by Month (Continuous Runs Before Stops)",
+                color_discrete_map=color_map
+            )
+            fig_tb_trend.update_layout(barmode="stack")
+            st.plotly_chart(fig_tb_trend, use_container_width=True)
+    
+            # MTTR & MTBF by month
+            fig_mt = go.Figure()
+            fig_mt.add_trace(go.Scatter(
+                x=monthly_summary["MONTH"], y=monthly_summary["MTTR (min)"],
+                mode="lines+markers", name="MTTR (min)", line=dict(color="red", width=2)
+            ))
+            fig_mt.add_trace(go.Scatter(
+                x=monthly_summary["MONTH"], y=monthly_summary["MTBF (min)"],
+                mode="lines+markers", name="MTBF (min)", line=dict(color="green", width=2, dash="dot"), yaxis="y2"
+            ))
+            fig_mt.update_layout(
+                title="MTTR & MTBF by Month",
+                xaxis=dict(title="Month"),
+                yaxis=dict(title="MTTR (min)", side="left"),
+                yaxis2=dict(title="MTBF (min)", overlaying="y", side="right")
+            )
+            st.plotly_chart(fig_mt, use_container_width=True)
+    
+            # Stability Index by month
+            stab = monthly_summary[["MONTH","Stability Index (%)"]].copy()
+            colors = ["gray" if pd.isna(v) else "red" if v <= 50 else "yellow" if v <= 70 else "green"
+                      for v in stab["Stability Index (%)"]]
+            fig_stab = go.Figure()
+            fig_stab.add_trace(go.Scatter(
+                x=stab["MONTH"], y=stab["Stability Index (%)"], mode="lines+markers",
+                name="Stability Index (%)", line=dict(color="blue", width=2),
+                marker=dict(color=colors, size=8)
+            ))
+            for y0,y1,c in [(0,50,"red"),(50,70,"yellow"),(70,100,"green")]:
+                fig_stab.add_shape(type="rect", x0=stab["MONTH"].min(), x1=stab["MONTH"].max(),
+                                   y0=y0, y1=y1, fillcolor=c, opacity=0.1, line_width=0, yref="y")
+            fig_stab.update_layout(
+                title="Stability Index by Month",
+                xaxis=dict(title="Month"),
+                yaxis=dict(title="Stability Index (%)", range=[0,100])
+            )
+            st.plotly_chart(fig_stab, use_container_width=True)
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin. Headers in ROW 1 please.")
