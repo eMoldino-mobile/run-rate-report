@@ -597,14 +597,11 @@ if uploaded_file:
             
             current_sum = 0.0
             for i, row in df_vis.iterrows():
-                if row["Stop"] == 1:  # stop row
-                    # record the accumulated runtime in minutes
+                if row["Stop_Event"] == 1:  # only reset at true stop events
                     df_vis.at[i, "Run Duration"] = round(current_sum / 60, 2)
-                    # reset counter after stop
                     current_sum = 0.0
                     df_vis.at[i, "Cumulative Count"] = 0.0
                 else:
-                    # accumulate runtime
                     current_sum += row["Time Diff Sec"] if pd.notna(row["Time Diff Sec"]) else 0
                     df_vis.at[i, "Cumulative Count"] = round(current_sum / 60, 2)
 
@@ -612,7 +609,8 @@ if uploaded_file:
             df_clean = df_vis[[
                 "Supplier Name", "Equipment Code", "SHOT TIME",
                 "Approved CT", "Actual CT", "Time Diff Sec",
-                "Stop", "Cumulative Count", "Run Duration"
+                "Stop_All", "Stop_Event", "Stop_Flag",
+                "Cumulative Count", "Run Duration"
             ]].rename(columns={"SHOT TIME": "Shot Time"})
 
             # --- Interactive data editor ---
