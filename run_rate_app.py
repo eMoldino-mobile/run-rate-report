@@ -651,6 +651,8 @@ if uploaded_file:
             # 2) Excel Export with formulas
             from openpyxl import Workbook
             from openpyxl.utils.dataframe import dataframe_to_rows
+            from openpyxl.styles import PatternFill
+            from io import BytesIO
             
             def export_to_excel(df, results):
                 wb = Workbook()
@@ -687,6 +689,7 @@ if uploaded_file:
                 ws_dash.append(["Total Run Time (hrs)", f"{results.get('run_hours', 0):.2f}"])
                 ws_dash.append(["Total Stops", results.get("stop_events", 0)])
             
+                # Auto-size dashboard
                 for col in ws_dash.columns:
                     max_len = max(len(str(c.value)) if c.value else 0 for c in col)
                     ws_dash.column_dimensions[col[0].column_letter].width = max_len + 2
@@ -702,8 +705,24 @@ if uploaded_file:
                 existing_cols = [c for c in cols_to_keep if c in df.columns]
                 df_export = df[existing_cols]
             
-                for r in dataframe_to_rows(df_export, index=False, header=True):
-                    ws_data.append(r)
+                # Write header row
+                ws_data.append(list(df_export.columns))
+            
+                # Write rows with formulas for Cumulative Count & Run Duration
+                for r_idx, row in enumerate(dataframe_to_rows(df_export, index=False, header=False), start=2):
+                    excel_row = []
+                    for c_idx, value in enumerate(row, 1):
+                        col_name = df_export.columns[c_idx - 1]
+                        if col_name == "Cumulative Count":
+                            if r_idx == 2:
+                                excel_row.append(f"=IF(H{r_idx}=1,0,F{r_idx}/60)")
+                            else:
+                                excel_row.append(f"=IF(H{r_idx}=1,0,J{r_idx-1}+F{r_idx}/60)")
+                        elif col_name == "Run Duration":
+                            excel_row.append(f"=IF(H{r_idx}=1,F{r_idx}/60,0)")
+                        else:
+                            excel_row.append(value)
+                    ws_data.append(excel_row)
             
                 ws_data.freeze_panes = "A2"
             
@@ -723,7 +742,7 @@ if uploaded_file:
                         if row[idx - 1].value == 1:
                             row[idx - 1].fill = red_fill
             
-                # Auto-size
+                # Auto-size Processed Data
                 for col in ws_data.columns:
                     max_len = max(len(str(c.value)) if c.value else 0 for c in col)
                     ws_data.column_dimensions[col[0].column_letter].width = max_len + 2
