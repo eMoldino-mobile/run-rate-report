@@ -702,33 +702,6 @@ if uploaded_file:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-            # ----- Dashboard sheet with limits and quick KPIs -----
-            dash = wb.create_sheet(title="Dashboard")
-            dash.append(["Metric","Value"])
-            dash.append(["Total Shot Count", f"=COUNTA('Cycle Data'!C2:C{nrows+1})"])      # B2
-            dash.append(["Normal Shot Count", f"=COUNTIFS('Cycle Data'!G2:G{nrows+1},0)"]) # B3
-            dash.append(["Bad Shot Count", f"=COUNTIFS('Cycle Data'!G2:G{nrows+1},1)"])    # B4
-            dash.append(["Efficiency (%)", "=B3/B2"])                                      # B5
-            dash.append([])                                                                 # row 6 separator
-            dash.append(["Lower Limit", results.get("lower_limit", 0)])                     # B6
-            dash.append(["Upper Limit", results.get("upper_limit", 0)])                     # B7
-            dash.append(["Mode CT", results.get("mode_ct", 0)])
-            dash.append(["Production Time (hrs)", results.get("production_time", 0)/60])
-            dash.append(["Downtime (hrs)", results.get("downtime", 0)/60])
-            dash.append(["Total Run Time (hrs)", results.get("run_hours", 0)])
-            dash.append(["Stop Events (first in cluster)", results.get("stop_events", 0)])
-            
-            # Save & offer download
-            buffer = BytesIO()
-            wb.save(buffer)
-            buffer.seek(0)
-            
-            st.download_button(
-                "📊 Download Processed Data (Excel with formulas & Dashboard)",
-                buffer,
-                file_name="processed_cycle_data.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
             
     # ---------- Page 3: Weekly/Monthly Trends ----------
     elif page == "📅 Weekly/Monthly Trends":
