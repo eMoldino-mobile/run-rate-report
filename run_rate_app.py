@@ -976,15 +976,31 @@ if uploaded_file:
     
         # 4) Stability Index Trend by Day
         fig_stability = go.Figure()
-        fig_stability.add_trace(go.Scatter(x=daily_summary["DAY"], y=daily_summary["Stability Index (%)"],
-                                           mode="lines+markers", name="Stability Index (%)",
-                                           line=dict(color="blue", width=2)))
-        for y0,y1,c in [(0,50,"red"),(50,70,"yellow"),(70,100,"green")]:
-            fig_stability.add_shape(type="rect", x0=daily_summary["DAY"].min(), x1=daily_summary["DAY"].max(),
-                                    y0=y0, y1=y1, fillcolor=c, opacity=0.1, line_width=0, yref="y")
-        fig_stability.update_layout(title="Stability Index by Day",
-                                    xaxis=dict(title="Day"),
-                                    yaxis=dict(title="Stability Index (%)", range=[0,100]))
+        
+        fig_stability.add_trace(go.Scatter(
+            x=daily_summary["DAY"].astype(str),   # ✅ convert to string for daily categories
+            y=daily_summary["Stability Index (%)"],
+            mode="lines+markers",
+            name="Stability Index (%)",
+            line=dict(color="blue", width=2)
+        ))
+        
+        # Background alert zones
+        for y0, y1, c in [(0,50,"red"),(50,70,"yellow"),(70,100,"green")]:
+            fig_stability.add_shape(
+                type="rect",
+                x0=-0.5, x1=len(daily_summary["DAY"])-0.5,  # ✅ align to categorical x-axis
+                y0=y0, y1=y1,
+                fillcolor=c, opacity=0.1, line_width=0, layer="below"
+            )
+        
+        fig_stability.update_layout(
+            title="Stability Index by Day",
+            xaxis=dict(title="Day", tickmode="array", tickvals=list(range(len(daily_summary))),
+                       ticktext=daily_summary["DAY"].astype(str).tolist()),  # ✅ clean day labels
+            yaxis=dict(title="Stability Index (%)", range=[0,100])
+        )
+        
         st.plotly_chart(fig_stability, use_container_width=True)
     
     
