@@ -789,7 +789,6 @@ if uploaded_file:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-
     # ---------- Page 3: Weekly Trends ----------
     elif page == "📅 Weekly Trends":
         st.title("📅 Weekly Trends")
@@ -798,79 +797,89 @@ if uploaded_file:
         if df_tool.empty:
             st.warning("⚠️ No data for this tool.")
         else:
-            dfx = df_tool.copy()
-            dfx["SHOT TIME"] = pd.to_datetime(dfx["SHOT TIME"], errors="coerce")
-            dfx["DATE"] = dfx["SHOT TIME"].dt.date
-            dfx["WEEK"] = dfx["SHOT TIME"].dt.to_period("W").apply(lambda r: r.start_time)
+            # ✅ Re-run full calculation pipeline
+            wk_res = calculate_run_rate_excel_like(df_tool)
+            dfx = wk_res.get("df", pd.DataFrame()).copy()
     
-            # --- Daily mode CT (for bad shot flagging) ---
-            daily_modes = (
-                dfx.groupby("DATE")["ACTUAL CT"]
-                   .agg(lambda x: x.mode().iloc[0])
-                   .reset_index(name="MODE_CT")
-            )
-            daily_modes["LOWER"] = daily_modes["MODE_CT"] * 0.95
-            daily_modes["UPPER"] = daily_modes["MODE_CT"] * 1.05
-            dfx = dfx.merge(daily_modes, on="DATE", how="left")
+            if dfx.empty or "SHOT TIME" not in dfx.columns:
+                st.warning("⚠️ No processed cycle-level data available.")
+            else:
+                dfx["SHOT TIME"] = pd.to_datetime(dfx["SHOT TIME"], errors="coerce")
+                dfx["DATE"] = dfx["SHOT TIME"].dt.date
+                dfx["WEEK"] = dfx["SHOT TIME"].dt.to_period("W").apply(lambda r: r.start_time)
     
-            dfx["BAD_SHOT"] = ~dfx["ACTUAL CT"].between(dfx["LOWER"], dfx["UPPER"])
+                # --- Daily mode CT (to classify bad shots) ---
+                daily_modes = (
+                    dfx.groupby("DATE")["ACTUAL CT"]
+                       .agg(lambda x: x.mode().iloc[0])
+                       .reset_index(name="MODE_CT")
+                )
+                daily_modes["LOWER"] = daily_modes["MODE_CT"] * 0.95
+                daily_modes["UPPER"] = daily_modes["MODE_CT"] * 1.05
+                dfx = dfx.merge(daily_modes, on="DATE", how="left")
     
-            # --- Weekly summary ---
-            weekly_summary = (
-                dfx.groupby("WEEK")
-                   .apply(lambda g: pd.Series({
-                       "Total Shots": len(g),
-                       "Normal Shots": (~g["BAD_SHOT"]).sum(),
-                       "Bad Shots": g["BAD_SHOT"].sum(),
-                       "Stop Count": g["STOP_EVENT"].sum(),
-                       "Downtime (hrs)": g.loc[g["STOP_FLAG"] == 1, "CT_diff_sec"].sum() / 3600,
-                       "Production Time (hrs)": (
-                           g["CT_diff_sec"].sum() - g.loc[g["STOP_FLAG"] == 1, "CT_diff_sec"].sum()
-                       ) / 3600,
-                       "MTTR (min)": g.loc[g["STOP_EVENT"], "CT_diff_sec"].mean() / 60 if g["STOP_EVENT"].any() else np.nan,
-                       "MTBF (min)": g.loc[~g["STOP_EVENT"], "CT_diff_sec"].mean() / 60 if (~g["STOP_EVENT"]).any() else np.nan,
-                   }))
-                   .reset_index()
-            )
+                dfx["BAD_SHOT"] = ~dfx["ACTUAL CT"].between(dfx["LOWER"], dfx["UPPER"])
     
-            weekly_summary["Efficiency (%)"] = (
-                weekly_summary["Normal Shots"] / weekly_summary["Total Shots"] * 100
-            ).round(2)
-            weekly_summary["Stability Index (%)"] = (
-                weekly_summary["MTBF (min)"] /
-                (weekly_summary["MTBF (min)"] + weekly_summary["MTTR (min)"]) * 100
-            ).round(2)
+                # --- Weekly summary ---
+                weekly_summary = (
+                    dfx.groupby("WEEK")
+                       .apply(lambda g: pd.Series({
+                           "Total Shots": len(g),
+                           "Normal Shots": (~g["BAD_SHOT"]).sum(),
+                           "Bad Shots": g["BAD_SHOT"].sum(),
+                           "Stop Count": g["STOP_EVENT"].sum(),
+                           "Downtime (hrs)": g.loc[g["STOP_FLAG"] == 1, "CT_diff_sec"].sum() / 3600,
+                           "Production Time (hrs)": (
+                               g["CT_diff_sec"].sum() - g.loc[g["STOP_FLAG"] == 1, "CT_diff_sec"].sum()
+                           ) / 3600,
+                           "MTTR (min)": g.loc[g["STOP_EVENT"], "CT_diff_sec"].mean() / 60 if g["STOP_EVENT"].any() else np.nan,
+                           "MTBF (min)": g.loc[~g["STOP_EVENT"], "CT_diff_sec"].mean() / 60 if (~g["STOP_EVENT"]).any() else np.nan,
+                       }))
+                       .reset_index()
+                )
     
-            st.subheader("📊 Weekly Summary")
-            st.dataframe(weekly_summary)
+                # Efficiency & Stability
+                weekly_summary["Efficiency (%)"] = (
+                    weekly_summary["Normal Shots"] / weekly_summary["Total Shots"] * 100
+                ).round(2)
+                weekly_summary["Stability Index (%)"] = (
+                    weekly_summary["MTBF (min)"] /
+                    (weekly_summary["MTBF (min)"] + weekly_summary["MTTR (min)"]) * 100
+                ).round(2)
     
-            # --- Graphs ---
-            fig_mt = go.Figure()
-            fig_mt.add_trace(go.Scatter(
-                x=weekly_summary["WEEK"], y=weekly_summary["MTTR (min)"],
-                mode="lines+markers", name="MTTR (min)", line=dict(color="red", width=2)
-            ))
-            fig_mt.add_trace(go.Scatter(
-                x=weekly_summary["WEEK"], y=weekly_summary["MTBF (min)"],
-                mode="lines+markers", name="MTBF (min)",
-                line=dict(color="green", width=2, dash="dot"), yaxis="y2"
-            ))
-            fig_mt.update_layout(
-                title="Weekly MTTR & MTBF",
-                xaxis=dict(title="Week"),
-                yaxis=dict(title="MTTR (min)", side="left"),
-                yaxis2=dict(title="MTBF (min)", overlaying="y", side="right")
-            )
-            st.plotly_chart(fig_mt, use_container_width=True)
+                st.subheader("📊 Weekly Summary")
+                st.dataframe(weekly_summary)
     
-            fig_stab = go.Figure()
-            colors = ["red" if v <= 50 else "yellow" if v <= 70 else "green" for v in weekly_summary["Stability Index (%)"]]
-            fig_stab.add_trace(go.Scatter(
-                x=weekly_summary["WEEK"], y=weekly_summary["Stability Index (%)"],
-                mode="lines+markers", name="Stability Index (%)",
-                line=dict(color="blue", width=2), marker=dict(color=colors, size=8)
-            ))
-            st.plotly_chart(fig_stab, use_container_width=True)
+                # --- Graphs (same style as daily) ---
+                fig_mt = go.Figure()
+                fig_mt.add_trace(go.Scatter(
+                    x=weekly_summary["WEEK"], y=weekly_summary["MTTR (min)"],
+                    mode="lines+markers", name="MTTR (min)", line=dict(color="red", width=2)
+                ))
+                fig_mt.add_trace(go.Scatter(
+                    x=weekly_summary["WEEK"], y=weekly_summary["MTBF (min)"],
+                    mode="lines+markers", name="MTBF (min)",
+                    line=dict(color="green", width=2, dash="dot"), yaxis="y2"
+                ))
+                fig_mt.update_layout(
+                    title="Weekly MTTR & MTBF",
+                    xaxis=dict(title="Week"),
+                    yaxis=dict(title="MTTR (min)", side="left"),
+                    yaxis2=dict(title="MTBF (min)", overlaying="y", side="right")
+                )
+                st.plotly_chart(fig_mt, use_container_width=True)
+    
+                # Stability Index
+                colors = ["red" if v <= 50 else "yellow" if v <= 70 else "green"
+                          for v in weekly_summary["Stability Index (%)"]]
+                fig_stab = go.Figure()
+                fig_stab.add_trace(go.Scatter(
+                    x=weekly_summary["WEEK"], y=weekly_summary["Stability Index (%)"],
+                    mode="lines+markers", name="Stability Index (%)",
+                    line=dict(color="blue", width=2),
+                    marker=dict(color=colors, size=8)
+                ))
+                st.plotly_chart(fig_stab, use_container_width=True)
     
     
     # ---------- Page 4: Monthly Trends ----------
