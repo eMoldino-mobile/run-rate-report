@@ -31,10 +31,23 @@ def build_20min_bins(max_minutes: float):
     
     return edges, labels_np, labels_wp
 
+def lighten_hex(hex_color, factor=0.2):
+    """
+    Lighten a hex color by blending it with white.
+    factor=0 → original color, factor=1 → pure white.
+    """
+    hex_color = hex_color.lstrip("#")
+    r, g, b = [int(hex_color[i:i+2], 16) for i in (0, 2, 4)]
+    r = int(r + (255 - r) * factor)
+    g = int(g + (255 - g) * factor)
+    b = int(b + (255 - b) * factor)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
 def make_bucket_color_map(labels_with_prefix):
     """
     Always include 9 base labels in the legend.
-    If there are more than 9 buckets, extend colors by reusing and lightening them.
+    If more buckets exist, extend colors by reusing and lightening them.
     """
     base = BASE_BUCKET_COLORS
 
@@ -47,21 +60,15 @@ def make_bucket_color_map(labels_with_prefix):
     if n <= len(base):
         colors = base[:n]
     else:
-        # Extend palette by cycling and lightening
         colors = base.copy()
         for i in range(len(base), n):
-            # pick from base and add a modifier to make it distinct
             base_color = base[i % len(base)]
-            # quick lighten by blending with white
-            import matplotlib.colors as mcolors
-            r, g, b = mcolors.to_rgb(base_color)
-            r = min(1, r + 0.2)
-            g = min(1, g + 0.2)
-            b = min(1, b + 0.2)
-            colors.append(mcolors.to_hex((r, g, b)))
+            # lighten progressively with each cycle
+            factor = 0.2 * ((i // len(base)) + 1)
+            factor = min(factor, 0.8)  # cap at 80% lightening
+            colors.append(lighten_hex(base_color, factor))
 
     return {lbl: colors[i] for i, lbl in enumerate(full_labels)}
-
 
 # Excel export helpers
 from openpyxl import Workbook
