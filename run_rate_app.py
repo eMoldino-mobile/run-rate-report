@@ -89,7 +89,7 @@ def format_time(minutes):
 
 def calculate_run_rate_excel_like(df):
     df = df.copy()
-
+    
     # --- Handle Date/Time Parsing ---
     if {"YEAR", "MONTH", "DAY", "TIME"}.issubset(df.columns):
         df["SHOT TIME"] = pd.to_datetime(
@@ -182,6 +182,10 @@ def calculate_run_rate_excel_like(df):
     if df["STOP_ADJ"].iloc[-1] == 0:
         last_group = df["RUN_GROUP"].iloc[-1]
         run_durations = run_durations[run_durations["RUN_GROUP"] != last_group]
+        
+    # Add run end timestamp for each group
+    run_end_times = df.groupby("RUN_GROUP")["SHOT TIME"].max().reset_index(name="RUN_END")
+    run_durations = run_durations.merge(run_end_times, on="RUN_GROUP", how="left")
 
     # --- Assign buckets (dynamic 20-min bins) ---
     max_minutes = run_durations["RUN_DURATION"].max()
