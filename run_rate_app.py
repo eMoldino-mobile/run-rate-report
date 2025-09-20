@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 from datetime import timedelta
 import warnings
 
-from plotly.colors import find_intermediate_color
+from plotly.colors import find_intermediate_color, hex_to_rgb
 
 # Page-1 base palette (left→right: red → deep blue)
 BASE_BUCKET_COLORS = [
@@ -48,14 +48,21 @@ def make_bucket_color_map(labels_with_prefix):
     if n <= len(base):
         colors = base[:n]
     else:
+        # Convert base hex to rgb first
+        rgb_base = [hex_to_rgb(c) for c in base]
+
         colors = base.copy()
         for i in range(len(base), n):
-            frac = i / (n - 1)  # 0 → 1 position across full scale
+            frac = i / (n - 1)  # 0 → 1 across full scale
             pos = frac * (len(base) - 1)
             low = int(np.floor(pos))
             high = int(np.ceil(pos))
             interp = pos - low
-            c = find_intermediate_color(base[low], base[high], interp, colortype="rgb")
+            c_rgb = find_intermediate_color(
+                rgb_base[low], rgb_base[high], interp, colortype="rgb"
+            )
+            # Convert back to CSS rgb string
+            c = f"rgb({c_rgb[0]},{c_rgb[1]},{c_rgb[2]})"
             colors.append(c)
 
     return {lbl: colors[i] for i, lbl in enumerate(full_labels)}
