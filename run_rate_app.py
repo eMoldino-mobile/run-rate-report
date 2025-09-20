@@ -34,8 +34,7 @@ def build_20min_bins(max_minutes: float):
 def make_bucket_color_map(labels_with_prefix):
     """
     Always include 9 base labels in the legend.
-    If there are more than 9 buckets, interpolate extra colors
-    between the base palette.
+    If there are more than 9 buckets, extend colors by reusing and lightening them.
     """
     base = BASE_BUCKET_COLORS
 
@@ -48,22 +47,18 @@ def make_bucket_color_map(labels_with_prefix):
     if n <= len(base):
         colors = base[:n]
     else:
-        # Convert base hex to rgb first
-        rgb_base = [hex_to_rgb(c) for c in base]
-
+        # Extend palette by cycling and lightening
         colors = base.copy()
         for i in range(len(base), n):
-            frac = i / (n - 1)  # 0 → 1 across full scale
-            pos = frac * (len(base) - 1)
-            low = int(np.floor(pos))
-            high = int(np.ceil(pos))
-            interp = pos - low
-            c_rgb = find_intermediate_color(
-                rgb_base[low], rgb_base[high], interp, colortype="rgb"
-            )
-            # Convert back to CSS rgb string
-            c = f"rgb({c_rgb[0]},{c_rgb[1]},{c_rgb[2]})"
-            colors.append(c)
+            # pick from base and add a modifier to make it distinct
+            base_color = base[i % len(base)]
+            # quick lighten by blending with white
+            import matplotlib.colors as mcolors
+            r, g, b = mcolors.to_rgb(base_color)
+            r = min(1, r + 0.2)
+            g = min(1, g + 0.2)
+            b = min(1, b + 0.2)
+            colors.append(mcolors.to_hex((r, g, b)))
 
     return {lbl: colors[i] for i, lbl in enumerate(full_labels)}
 
