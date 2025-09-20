@@ -791,13 +791,12 @@ if uploaded_file:
 
     # ---------- Page 3: Weekly Trends ----------
     elif page == "📅 Weekly Trends":
-        st.title("📅 Weekly Trends")
+        st.title("📅 Weekly Trends (all available weeks)")
     
         df_tool = df[df[selection_column] == tool].copy()
         if df_tool.empty:
             st.warning("⚠️ No data for this tool.")
         else:
-            # ✅ Re-run full calculation pipeline
             wk_res = calculate_run_rate_excel_like(df_tool)
             dfx = wk_res.get("df", pd.DataFrame()).copy()
     
@@ -808,7 +807,7 @@ if uploaded_file:
                 dfx["DATE"] = dfx["SHOT TIME"].dt.date
                 dfx["WEEK"] = dfx["SHOT TIME"].dt.to_period("W").apply(lambda r: r.start_time)
     
-                # --- Daily mode CT (to classify bad shots) ---
+                # --- Daily mode CT per day (for bad shots) ---
                 daily_modes = (
                     dfx.groupby("DATE")["ACTUAL CT"]
                        .agg(lambda x: x.mode().iloc[0])
@@ -817,7 +816,6 @@ if uploaded_file:
                 daily_modes["LOWER"] = daily_modes["MODE_CT"] * 0.95
                 daily_modes["UPPER"] = daily_modes["MODE_CT"] * 1.05
                 dfx = dfx.merge(daily_modes, on="DATE", how="left")
-    
                 dfx["BAD_SHOT"] = ~dfx["ACTUAL CT"].between(dfx["LOWER"], dfx["UPPER"])
     
                 # --- Weekly summary ---
@@ -837,8 +835,6 @@ if uploaded_file:
                        }))
                        .reset_index()
                 )
-    
-                # Efficiency & Stability
                 weekly_summary["Efficiency (%)"] = (
                     weekly_summary["Normal Shots"] / weekly_summary["Total Shots"] * 100
                 ).round(2)
@@ -847,10 +843,37 @@ if uploaded_file:
                     (weekly_summary["MTBF (min)"] + weekly_summary["MTTR (min)"]) * 100
                 ).round(2)
     
-                st.subheader("📊 Weekly Summary")
+                st.subheader("📊 Weekly Summary (comparative)")
                 st.dataframe(weekly_summary)
     
-                # --- Graphs (same style as daily) ---
+                # --- Weekly Bucket Analysis ---
+                run_durations = wk_res["run_durations"].copy()
+                run_end_times = dfx.groupby("RUN_GROUP")["SHOT TIME"].max().reset_index(name="RUN_END")
+                run_durations = run_durations.merge(run_end_times, on="RUN_GROUP", how="left")
+                run_durations["WEEK"] = run_durations["RUN_END"].dt.to_period("W").apply(lambda r: r.start_time)
+    
+                label_map = {
+                    "0-20":"1: 0-20 min","20-40":"2: 20-40 min","40-60":"3: 40-60 min",
+                    "60-80":"4: 60-80 min","80-100":"5: 80-100 min","100-120":"6: 100-120 min",
+                    "120-140":"7: 120-140 min","140-160":"8: 140-160 min",">160":"9: >160 min"
+                }
+                run_durations["TIME_BUCKET"] = run_durations["TIME_BUCKET"].map(label_map)
+    
+                trend = run_durations.groupby(["WEEK","TIME_BUCKET"]).size().reset_index(name="count")
+    
+                fig_tb_trend = px.bar(
+                    trend, x="WEEK", y="count", color="TIME_BUCKET",
+                    title="Time Bucket Trend by Week (Continuous Runs Before Stops)",
+                    category_orders={"TIME_BUCKET": list(label_map.values())},
+                    color_discrete_map={
+                        "1: 0-20 min":"#d73027","2: 20-40 min":"#fc8d59","3: 40-60 min":"#fee090",
+                        "4: 60-80 min":"#c6dbef","5: 80-100 min":"#9ecae1","6: 100-120 min":"#6baed6",
+                        "7: 120-140 min":"#4292c6","8: 140-160 min":"#2171b5","9: >160 min":"#084594"
+                    }
+                )
+                st.plotly_chart(fig_tb_trend, use_container_width=True)
+    
+                # --- Weekly MTTR & MTBF Trend ---
                 fig_mt = go.Figure()
                 fig_mt.add_trace(go.Scatter(
                     x=weekly_summary["WEEK"], y=weekly_summary["MTTR (min)"],
@@ -869,7 +892,7 @@ if uploaded_file:
                 )
                 st.plotly_chart(fig_mt, use_container_width=True)
     
-                # Stability Index
+                # --- Weekly Stability Index ---
                 colors = ["red" if v <= 50 else "yellow" if v <= 70 else "green"
                           for v in weekly_summary["Stability Index (%)"]]
                 fig_stab = go.Figure()
