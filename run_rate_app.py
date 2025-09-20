@@ -271,7 +271,7 @@ if uploaded_file:
 
     page = st.sidebar.radio(
     "Select Page", 
-    ["📊 Analysis Dashboard", "📂 Raw & Processed Data", "📅 Weekly Trends", "📅 Monthly Trends"]
+    ["📊 Analysis Dashboard", "📂 Raw & Processed Data", "📅 Daily Analysis"]
 )
 
     if st.sidebar.button("Generate Report"):
@@ -876,15 +876,31 @@ if uploaded_file:
         # --- Daily Summary Table ---
         daily_summary = df_week.groupby("DAY").apply(lambda g: pd.Series({
             "Total Shots": len(g),
-            "Normal Shots": (g["is_bad_shot"] == 0).sum(),
-            "Bad Shots": (g["is_bad_shot"] == 1).sum(),
+            "Normal Shots": ((g["CT_diff_sec"] >= results["lower_limit"]) & 
+                             (g["CT_diff_sec"] <= results["upper_limit"])).sum(),
+            "Bad Shots": ((g["CT_diff_sec"] < results["lower_limit"]) | 
+                          (g["CT_diff_sec"] > results["upper_limit"])).sum(),
             "Stops": g["STOP_EVENT"].sum(),
-            "MTTR (min)": (g.loc[g["STOP_EVENT"], "CT_diff_sec"].mean() / 60) if g["STOP_EVENT"].any() else np.nan,
-            "MTBF (min)": (g.loc[~g["STOP_EVENT"], "CT_diff_sec"].mean() / 60) if (~g["STOP_EVENT"]).any() else np.nan,
-            "Efficiency (%)": (1 - (g["is_bad_shot"].sum() / len(g))) * 100,
-            "Stability Index (%)": (g["stability_index"].mean() if "stability_index" in g else np.nan)
+            "MTTR (min)": (g.loc[g["STOP_EVENT"], "CT_diff_sec"].mean() / 60) 
+                          if g["STOP_EVENT"].any() else np.nan,
+            "MTBF (min)": (g.loc[~g["STOP_EVENT"], "CT_diff_sec"].mean() / 60) 
+                          if (~g["STOP_EVENT"]).any() else np.nan,
         })).reset_index()
-    
+        
+        # Efficiency (%)
+        daily_summary["Efficiency (%)"] = (
+            daily_summary["Normal Shots"] / daily_summary["Total Shots"] * 100
+        ).round(2)
+        
+        # Stability Index (%)
+        daily_summary["Stability Index (%)"] = (
+            daily_summary.apply(
+                lambda r: (r["MTBF (min)"] / (r["MTBF (min)"] + r["MTTR (min)"])) * 100
+                if pd.notna(r["MTBF (min)"]) and pd.notna(r["MTTR (min)"]) else np.nan,
+                axis=1
+            )
+        ).round(2)
+        
         st.markdown("### 📋 Weekly Summary Table (Daily Breakdown)")
         st.dataframe(daily_summary)
     
