@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 from datetime import timedelta
 import warnings
 
-from plotly.colors import sample_colorscale
+from plotly.colors import find_intermediate_color
 
 # Page-1 base palette (left→right: red → deep blue)
 BASE_BUCKET_COLORS = [
@@ -15,33 +15,48 @@ BASE_BUCKET_COLORS = [
 ]
 
 def build_20min_bins(max_minutes: float):
-    """Return (edges, labels_no_prefix, labels_with_prefix) for 20-min bins up to ceil(max/20)*20."""
+    """
+    Return (edges, labels_no_prefix, labels_with_prefix) 
+    for 20-min bins up to ceil(max/20)*20.
+    """
     if pd.isna(max_minutes) or max_minutes <= 0:
         edges = [0, 20]
     else:
         upper = int(np.ceil(max_minutes / 20.0) * 20)
         edges = list(range(0, upper + 20, 20))  # 0,20,...,upper
-    # labels like "0-20 min", "20-40 min", ...
+    
+    # Labels like "0-20 min", "20-40 min", ...
     labels_np = [f"{edges[i]}-{edges[i+1]} min" for i in range(len(edges)-1)]
     labels_wp = [f"{i+1}: {labels_np[i]}" for i in range(len(labels_np))]
+    
     return edges, labels_np, labels_wp
 
 def make_bucket_color_map(labels_with_prefix):
+    """
+    Always include 9 base labels in the legend.
+    If there are more than 9 buckets, interpolate extra colors
+    between the base palette.
+    """
     base = BASE_BUCKET_COLORS
 
-    # Always include 9 base labels
+    # Always force legend to show at least 9 entries
     full_labels = labels_with_prefix.copy()
     while len(full_labels) < 9:
         full_labels.append(f"{len(full_labels)+1}: (unused)")
 
-    # Map colors to however many labels exist
     n = len(full_labels)
     if n <= len(base):
         colors = base[:n]
     else:
-        scale = [(i/(len(base)-1), c) for i, c in enumerate(base)]
-        extra_positions = [i/(n-1) for i in range(len(base), n)]
-        colors = base + sample_colorscale(scale, extra_positions)
+        colors = base.copy()
+        for i in range(len(base), n):
+            frac = i / (n - 1)  # 0 → 1 position across full scale
+            pos = frac * (len(base) - 1)
+            low = int(np.floor(pos))
+            high = int(np.ceil(pos))
+            interp = pos - low
+            c = find_intermediate_color(base[low], base[high], interp, colortype="rgb")
+            colors.append(c)
 
     return {lbl: colors[i] for i, lbl in enumerate(full_labels)}
 
