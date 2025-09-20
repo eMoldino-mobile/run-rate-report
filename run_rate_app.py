@@ -333,7 +333,15 @@ if uploaded_file:
                 # Time to First DT
                 if df_res["STOP_EVENT"].any():
                     first_stop_idx = df_res.index[df_res["STOP_EVENT"]].min()
-                    first_dt = df_res.loc[:first_stop_idx-1, "CT_diff_sec"].sum() / 60 if first_stop_idx > 0 else 0.0
+                    if first_stop_idx > 0:
+                        # Only include non-stop rows before the first stop
+                        first_dt = (
+                            df_res.loc[:first_stop_idx-1]
+                            .loc[df_res["STOP_EVENT"] == False, "CT_diff_sec"]
+                            .sum() / 60
+                        )
+                    else:
+                        first_dt = 0.0
                 else:
                     first_dt = None
             else:
