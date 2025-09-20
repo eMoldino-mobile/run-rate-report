@@ -845,135 +845,116 @@ if uploaded_file:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-    # ---------- Page 3: Weekly Trends ----------
-    elif page == "📅 Weekly Trends":
-        st.title("📅 Weekly Trends Dashboard")
+    # --- Page 3: Daily Analysis (selected week) ---
+    elif page == "📅 Daily Analysis":
+        st.title("📅 Daily Trends Dashboard")
         st.subheader(f"Tool: {tool}")
     
         results = st.session_state.get("results", {})
         if not results or "df" not in results:
-            st.info("👈 Please generate a report first from the Analysis Dashboard.")
-        else:
-            df = results["df"].copy()
-            df["SHOT TIME"] = pd.to_datetime(df["SHOT TIME"], errors="coerce")
-            df["DATE"] = df["SHOT TIME"].dt.date
+            st.info("👈 Please generate a report first from the sidebar.")
+            st.stop()
     
-            # --- Week selector ---
-            available_weeks = sorted(df["SHOT TIME"].dt.to_period("W").unique())
-            selected_week = st.selectbox("Select Week", available_weeks)
+        df = results["df"].copy()
+        df["DAY"] = df["SHOT TIME"].dt.date
     
-            week_start = selected_week.start_time
-            week_end = selected_week.end_time
-            df_week = df[(df["SHOT TIME"] >= week_start) & (df["SHOT TIME"] <= week_end)].copy()
+        # --- Select Week ---
+        min_date, max_date = df["SHOT TIME"].min().date(), df["SHOT TIME"].max().date()
+        selected_week = st.selectbox(
+            "Select Week",
+            pd.date_range(min_date, max_date, freq="W-MON").date,
+            format_func=lambda d: f"Week of {d}"
+        )
     
-            if df_week.empty:
-                st.warning("⚠️ No data found for this week.")
-                st.stop()
+        week_mask = (df["DAY"] >= selected_week) & (df["DAY"] < selected_week + pd.Timedelta(days=7))
+        df_week = df.loc[week_mask].copy()
     
-            # --- Daily aggregation (same logic as hourly in Page 1) ---
-            df_week["DAY"] = df_week["SHOT TIME"].dt.date
-            df_week["DOWNTIME_MIN"] = np.where(df_week["STOP_EVENT"], df_week["CT_diff_sec"]/60, np.nan)
-            df_week["UPTIME_MIN"] = np.where(~df_week["STOP_EVENT"], df_week["CT_diff_sec"]/60, np.nan)
+        if df_week.empty:
+            st.warning("No data for this week.")
+            st.stop()
     
-            def safe_mtbf(uptime_series, stop_count):
-                if stop_count > 0 and uptime_series.notna().any():
-                    return np.nanmean(uptime_series)
-                else:
-                    return np.nan
+        # --- Daily Summary Table ---
+        daily_summary = df_week.groupby("DAY").apply(lambda g: pd.Series({
+            "Total Shots": len(g),
+            "Normal Shots": (g["is_bad_shot"] == 0).sum(),
+            "Bad Shots": (g["is_bad_shot"] == 1).sum(),
+            "Stops": g["STOP_EVENT"].sum(),
+            "MTTR (min)": (g.loc[g["STOP_EVENT"], "CT_diff_sec"].mean() / 60) if g["STOP_EVENT"].any() else np.nan,
+            "MTBF (min)": (g.loc[~g["STOP_EVENT"], "CT_diff_sec"].mean() / 60) if (~g["STOP_EVENT"]).any() else np.nan,
+            "Efficiency (%)": (1 - (g["is_bad_shot"].sum() / len(g))) * 100,
+            "Stability Index (%)": (g["stability_index"].mean() if "stability_index" in g else np.nan)
+        })).reset_index()
     
-            daily = (
-                df_week.groupby("DAY")
-                .apply(lambda g: pd.Series({
-                    "stops": g["STOP_EVENT"].sum(),
-                    "mttr": np.nanmean(g["DOWNTIME_MIN"]) if g["DOWNTIME_MIN"].notna().any() else np.nan,
-                    "mtbf": safe_mtbf(g["UPTIME_MIN"], g["STOP_EVENT"].sum()),
-                    "total_shots": len(g),
-                    "normal_shots": ((g["CT_diff_sec"] >= results["lower_limit"]) &
-                                     (g["CT_diff_sec"] <= results["upper_limit"])).sum()
-                }))
-                .reset_index()
-            )
-            daily["bad_shots"] = daily["total_shots"] - daily["normal_shots"]
-            daily["efficiency"] = (daily["normal_shots"] / daily["total_shots"]) * 100
-            daily["stability_index"] = (daily["mtbf"] / (daily["mtbf"] + daily["mttr"])) * 100
+        st.markdown("### 📋 Weekly Summary Table (Daily Breakdown)")
+        st.dataframe(daily_summary)
     
-            # --- Summary Table ---
-            st.markdown("### 📋 Weekly Summary Table (Daily Breakdown)")
-            st.dataframe(daily, use_container_width=True)
+        # --- Reuse Page-1 style charts but grouped by DAY ---
+        # 1) Time Bucket Analysis (Whole Week)
+        run_durations = results["run_durations"].copy()
+        bucket_order = results["bucket_order"]
+        bucket_color_map = results["bucket_color_map"]
     
-            # --- Visuals (mirroring Page 1 but with DAY) ---
+        bucket_counts = run_durations["TIME_BUCKET"].value_counts().reindex(bucket_order).fillna(0).astype(int)
+        total_runs = bucket_counts.sum()
+        bucket_df = bucket_counts.reset_index()
+        bucket_df.columns = ["Time Bucket", "Occurrences"]
+        bucket_df["Percentage"] = (bucket_df["Occurrences"] / total_runs * 100).round(2)
     
-            # 1) Time Bucket Analysis
-            run_durations = results["run_durations"].copy()
-            run_durations = run_durations.merge(
-                df_week.groupby("RUN_GROUP")["SHOT TIME"].max().reset_index(name="RUN_END"),
-                on="RUN_GROUP", how="left"
-            )
-            run_durations["DAY"] = run_durations["RUN_END"].dt.date
+        fig_bucket = px.bar(
+            bucket_df[bucket_df["Time Bucket"].notna()],
+            x="Occurrences", y="Time Bucket",
+            orientation="h", text="Occurrences",
+            title="Time Bucket Analysis (Whole Week)",
+            category_orders={"Time Bucket": bucket_order},
+            color="Time Bucket",
+            color_discrete_map=bucket_color_map,
+            hover_data={"Occurrences": True, "Percentage": True}
+        )
+        fig_bucket.update_traces(textposition="outside")
+        st.plotly_chart(fig_bucket, use_container_width=True)
     
-            bucket_counts = run_durations["TIME_BUCKET"].value_counts().reindex(results["bucket_order"]).fillna(0).astype(int)
-            total_runs = bucket_counts.sum()
-            bucket_df = bucket_counts.reset_index()
-            bucket_df.columns = ["Time Bucket", "Occurrences"]
-            bucket_df["Percentage"] = (bucket_df["Occurrences"] / total_runs * 100).round(2)
+        # 2) Daily Time Bucket Trend
+        run_durations["DAY"] = run_durations["RUN_END"].dt.date
+        trend = run_durations.groupby(["DAY","TIME_BUCKET"]).size().reset_index(name="count")
     
-            fig_bucket = px.bar(
-                bucket_df[bucket_df["Time Bucket"].notna()],
-                x="Occurrences", y="Time Bucket",
-                orientation="h", text="Occurrences",
-                title="Time Bucket Analysis (Whole Week)",
-                category_orders={"Time Bucket": results["bucket_order"]},
-                color="Time Bucket",
-                color_discrete_map=results["bucket_color_map"],
-                hover_data={"Occurrences": True, "Percentage": True}
-            )
-            fig_bucket.update_traces(textposition="outside")
-            st.plotly_chart(fig_bucket, use_container_width=True)
+        # Ensure all days of week appear
+        days = pd.date_range(selected_week, selected_week + pd.Timedelta(days=6)).date
+        grid = pd.MultiIndex.from_product([days, bucket_order], names=["DAY","TIME_BUCKET"]).to_frame(index=False)
+        trend = grid.merge(trend, on=["DAY","TIME_BUCKET"], how="left").fillna({"count":0})
     
-            # 2) Daily Time Bucket Trend
-            trend = run_durations.groupby(["DAY","TIME_BUCKET"]).size().reset_index(name="count")
-            all_days = pd.date_range(week_start, week_end).date
-            grid = pd.MultiIndex.from_product([all_days, results["bucket_order"]],
-                                              names=["DAY","TIME_BUCKET"]).to_frame(index=False)
-            trend = grid.merge(trend, on=["DAY","TIME_BUCKET"], how="left").fillna({"count":0})
+        fig_tb_trend = px.bar(
+            trend, x="DAY", y="count", color="TIME_BUCKET",
+            category_orders={"TIME_BUCKET": bucket_order},
+            color_discrete_map=bucket_color_map,
+            title="Daily Time Bucket Trend (Selected Week)",
+            hover_data={"count": True, "DAY": True}
+        )
+        fig_tb_trend.update_layout(barmode="stack")
+        st.plotly_chart(fig_tb_trend, use_container_width=True)
     
-            fig_tb_trend = px.bar(
-                trend, x="DAY", y="count", color="TIME_BUCKET",
-                category_orders={"TIME_BUCKET": results["bucket_order"]},
-                color_discrete_map=results["bucket_color_map"],
-                title="Daily Time Bucket Trend (Continuous Runs Before Stops)",
-                hover_data={"count": True, "DAY": True}
-            )
-            fig_tb_trend.update_layout(barmode="stack")
-            st.plotly_chart(fig_tb_trend, use_container_width=True)
+        # 3) MTTR & MTBF Trend by Day
+        fig_mt = go.Figure()
+        fig_mt.add_trace(go.Scatter(x=daily_summary["DAY"], y=daily_summary["MTTR (min)"], mode="lines+markers",
+                                    name="MTTR (min)", line=dict(color="red", width=2)))
+        fig_mt.add_trace(go.Scatter(x=daily_summary["DAY"], y=daily_summary["MTBF (min)"], mode="lines+markers",
+                                    name="MTBF (min)", line=dict(color="green", width=2, dash="dot")))
+        fig_mt.update_layout(title="MTTR & MTBF Trend by Day",
+                             xaxis=dict(title="Day"),
+                             yaxis=dict(title="Minutes"))
+        st.plotly_chart(fig_mt, use_container_width=True)
     
-            # 3) MTTR & MTBF Trend by Day
-            fig_mt = go.Figure()
-            fig_mt.add_trace(go.Scatter(x=daily["DAY"], y=daily["mttr"], mode="lines+markers",
-                                        name="MTTR (min)", line=dict(color="red", width=2), yaxis="y"))
-            fig_mt.add_trace(go.Scatter(x=daily["DAY"], y=daily["mtbf"], mode="lines+markers",
-                                        name="MTBF (min)", line=dict(color="green", width=2, dash="dot"), yaxis="y2"))
-            fig_mt.update_layout(title="MTTR & MTBF Trend by Day",
-                                 xaxis=dict(title="Day of Week"),
-                                 yaxis=dict(title="MTTR (min)", side="left"),
-                                 yaxis2=dict(title="MTBF (min)", overlaying="y", side="right"),
-                                 legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center"))
-            st.plotly_chart(fig_mt, use_container_width=True)
-    
-            # 4) Stability Index
-            fig_stability = go.Figure()
-            fig_stability.add_trace(go.Scatter(
-                x=daily["DAY"], y=daily["stability_index"],
-                mode="lines+markers", name="Stability Index (%)",
-                line=dict(color="blue", width=2)
-            ))
-            for y0,y1,c in [(0,50,"red"),(50,70,"yellow"),(70,100,"green")]:
-                fig_stability.add_shape(type="rect", x0=all_days.min(), x1=all_days.max(), y0=y0, y1=y1,
-                                        fillcolor=c, opacity=0.1, line_width=0, yref="y")
-            fig_stability.update_layout(title="Stability Index by Day",
-                                        xaxis=dict(title="Day of Week"),
-                                        yaxis=dict(title="Stability Index (%)", range=[0,100]))
-            st.plotly_chart(fig_stability, use_container_width=True)
+        # 4) Stability Index Trend by Day
+        fig_stability = go.Figure()
+        fig_stability.add_trace(go.Scatter(x=daily_summary["DAY"], y=daily_summary["Stability Index (%)"],
+                                           mode="lines+markers", name="Stability Index (%)",
+                                           line=dict(color="blue", width=2)))
+        for y0,y1,c in [(0,50,"red"),(50,70,"yellow"),(70,100,"green")]:
+            fig_stability.add_shape(type="rect", x0=daily_summary["DAY"].min(), x1=daily_summary["DAY"].max(),
+                                    y0=y0, y1=y1, fillcolor=c, opacity=0.1, line_width=0, yref="y")
+        fig_stability.update_layout(title="Stability Index by Day",
+                                    xaxis=dict(title="Day"),
+                                    yaxis=dict(title="Stability Index (%)", range=[0,100]))
+        st.plotly_chart(fig_stability, use_container_width=True)
     
     
 else:
