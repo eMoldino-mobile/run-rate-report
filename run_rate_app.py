@@ -283,6 +283,7 @@ if uploaded_file:
         else:
             results = calculate_run_rate_excel_like(df_filtered)
             st.session_state.results = results
+            
     # --- Threshold Settings (in sidebar) ---
     st.sidebar.markdown("### 🚨 Stoppage Threshold Settings")
     
@@ -428,9 +429,6 @@ if uploaded_file:
             fig_bucket.update_traces(textposition="outside")
             st.plotly_chart(fig_bucket, use_container_width=True)
             
-            with st.expander("📊 Time Bucket Analysis Data Table", expanded=False):
-                st.dataframe(bucket_df)
-    
             with st.expander("📊 Time Bucket Analysis Data Table", expanded=False):
                 st.dataframe(bucket_df)
     
@@ -847,7 +845,111 @@ if uploaded_file:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-    # ---------- Page 3: Daily Trends ----------
+    # ---------- Page 3: Weekly Trends ----------
+    elif page == "📅 Weekly Trends":
+        st.title("📅 Weekly Trends Dashboard")
+        st.subheader(f"Tool: {tool}")
+    
+        results = st.session_state.get("results", {})
+        if not results or results.get("df") is None:
+            st.info("👈 Please generate a report first from the Analysis Dashboard.")
+        else:
+            df_res = results["df"].copy()
+            df_res["DATE"] = df_res["SHOT TIME"].dt.date
+            df_res["WEEK"] = df_res["SHOT TIME"].dt.to_period("W").apply(lambda r: r.start_time.date())
+    
+            # --- Weekly Aggregations ---
+            weekly = (
+                df_res.groupby("WEEK")
+                .apply(lambda g: pd.Series({
+                    "Total Shots": len(g),
+                    "Normal Shots": ((g["CT_diff_sec"] >= results["lower_limit"]) & 
+                                     (g["CT_diff_sec"] <= results["upper_limit"])).sum(),
+                    "Stops": g["STOP_EVENT"].sum(),
+                    "Downtime (min)": (g.loc[g["STOP_EVENT"], "CT_diff_sec"].sum() / 60),
+                    "Avg CT (sec)": g["ACTUAL CT"].mean()
+                }))
+                .reset_index()
+            )
+            weekly["Efficiency (%)"] = (weekly["Normal Shots"] / weekly["Total Shots"] * 100).round(2)
+            weekly["Runtime (hrs)"] = (weekly["Downtime (min)"] / 60).round(2)
+    
+            # --- Add % change vs previous week ---
+            for col in ["Total Shots", "Normal Shots", "Stops", "Efficiency (%)"]:
+                weekly[f"{col} Δ%"] = weekly[col].pct_change() * 100
+    
+            # --- Top Summary Table ---
+            st.markdown("### 📋 Weekly Summary Table")
+            st.dataframe(
+                weekly.style.format({
+                    "Efficiency (%)": "{:.2f}%",
+                    "Avg CT (sec)": "{:.2f}",
+                    "Downtime (min)": "{:.1f}",
+                    "Runtime (hrs)": "{:.2f}",
+                    "Total Shots Δ%": "{:+.2f}%",
+                    "Normal Shots Δ%": "{:+.2f}%",
+                    "Stops Δ%": "{:+.2f}%",
+                    "Efficiency (%) Δ%": "{:+.2f}%"
+                })
+            )
+    
+            # --- Efficiency Trend ---
+            fig_eff = go.Figure()
+            fig_eff.add_trace(go.Scatter(x=weekly["WEEK"], y=weekly["Efficiency (%)"],
+                                         mode="lines+markers", name="Efficiency (%)",
+                                         line=dict(color="blue", width=2)))
+            fig_eff.update_layout(title="Weekly Efficiency Trend",
+                                  xaxis_title="Week", yaxis_title="Efficiency (%)")
+            st.plotly_chart(fig_eff, use_container_width=True)
+    
+            # --- Stops Trend ---
+            fig_stops = go.Figure()
+            fig_stops.add_trace(go.Bar(x=weekly["WEEK"], y=weekly["Stops"],
+                                       name="Stop Count", marker_color="red"))
+            fig_stops.update_layout(title="Weekly Stop Events", xaxis_title="Week", yaxis_title="Stops")
+            st.plotly_chart(fig_stops, use_container_width=True)
+    
+            # --- MTTR & MTBF Trend ---
+            mttr_weekly = []
+            mtbf_weekly = []
+            for _, g in df_res.groupby("WEEK"):
+                downtime_events = g.loc[g["STOP_EVENT"], "CT_diff_sec"] / 60
+                mttr = downtime_events.mean() if not downtime_events.empty else np.nan
+                total_uptime = g["CT_diff_sec"].sum() / 60
+                stop_count = g["STOP_EVENT"].sum()
+                mtbf = total_uptime / stop_count if stop_count > 0 else np.nan
+                mttr_weekly.append(mttr)
+                mtbf_weekly.append(mtbf)
+    
+            weekly["MTTR (min)"] = mttr_weekly
+            weekly["MTBF (min)"] = mtbf_weekly
+    
+            fig_mt = go.Figure()
+            fig_mt.add_trace(go.Scatter(x=weekly["WEEK"], y=weekly["MTTR (min)"],
+                                        mode="lines+markers", name="MTTR (min)",
+                                        line=dict(color="red", width=2)))
+            fig_mt.add_trace(go.Scatter(x=weekly["WEEK"], y=weekly["MTBF (min)"],
+                                        mode="lines+markers", name="MTBF (min)",
+                                        line=dict(color="green", width=2, dash="dot")))
+            fig_mt.update_layout(title="Weekly MTTR & MTBF",
+                                 xaxis_title="Week", yaxis_title="Minutes")
+            st.plotly_chart(fig_mt, use_container_width=True)
+    
+            # --- Stability Index Trend ---
+            weekly["Stability Index (%)"] = (weekly["MTBF (min)"] /
+                                             (weekly["MTBF (min)"] + weekly["MTTR (min)"])) * 100
+            weekly["Stability Index (%)"] = weekly["Stability Index (%)"].fillna(100)
+    
+            fig_stab = go.Figure()
+            fig_stab.add_trace(go.Scatter(x=weekly["WEEK"], y=weekly["Stability Index (%)"],
+                                          mode="lines+markers", name="Stability Index",
+                                          line=dict(color="blue", width=2)))
+            for y0,y1,c in [(0,50,"red"),(50,70,"yellow"),(70,100,"green")]:
+                fig_stab.add_shape(type="rect", x0=weekly["WEEK"].min(), x1=weekly["WEEK"].max(),
+                                   y0=y0, y1=y1, fillcolor=c, opacity=0.1, line_width=0, yref="y")
+            fig_stab.update_layout(title="Weekly Stability Index",
+                                   xaxis_title="Week", yaxis_title="Stability (%)")
+            st.plotly_chart(fig_stab, use_container_width=True)
     
     
 else:
