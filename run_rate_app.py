@@ -325,19 +325,30 @@ if uploaded_file:
         if not results:
             st.info("👈 Please generate a report first from the sidebar.")
         else:
+            # ✅ Daily filter
             df_day = results["df"].copy()
             df_day = df_day[pd.to_datetime(df_day["SHOT TIME"]).dt.date == date]
-            # ... then calculate daily KPIs on df_day
     
-            # --- Shot Counts & Efficiency ---
-            st.markdown("### Shot Counts & Efficiency")
-            st.table(pd.DataFrame({
-                "Total Shot Count": [results.get('total_shots', 0)],
-                "Normal Shot Count": [results.get('normal_shots', 0)],
-                "Bad Shot Count": [results.get('bad_shots', 0)],
-                "Efficiency": [f"{(results.get('normal_shots', 0) / results.get('total_shots', 1)) * 100:.2f}%"],
-                "Stop Count": [results.get('stop_events', 0)]
-            }))
+            if df_day.empty:
+                st.warning("No data found for this date.")
+            else:
+                # Re-run the calculations just on df_day
+                daily_results = calculate_run_rate_excel_like(df_day)
+    
+                st.title("📊 Run Rate Report")
+                st.subheader(f"Tool: {tool} | Date: {date.strftime('%Y-%m-%d')}")
+    
+                # --- Shot Counts & Efficiency ---
+                st.markdown("### Shot Counts & Efficiency")
+                st.table(pd.DataFrame({
+                    "Total Shot Count": [daily_results['total_shots']],
+                    "Normal Shot Count": [daily_results['normal_shots']],
+                    "Bad Shot Count": [daily_results['bad_shots']],
+                    "Efficiency": [f"{(daily_results['normal_shots']/daily_results['total_shots'])*100:.2f}%"],
+                    "Stop Count": [daily_results['stop_events']]
+                }))
+    
+                # ... and below, use daily_results instead of results
             
             # --- Reliability Metrics ---
             results = st.session_state.get("results", {})
