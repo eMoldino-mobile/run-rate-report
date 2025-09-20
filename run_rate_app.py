@@ -792,176 +792,223 @@ if uploaded_file:
 
     # ---------- Page 3: Weekly Trends ----------
     elif page == "📅 Weekly Trends":
-        st.title("📅 Weekly Trends (all available weeks)")
+        st.title("📅 Weekly Trends")
     
-        # Use the full dataset for the selected tool (ignore the single-day filter)
         df_tool = df[df[selection_column] == tool].copy()
         if df_tool.empty:
-            st.warning("⚠️ No data found for this tool across the full dataset.")
+            st.warning("⚠️ No data for this tool.")
         else:
-            # Re-run calculations across all days for this tool
-            wk_res = calculate_run_rate_excel_like(df_tool)
-            dfx = wk_res.get("df", pd.DataFrame()).copy()
+            dfx = df_tool.copy()
+            dfx["SHOT TIME"] = pd.to_datetime(dfx["SHOT TIME"], errors="coerce")
+            dfx["DATE"] = dfx["SHOT TIME"].dt.date
+            dfx["WEEK"] = dfx["SHOT TIME"].dt.to_period("W").apply(lambda r: r.start_time)
     
-            if dfx.empty or "SHOT TIME" not in dfx.columns:
-                st.warning("⚠️ No cycle-level data available for weekly analysis.")
-            else:
-                # Ensure datetime & derive week (start of week)
-                dfx["SHOT TIME"] = pd.to_datetime(dfx["SHOT TIME"], errors="coerce")
-                dfx = dfx.dropna(subset=["SHOT TIME"])
-                dfx["WEEK"] = dfx["SHOT TIME"].dt.to_period("W").apply(lambda r: r.start_time)
+            # --- Daily mode CT (for bad shot flagging) ---
+            daily_modes = (
+                dfx.groupby("DATE")["ACTUAL CT"]
+                   .agg(lambda x: x.mode().iloc[0])
+                   .reset_index(name="MODE_CT")
+            )
+            daily_modes["LOWER"] = daily_modes["MODE_CT"] * 0.95
+            daily_modes["UPPER"] = daily_modes["MODE_CT"] * 1.05
+            dfx = dfx.merge(daily_modes, on="DATE", how="left")
     
-                if dfx["WEEK"].nunique() == 0:
-                    st.info("ℹ️ No weekly data could be grouped.")
-                else:
-                    lower, upper = wk_res["lower_limit"], wk_res["upper_limit"]
+            dfx["BAD_SHOT"] = ~dfx["ACTUAL CT"].between(dfx["LOWER"], dfx["UPPER"])
     
-                    def safe_mean(series):
-                        return float(np.nanmean(series)) if series.notna().any() else np.nan
+            # --- Weekly summary ---
+            weekly_summary = (
+                dfx.groupby("WEEK")
+                   .apply(lambda g: pd.Series({
+                       "Total Shots": len(g),
+                       "Normal Shots": (~g["BAD_SHOT"]).sum(),
+                       "Bad Shots": g["BAD_SHOT"].sum(),
+                       "Stop Count": g["STOP_EVENT"].sum(),
+                       "Downtime (hrs)": g.loc[g["STOP_FLAG"] == 1, "CT_diff_sec"].sum() / 3600,
+                       "Production Time (hrs)": (
+                           g["CT_diff_sec"].sum() - g.loc[g["STOP_FLAG"] == 1, "CT_diff_sec"].sum()
+                       ) / 3600,
+                       "MTTR (min)": g.loc[g["STOP_EVENT"], "CT_diff_sec"].mean() / 60 if g["STOP_EVENT"].any() else np.nan,
+                       "MTBF (min)": g.loc[~g["STOP_EVENT"], "CT_diff_sec"].mean() / 60 if (~g["STOP_EVENT"]).any() else np.nan,
+                   }))
+                   .reset_index()
+            )
     
-                    # ---------- Weekly summary table (one row per week) ----------
-                    weekly_summary = (
-                        dfx.groupby("WEEK")
-                           .apply(lambda g: pd.Series({
-                               "Total Shots": len(g),
-                               "Normal Shots": ((g["CT_diff_sec"] >= lower) & (g["CT_diff_sec"] <= upper)).sum(),
-                               "Bad Shots": len(g) - ((g["CT_diff_sec"] >= lower) & (g["CT_diff_sec"] <= upper)).sum(),
-                               "Stop Count": g["STOP_EVENT"].sum(),
-                               "Downtime (hrs)": g.loc[g["STOP_FLAG"] == 1, "CT_diff_sec"].sum() / 3600,
-                               "Production Time (hrs)": (
-                                   g["CT_diff_sec"].sum() - g.loc[g["STOP_FLAG"] == 1, "CT_diff_sec"].sum()
-                               ) / 3600,
-                               "MTTR (min)": safe_mean(g.loc[g["STOP_EVENT"], "CT_diff_sec"] / 60),
-                               "MTBF (min)": safe_mean(g.loc[~g["STOP_EVENT"], "CT_diff_sec"] / 60),
-                           }))
-                           .reset_index()
-                           .sort_values("WEEK")
-                    )
+            weekly_summary["Efficiency (%)"] = (
+                weekly_summary["Normal Shots"] / weekly_summary["Total Shots"] * 100
+            ).round(2)
+            weekly_summary["Stability Index (%)"] = (
+                weekly_summary["MTBF (min)"] /
+                (weekly_summary["MTBF (min)"] + weekly_summary["MTTR (min)"]) * 100
+            ).round(2)
     
-                    # Derived ratios
-                    weekly_summary["Efficiency (%)"] = (
-                        weekly_summary["Normal Shots"] / weekly_summary["Total Shots"] * 100
-                    ).round(2)
-                    weekly_summary["Stability Index (%)"] = (
-                        weekly_summary["MTBF (min)"] /
-                        (weekly_summary["MTBF (min)"] + weekly_summary["MTTR (min)"]) * 100
-                    ).round(2)
+            st.subheader("📊 Weekly Summary")
+            st.dataframe(weekly_summary)
     
-                    st.markdown("### 📊 Weekly Summary (comparative)")
-                    st.dataframe(
-                        weekly_summary.style.format({
-                            "Downtime (hrs)": "{:.2f}",
-                            "Production Time (hrs)": "{:.2f}",
-                            "MTTR (min)": "{:.2f}",
-                            "MTBF (min)": "{:.2f}",
-                            "Efficiency (%)": "{:.2f}",
-                            "Stability Index (%)": "{:.2f}",
-                        })
-                    )
+            # --- Graphs ---
+            fig_mt = go.Figure()
+            fig_mt.add_trace(go.Scatter(
+                x=weekly_summary["WEEK"], y=weekly_summary["MTTR (min)"],
+                mode="lines+markers", name="MTTR (min)", line=dict(color="red", width=2)
+            ))
+            fig_mt.add_trace(go.Scatter(
+                x=weekly_summary["WEEK"], y=weekly_summary["MTBF (min)"],
+                mode="lines+markers", name="MTBF (min)",
+                line=dict(color="green", width=2, dash="dot"), yaxis="y2"
+            ))
+            fig_mt.update_layout(
+                title="Weekly MTTR & MTBF",
+                xaxis=dict(title="Week"),
+                yaxis=dict(title="MTTR (min)", side="left"),
+                yaxis2=dict(title="MTBF (min)", overlaying="y", side="right")
+            )
+            st.plotly_chart(fig_mt, use_container_width=True)
     
-                    # ---------- Bucket Trend by Week (stacked bars) ----------
-                    run_durations = wk_res["run_durations"].copy()
+            fig_stab = go.Figure()
+            colors = ["red" if v <= 50 else "yellow" if v <= 70 else "green" for v in weekly_summary["Stability Index (%)"]]
+            fig_stab.add_trace(go.Scatter(
+                x=weekly_summary["WEEK"], y=weekly_summary["Stability Index (%)"],
+                mode="lines+markers", name="Stability Index (%)",
+                line=dict(color="blue", width=2), marker=dict(color=colors, size=8)
+            ))
+            st.plotly_chart(fig_stab, use_container_width=True)
     
-                    # Attach end time to each run group, then derive its week
-                    run_end_times = dfx.groupby("RUN_GROUP")["SHOT TIME"].max().reset_index(name="RUN_END")
-                    run_durations = run_durations.merge(run_end_times, on="RUN_GROUP", how="left")
-                    run_durations["WEEK"] = run_durations["RUN_END"].dt.to_period("W").apply(lambda r: r.start_time)
     
-                    # Same labels/colors as daily
-                    label_map = {
-                        "0-20":"1: 0-20 min", "20-40":"2: 20-40 min", "40-60":"3: 40-60 min",
-                        "60-80":"4: 60-80 min", "80-100":"5: 80-100 min", "100-120":"6: 100-120 min",
-                        "120-140":"7: 120-140 min", "140-160":"8: 140-160 min", ">160":"9: >160 min"
-                    }
-                    bucket_order = list(label_map.values())
-                    run_durations["TIME_BUCKET"] = run_durations["TIME_BUCKET"].map(label_map)
+    # ---------- Page 4: Monthly Trends ----------
+    elif page == "📅 Monthly Trends":
+        st.title("📅 Monthly Trends")
     
-                    bucket_trend = (
-                        run_durations.groupby(["WEEK","TIME_BUCKET"])
-                                     .size()
-                                     .reset_index(name="count")
-                    )
+        df_tool = df[df[selection_column] == tool].copy()
+        if df_tool.empty:
+            st.warning("⚠️ No data for this tool.")
+        else:
+            dfx = df_tool.copy()
+            dfx["SHOT TIME"] = pd.to_datetime(dfx["SHOT TIME"], errors="coerce")
+            dfx["DATE"] = dfx["SHOT TIME"].dt.date
+            dfx["MONTH"] = dfx["SHOT TIME"].dt.to_period("M").apply(lambda r: r.start_time)
     
-                    # Ensure all week/bucket combos exist (fill zeros)
-                    all_weeks = weekly_summary["WEEK"].tolist()
-                    grid = pd.MultiIndex.from_product([all_weeks, bucket_order], names=["WEEK","TIME_BUCKET"]).to_frame(index=False)
-                    bucket_trend = grid.merge(bucket_trend, on=["WEEK","TIME_BUCKET"], how="left").fillna({"count":0})
+            # Daily mode CT bands
+            daily_modes = (
+                dfx.groupby("DATE")["ACTUAL CT"]
+                   .agg(lambda x: x.mode().iloc[0])
+                   .reset_index(name="MODE_CT")
+            )
+            daily_modes["LOWER"] = daily_modes["MODE_CT"] * 0.95
+            daily_modes["UPPER"] = daily_modes["MODE_CT"] * 1.05
+            dfx = dfx.merge(daily_modes, on="DATE", how="left")
+            dfx["BAD_SHOT"] = ~dfx["ACTUAL CT"].between(dfx["LOWER"], dfx["UPPER"])
     
-                    fig_bucket_trend = px.bar(
-                        bucket_trend, x="WEEK", y="count", color="TIME_BUCKET",
-                        category_orders={"TIME_BUCKET": bucket_order},
-                        title="Time Bucket Trend by Week (Continuous Runs Before Stops)",
-                        color_discrete_map={
-                            "1: 0-20 min":   "#d73027",
-                            "2: 20-40 min":  "#fc8d59",
-                            "3: 40-60 min":  "#fee090",
-                            "4: 60-80 min":  "#c6dbef",
-                            "5: 80-100 min": "#9ecae1",
-                            "6: 100-120 min":"#6baed6",
-                            "7: 120-140 min":"#4292c6",
-                            "8: 140-160 min":"#2171b5",
-                            "9: >160 min":  "#084594"
-                        },
-                        hover_data={"count":True,"WEEK":True}
-                    )
-                    fig_bucket_trend.update_layout(
-                        barmode="stack",
-                        xaxis=dict(title="Week"),
-                        yaxis=dict(title="Number of Runs")
-                    )
-                    st.plotly_chart(fig_bucket_trend, use_container_width=True)
+            # Monthly summary
+            monthly_summary = (
+                dfx.groupby("MONTH")
+                   .apply(lambda g: pd.Series({
+                       "Total Shots": len(g),
+                       "Normal Shots": (~g["BAD_SHOT"]).sum(),
+                       "Bad Shots": g["BAD_SHOT"].sum(),
+                       "Stop Count": g["STOP_EVENT"].sum(),
+                       "Downtime (hrs)": g.loc[g["STOP_FLAG"] == 1, "CT_diff_sec"].sum() / 3600,
+                       "Production Time (hrs)": (
+                           g["CT_diff_sec"].sum() - g.loc[g["STOP_FLAG"] == 1, "CT_diff_sec"].sum()
+                       ) / 3600,
+                       "MTTR (min)": g.loc[g["STOP_EVENT"], "CT_diff_sec"].mean() / 60 if g["STOP_EVENT"].any() else np.nan,
+                       "MTBF (min)": g.loc[~g["STOP_EVENT"], "CT_diff_sec"].mean() / 60 if (~g["STOP_EVENT"]).any() else np.nan,
+                   }))
+                   .reset_index()
+            )
     
-                    # ---------- MTTR & MTBF Trend by Week (same colors/style as daily) ----------
-                    fig_mt = go.Figure()
-                    fig_mt.add_trace(go.Scatter(
-                        x=weekly_summary["WEEK"], y=weekly_summary["MTTR (min)"],
-                        mode="lines+markers", name="MTTR (min)",
-                        line=dict(color="red", width=2), yaxis="y"
-                    ))
-                    fig_mt.add_trace(go.Scatter(
-                        x=weekly_summary["WEEK"], y=weekly_summary["MTBF (min)"],
-                        mode="lines+markers", name="MTBF (min)",
-                        line=dict(color="green", width=2, dash="dot"), yaxis="y2"
-                    ))
-                    fig_mt.update_layout(
-                        title="MTTR & MTBF by Week",
-                        xaxis=dict(title="Week"),
-                        yaxis=dict(title="MTTR (min)", side="left"),
-                        yaxis2=dict(title="MTBF (min)", overlaying="y", side="right"),
-                        margin=dict(l=60,r=60,t=60,b=40),
-                        legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center")
-                    )
-                    st.plotly_chart(fig_mt, use_container_width=True)
+            monthly_summary["Efficiency (%)"] = (
+                monthly_summary["Normal Shots"] / monthly_summary["Total Shots"] * 100
+            ).round(2)
+            monthly_summary["Stability Index (%)"] = (
+                monthly_summary["MTBF (min)"] /
+                (monthly_summary["MTBF (min)"] + monthly_summary["MTTR (min)"]) * 100
+            ).round(2)
     
-                    # ---------- Stability Index by Week (same style) ----------
-                    # Rebuild colors like daily
-                    stab_vals = weekly_summary["Stability Index (%)"]
-                    marker_colors = [
-                        "gray" if pd.isna(v) else
-                        "red" if v <= 50 else
-                        "yellow" if v <= 70 else
-                        "green"
-                        for v in stab_vals
-                    ]
-                    fig_stab = go.Figure()
-                    fig_stab.add_trace(go.Scatter(
-                        x=weekly_summary["WEEK"], y=stab_vals,
-                        mode="lines+markers", name="Stability Index (%)",
-                        line=dict(color="blue", width=2), marker=dict(color=marker_colors, size=8)
-                    ))
-                    # background bands
-                    for y0,y1,c in [(0,50,"red"),(50,70,"yellow"),(70,100,"green")]:
-                        fig_stab.add_shape(
-                            type="rect", x0=weekly_summary["WEEK"].min(), x1=weekly_summary["WEEK"].max(),
-                            y0=y0, y1=y1, fillcolor=c, opacity=0.1, line_width=0, yref="y"
-                        )
-                    fig_stab.update_layout(
-                        title="Stability Index by Week",
-                        xaxis=dict(title="Week"),
-                        yaxis=dict(title="Stability Index (%)", range=[0,100]),
-                        margin=dict(l=60,r=60,t=60,b=40),
-                        legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center")
-                    )
-                    st.plotly_chart(fig_stab, use_container_width=True)
+            st.subheader("📊 Monthly Summary")
+            st.dataframe(monthly_summary)
+    
+            # Charts (same style)
+            fig_mt = go.Figure()
+            fig_mt.add_trace(go.Scatter(
+                x=monthly_summary["MONTH"], y=monthly_summary["MTTR (min)"],
+                mode="lines+markers", name="MTTR (min)", line=dict(color="red", width=2)
+            ))
+            fig_mt.add_trace(go.Scatter(
+                x=monthly_summary["MONTH"], y=monthly_summary["MTBF (min)"],
+                mode="lines+markers", name="MTBF (min)",
+                line=dict(color="green", width=2, dash="dot"), yaxis="y2"
+            ))
+            fig_mt.update_layout(title="Monthly MTTR & MTBF",
+                                 xaxis=dict(title="Month"),
+                                 yaxis=dict(title="MTTR (min)"),
+                                 yaxis2=dict(title="MTBF (min)", overlaying="y", side="right"))
+            st.plotly_chart(fig_mt, use_container_width=True)
+    
+    
+    # ---------- Page 5: Yearly Trends ----------
+    elif page == "📅 Yearly Trends":
+        st.title("📅 Yearly Trends")
+    
+        df_tool = df[df[selection_column] == tool].copy()
+        if df_tool.empty:
+            st.warning("⚠️ No data for this tool.")
+        else:
+            dfx = df_tool.copy()
+            dfx["SHOT TIME"] = pd.to_datetime(dfx["SHOT TIME"], errors="coerce")
+            dfx["DATE"] = dfx["SHOT TIME"].dt.date
+            dfx["YEAR"] = dfx["SHOT TIME"].dt.to_period("Y").apply(lambda r: r.start_time)
+    
+            daily_modes = (
+                dfx.groupby("DATE")["ACTUAL CT"]
+                   .agg(lambda x: x.mode().iloc[0])
+                   .reset_index(name="MODE_CT")
+            )
+            daily_modes["LOWER"] = daily_modes["MODE_CT"] * 0.95
+            daily_modes["UPPER"] = daily_modes["MODE_CT"] * 1.05
+            dfx = dfx.merge(daily_modes, on="DATE", how="left")
+            dfx["BAD_SHOT"] = ~dfx["ACTUAL CT"].between(dfx["LOWER"], dfx["UPPER"])
+    
+            yearly_summary = (
+                dfx.groupby("YEAR")
+                   .apply(lambda g: pd.Series({
+                       "Total Shots": len(g),
+                       "Normal Shots": (~g["BAD_SHOT"]).sum(),
+                       "Bad Shots": g["BAD_SHOT"].sum(),
+                       "Stop Count": g["STOP_EVENT"].sum(),
+                       "Downtime (hrs)": g.loc[g["STOP_FLAG"] == 1, "CT_diff_sec"].sum() / 3600,
+                       "Production Time (hrs)": (
+                           g["CT_diff_sec"].sum() - g.loc[g["STOP_FLAG"] == 1, "CT_diff_sec"].sum()
+                       ) / 3600,
+                       "MTTR (min)": g.loc[g["STOP_EVENT"], "CT_diff_sec"].mean() / 60 if g["STOP_EVENT"].any() else np.nan,
+                       "MTBF (min)": g.loc[~g["STOP_EVENT"], "CT_diff_sec"].mean() / 60 if (~g["STOP_EVENT"]).any() else np.nan,
+                   }))
+                   .reset_index()
+            )
+    
+            yearly_summary["Efficiency (%)"] = (
+                yearly_summary["Normal Shots"] / yearly_summary["Total Shots"] * 100
+            ).round(2)
+            yearly_summary["Stability Index (%)"] = (
+                yearly_summary["MTBF (min)"] /
+                (yearly_summary["MTBF (min)"] + yearly_summary["MTTR (min)"]) * 100
+            ).round(2)
+    
+            st.subheader("📊 Yearly Summary")
+            st.dataframe(yearly_summary)
+    
+            fig_mt = go.Figure()
+            fig_mt.add_trace(go.Scatter(
+                x=yearly_summary["YEAR"], y=yearly_summary["MTTR (min)"],
+                mode="lines+markers", name="MTTR (min)", line=dict(color="red", width=2)
+            ))
+            fig_mt.add_trace(go.Scatter(
+                x=yearly_summary["YEAR"], y=yearly_summary["MTBF (min)"],
+                mode="lines+markers", name="MTBF (min)",
+                line=dict(color="green", width=2, dash="dot"), yaxis="y2"
+            ))
+            fig_mt.update_layout(title="Yearly MTTR & MTBF",
+                                 xaxis=dict(title="Year"),
+                                 yaxis=dict(title="MTTR (min)"),
+                                 yaxis2=dict(title="MTBF (min)", overlaying="y", side="right"))
+            st.plotly_chart(fig_mt, use_container_width=True)
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin. Headers in ROW 1 please.")
