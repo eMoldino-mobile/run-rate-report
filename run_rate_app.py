@@ -851,105 +851,161 @@ if uploaded_file:
         st.subheader(f"Tool: {tool}")
     
         results = st.session_state.get("results", {})
-        if not results or results.get("df") is None:
+        if not results or "df" not in results:
             st.info("👈 Please generate a report first from the Analysis Dashboard.")
         else:
-            df_res = results["df"].copy()
-            df_res["DATE"] = df_res["SHOT TIME"].dt.date
-            df_res["WEEK"] = df_res["SHOT TIME"].dt.to_period("W").apply(lambda r: r.start_time.date())
+            df = results["df"].copy()
     
-            # --- Weekly Aggregations ---
-            weekly = (
-                df_res.groupby("WEEK")
-                .apply(lambda g: pd.Series({
-                    "Total Shots": len(g),
-                    "Normal Shots": ((g["CT_diff_sec"] >= results["lower_limit"]) & 
-                                     (g["CT_diff_sec"] <= results["upper_limit"])).sum(),
-                    "Stops": g["STOP_EVENT"].sum(),
-                    "Downtime (min)": (g.loc[g["STOP_EVENT"], "CT_diff_sec"].sum() / 60),
-                    "Avg CT (sec)": g["ACTUAL CT"].mean()
-                }))
-                .reset_index()
-            )
-            weekly["Efficiency (%)"] = (weekly["Normal Shots"] / weekly["Total Shots"] * 100).round(2)
-            weekly["Runtime (hrs)"] = (weekly["Downtime (min)"] / 60).round(2)
+            # Ensure datetime
+            if "SHOT TIME" not in df.columns:
+                st.error("SHOT TIME missing from dataset.")
+                st.stop()
+            df["SHOT TIME"] = pd.to_datetime(df["SHOT TIME"], errors="coerce")
+            df["DATE"] = df["SHOT TIME"].dt.date
+            df["WEEK_START"] = df["SHOT TIME"].dt.to_period("W").apply(lambda r: r.start_time.date())
     
-            # --- Add % change vs previous week ---
-            for col in ["Total Shots", "Normal Shots", "Stops", "Efficiency (%)"]:
-                weekly[f"{col} Δ%"] = weekly[col].pct_change() * 100
+            # --- Week selector ---
+            available_weeks = sorted(df["WEEK_START"].unique())
+            selected_week = st.selectbox("Select Week", available_weeks)
     
-            # --- Top Summary Table ---
-            st.markdown("### 📋 Weekly Summary Table")
-            st.dataframe(
-                weekly.style.format({
-                    "Efficiency (%)": "{:.2f}%",
-                    "Avg CT (sec)": "{:.2f}",
-                    "Downtime (min)": "{:.1f}",
-                    "Runtime (hrs)": "{:.2f}",
-                    "Total Shots Δ%": "{:+.2f}%",
-                    "Normal Shots Δ%": "{:+.2f}%",
-                    "Stops Δ%": "{:+.2f}%",
-                    "Efficiency (%) Δ%": "{:+.2f}%"
+            # Filter to selected week
+            start_date = pd.to_datetime(selected_week)
+            end_date = start_date + pd.Timedelta(days=6)
+            df_week = df[(df["SHOT TIME"].dt.date >= start_date.date()) &
+                         (df["SHOT TIME"].dt.date <= end_date.date())].copy()
+    
+            if df_week.empty:
+                st.warning("⚠️ No data found for this week.")
+                st.stop()
+    
+            # --- Weekly Summary Table (daily rows) ---
+            st.markdown("### 🗓️ Weekly Summary Table")
+    
+            summary_rows = []
+            for day in sorted(df_week["DATE"].unique()):
+                df_day = df_week[df_week["DATE"] == day].copy()
+                day_results = calculate_run_rate_excel_like(df_day)
+    
+                summary_rows.append({
+                    "DAY": day.strftime("%a %Y-%m-%d"),
+                    "Total Shots": day_results.get("total_shots", 0),
+                    "Normal Shots": day_results.get("normal_shots", 0),
+                    "Bad Shots": day_results.get("bad_shots", 0),
+                    "Stops": day_results.get("stop_events", 0),
+                    "Downtime (hrs)": round(day_results.get("downtime", 0)/60, 2),
+                    "Production Time (hrs)": round(day_results.get("production_time", 0)/60, 2),
+                    "Runtime (hrs)": round(day_results.get("run_hours", 0), 2),
+                    "Efficiency (%)": round(day_results.get("efficiency", 0)*100, 2),
+                    "Stability Index (%)": round(
+                        (day_results["hourly"]["stability_index"].mean()
+                         if not day_results["hourly"].empty else 0), 2
+                    )
                 })
-            )
     
-            # --- Efficiency Trend ---
-            fig_eff = go.Figure()
-            fig_eff.add_trace(go.Scatter(x=weekly["WEEK"], y=weekly["Efficiency (%)"],
-                                         mode="lines+markers", name="Efficiency (%)",
-                                         line=dict(color="blue", width=2)))
-            fig_eff.update_layout(title="Weekly Efficiency Trend",
-                                  xaxis_title="Week", yaxis_title="Efficiency (%)")
-            st.plotly_chart(fig_eff, use_container_width=True)
+            weekly_summary_df = pd.DataFrame(summary_rows)
+            st.dataframe(weekly_summary_df, use_container_width=True)
     
-            # --- Stops Trend ---
-            fig_stops = go.Figure()
-            fig_stops.add_trace(go.Bar(x=weekly["WEEK"], y=weekly["Stops"],
-                                       name="Stop Count", marker_color="red"))
-            fig_stops.update_layout(title="Weekly Stop Events", xaxis_title="Week", yaxis_title="Stops")
-            st.plotly_chart(fig_stops, use_container_width=True)
+            st.markdown("---")
     
-            # --- MTTR & MTBF Trend ---
-            mttr_weekly = []
-            mtbf_weekly = []
-            for _, g in df_res.groupby("WEEK"):
-                downtime_events = g.loc[g["STOP_EVENT"], "CT_diff_sec"] / 60
-                mttr = downtime_events.mean() if not downtime_events.empty else np.nan
-                total_uptime = g["CT_diff_sec"].sum() / 60
-                stop_count = g["STOP_EVENT"].sum()
-                mtbf = total_uptime / stop_count if stop_count > 0 else np.nan
-                mttr_weekly.append(mttr)
-                mtbf_weekly.append(mtbf)
+            # --- Daily Detailed Summaries ---
+            st.markdown("### 📊 Daily Summaries")
+            for day in sorted(df_week["DATE"].unique()):
+                st.markdown(f"## 📅 {day.strftime('%A, %Y-%m-%d')}")
     
-            weekly["MTTR (min)"] = mttr_weekly
-            weekly["MTBF (min)"] = mtbf_weekly
+                df_day = df_week[df_week["DATE"] == day].copy()
+                day_results = calculate_run_rate_excel_like(df_day)
     
-            fig_mt = go.Figure()
-            fig_mt.add_trace(go.Scatter(x=weekly["WEEK"], y=weekly["MTTR (min)"],
-                                        mode="lines+markers", name="MTTR (min)",
-                                        line=dict(color="red", width=2)))
-            fig_mt.add_trace(go.Scatter(x=weekly["WEEK"], y=weekly["MTBF (min)"],
-                                        mode="lines+markers", name="MTBF (min)",
-                                        line=dict(color="green", width=2, dash="dot")))
-            fig_mt.update_layout(title="Weekly MTTR & MTBF",
-                                 xaxis_title="Week", yaxis_title="Minutes")
-            st.plotly_chart(fig_mt, use_container_width=True)
+                # ✅ reuse the same blocks as Page 1
+                # --- Shot Counts & Efficiency ---
+                st.markdown("#### Shot Counts & Efficiency")
+                st.table(pd.DataFrame({
+                    "Total Shot Count": [day_results.get('total_shots', 0)],
+                    "Normal Shot Count": [day_results.get('normal_shots', 0)],
+                    "Bad Shot Count": [day_results.get('bad_shots', 0)],
+                    "Efficiency": [f"{(day_results.get('normal_shots', 0) / day_results.get('total_shots', 1)) * 100:.2f}%"],
+                    "Stop Count": [day_results.get('stop_events', 0)]
+                }))
     
-            # --- Stability Index Trend ---
-            weekly["Stability Index (%)"] = (weekly["MTBF (min)"] /
-                                             (weekly["MTBF (min)"] + weekly["MTTR (min)"])) * 100
-            weekly["Stability Index (%)"] = weekly["Stability Index (%)"].fillna(100)
+                # --- Reliability Metrics ---
+                df_res = day_results.get("df", pd.DataFrame()).copy()
+                stop_events = day_results.get("stop_events", 0)
     
-            fig_stab = go.Figure()
-            fig_stab.add_trace(go.Scatter(x=weekly["WEEK"], y=weekly["Stability Index (%)"],
-                                          mode="lines+markers", name="Stability Index",
-                                          line=dict(color="blue", width=2)))
-            for y0,y1,c in [(0,50,"red"),(50,70,"yellow"),(70,100,"green")]:
-                fig_stab.add_shape(type="rect", x0=weekly["WEEK"].min(), x1=weekly["WEEK"].max(),
-                                   y0=y0, y1=y1, fillcolor=c, opacity=0.1, line_width=0, yref="y")
-            fig_stab.update_layout(title="Weekly Stability Index",
-                                   xaxis_title="Week", yaxis_title="Stability (%)")
-            st.plotly_chart(fig_stab, use_container_width=True)
+                if stop_events > 0 and "STOP_EVENT" in df_res.columns:
+                    df_res = df_res.reset_index(drop=True)
+                    downtime_events = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"] / 60
+                    mttr = downtime_events.mean() if not downtime_events.empty else None
+                    total_uptime = df_res["CT_diff_sec"].sum() / 60
+                    mtbf = total_uptime / stop_events if stop_events > 0 else None
+    
+                    if df_res["STOP_EVENT"].any():
+                        first_stop_idx = df_res.index[df_res["STOP_EVENT"]].min()
+                        uptime_until_first = df_res.loc[:first_stop_idx, "CT_diff_sec"].sum() / 60
+                        first_dt = max(uptime_until_first, 0.0)
+                    else:
+                        first_dt = np.nan
+                else:
+                    mttr, mtbf, first_dt = None, None, None
+    
+                avg_ct = df_res["ACTUAL CT"].mean() if "ACTUAL CT" in df_res.columns else None
+    
+                reliability_df = pd.DataFrame({
+                    "Metric": ["MTTR (min)", "MTBF (min)", "Time to First DT (min)", "Avg Cycle Time (sec)"],
+                    "Value": [
+                        f"{mttr:.2f}" if mttr else "N/A",
+                        f"{mtbf:.2f}" if mtbf else "N/A",
+                        f"{first_dt:.2f}" if first_dt else "N/A",
+                        f"{avg_ct:.2f}" if avg_ct else "N/A"
+                    ]
+                })
+    
+                st.markdown("#### Reliability Metrics")
+                st.table(reliability_df)
+    
+                # --- Production & Downtime Summary ---
+                st.markdown("#### Production & Downtime Summary")
+                st.table(pd.DataFrame({
+                    "Mode CT": [f"{day_results.get('mode_ct', 0):.2f}"],
+                    "Lower Limit": [f"{day_results.get('lower_limit', 0):.2f}"],
+                    "Upper Limit": [f"{day_results.get('upper_limit', 0):.2f}"],
+                    "Production Time (hrs)": [
+                        f"{day_results.get('production_time', 0)/60:.1f} hrs "
+                        f"({day_results.get('production_time', 0)/day_results.get('total_runtime', 1)*100:.2f}%)"
+                    ],
+                    "Downtime (hrs)": [
+                        f"{day_results.get('downtime', 0)/60:.1f} hrs "
+                        f"({day_results.get('downtime', 0)/day_results.get('total_runtime', 1)*100:.2f}%)"
+                    ],
+                    "Total Run Time (hrs)": [f"{day_results.get('run_hours', 0):.2f}"],
+                    "Total Stops": [stop_events]
+                }))
+    
+                # --- Visuals ---
+                st.markdown("#### 📈 Visual Analysis")
+                run_durations = day_results["run_durations"].copy()
+                bucket_order = day_results.get("bucket_order", [])
+                bucket_color_map = day_results.get("bucket_color_map", {})
+    
+                # Time Bucket Analysis
+                bucket_counts = run_durations["TIME_BUCKET"].value_counts().reindex(bucket_order).fillna(0).astype(int)
+                total_runs = bucket_counts.sum()
+                bucket_df = bucket_counts.reset_index()
+                bucket_df.columns = ["Time Bucket", "Occurrences"]
+                bucket_df["Percentage"] = (bucket_df["Occurrences"] / total_runs * 100).round(2)
+    
+                fig_bucket = px.bar(
+                    bucket_df[bucket_df["Time Bucket"].notna()],
+                    x="Occurrences", y="Time Bucket",
+                    orientation="h", text="Occurrences",
+                    title="Time Bucket Analysis",
+                    category_orders={"Time Bucket": day_results["bucket_order"]},
+                    color="Time Bucket",
+                    color_discrete_map=day_results["bucket_color_map"],
+                    hover_data={"Occurrences": True, "Percentage": True}
+                )
+                fig_bucket.update_traces(textposition="outside")
+                st.plotly_chart(fig_bucket, use_container_width=True)
+    
+                st.markdown("---")  # Separator before next day
     
     
 else:
