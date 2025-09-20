@@ -28,19 +28,22 @@ def build_20min_bins(max_minutes: float):
 
 def make_bucket_color_map(labels_with_prefix):
     base = BASE_BUCKET_COLORS
-    n = len(labels_with_prefix)
-    
-    colors = []
+
+    # Always include 9 base labels
+    full_labels = labels_with_prefix.copy()
+    while len(full_labels) < 9:
+        full_labels.append(f"{len(full_labels)+1}: (unused)")
+
+    # Map colors to however many labels exist
+    n = len(full_labels)
     if n <= len(base):
-        # still assign all 9 colors, even if unused
-        colors = base[:n] + base[n:]
+        colors = base[:n]
     else:
-        # first 9 fixed, rest sampled
         scale = [(i/(len(base)-1), c) for i, c in enumerate(base)]
         extra_positions = [i/(n-1) for i in range(len(base), n)]
         colors = base + sample_colorscale(scale, extra_positions)
-    
-    return {lbl: colors[i] for i, lbl in enumerate(labels_with_prefix)}
+
+    return {lbl: colors[i] for i, lbl in enumerate(full_labels)}
 
 
 # Excel export helpers
@@ -317,6 +320,8 @@ if uploaded_file:
             stop_events = results.get("stop_events", 0)
             
             if stop_events > 0 and "STOP_EVENT" in df_res.columns:
+                df_res = df_res.reset_index(drop=True)  # ensure clean index
+            
                 # Downtime durations (stop events only)
                 downtime_events = df_res.loc[df_res["STOP_EVENT"], "CT_diff_sec"] / 60
                 mttr = downtime_events.mean() if not downtime_events.empty else None
@@ -325,17 +330,12 @@ if uploaded_file:
                 total_uptime = df_res["CT_diff_sec"].sum() / 60  # minutes
                 mtbf = total_uptime / stop_events if stop_events > 0 else None
             
-                # Time to First DT = uptime until the first stop
-                first_stop_idx = df_res.index[df_res["STOP_EVENT"]].min() if df_res = df_res.reset_index(drop=True)  # ✅ ensures index starts at 0
-
-                    if df_res["STOP_EVENT"].any():
-                        first_stop_idx = df_res.index[df_res["STOP_EVENT"]].min()
-                        if first_stop_idx > 0:
-                            first_dt = df_res.loc[:first_stop_idx-1, "CT_diff_sec"].sum() / 60
-                        else:
-                            first_dt = 0.0
-                    else:
-                        first_dt = None
+                # Time to First DT
+                if df_res["STOP_EVENT"].any():
+                    first_stop_idx = df_res.index[df_res["STOP_EVENT"]].min()
+                    first_dt = df_res.loc[:first_stop_idx-1, "CT_diff_sec"].sum() / 60 if first_stop_idx > 0 else 0.0
+                else:
+                    first_dt = None
             else:
                 mttr, mtbf, first_dt = None, None, None
             
@@ -391,10 +391,10 @@ if uploaded_file:
                 x="Occurrences", y="Time Bucket",
                 orientation="h", text="Occurrences",
                 title="Time Bucket Analysis (Continuous Runs Before Stops)",
-                category_orders={"Time Bucket": bucket_order},
+                category_orders={"Time Bucket": results["bucket_order"]},   # ✅ keep order
                 color="Time Bucket",
-                color_discrete_map=bucket_color_map,   # ✅ dynamic colors
-                hover_data={"Occurrences":True,"Percentage":True}
+                color_discrete_map=results["bucket_color_map"],             # ✅ fixed palette
+                hover_data={"Occurrences": True, "Percentage": True}
             )
             fig_bucket.update_traces(textposition="outside")
             st.plotly_chart(fig_bucket, use_container_width=True)
@@ -416,17 +416,17 @@ if uploaded_file:
                 run_durations["HOUR"] = -1  # fallback if no timestamps
             
             trend = run_durations.groupby(["HOUR","TIME_BUCKET"]).size().reset_index(name="count")
-            
-            # Ensure all hours 0–23 appear, even if empty
+
+            # Ensure all hours + all buckets appear
             hours = list(range(24))
-            grid = pd.MultiIndex.from_product([hours, bucket_order], names=["HOUR","TIME_BUCKET"]).to_frame(index=False)
+            grid = pd.MultiIndex.from_product([hours, results["bucket_order"]], names=["HOUR","TIME_BUCKET"]).to_frame(index=False)
             trend = grid.merge(trend, on=["HOUR","TIME_BUCKET"], how="left").fillna({"count":0})
             
             fig_tb_trend = px.bar(
                 trend, x="HOUR", y="count", color="TIME_BUCKET",
-                category_orders={"TIME_BUCKET": bucket_order},
+                category_orders={"TIME_BUCKET": results["bucket_order"]},
+                color_discrete_map=results["bucket_color_map"],   # ✅ fixed palette
                 title="Hourly Time Bucket Trend (Continuous Runs Before Stops)",
-                color_discrete_map=bucket_color_map,  # ✅ dynamic colors
                 hover_data={"count": True, "HOUR": True}
             )
             fig_tb_trend.update_layout(
@@ -434,6 +434,7 @@ if uploaded_file:
                 xaxis=dict(title="Hour of Day (0–23)", tickmode="linear", dtick=1, range=[-0.5,23.5]),
                 yaxis=dict(title="Number of Runs")
             )
+            
             st.plotly_chart(fig_tb_trend, width="stretch")
             
             with st.expander("📊 Hourly Time Bucket Trend Data Table", expanded=False):
