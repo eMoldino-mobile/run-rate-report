@@ -6,6 +6,45 @@ import plotly.graph_objects as go
 from datetime import timedelta
 import warnings
 
+from plotly.colors import sample_colorscale
+
+# Page-1 base palette (left→right: red → deep blue)
+BASE_BUCKET_COLORS = [
+    "#d73027", "#fc8d59", "#fee090", "#c6dbef", "#9ecae1",
+    "#6baed6", "#4292c6", "#2171b5", "#084594"
+]
+
+def build_20min_bins(max_minutes: float):
+    """Return (edges, labels_no_prefix, labels_with_prefix) for 20-min bins up to ceil(max/20)*20."""
+    if pd.isna(max_minutes) or max_minutes <= 0:
+        edges = [0, 20]
+    else:
+        upper = int(np.ceil(max_minutes / 20.0) * 20)
+        edges = list(range(0, upper + 20, 20))  # 0,20,...,upper
+    # labels like "0-20 min", "20-40 min", ...
+    labels_np = [f"{edges[i]}-{edges[i+1]} min" for i in range(len(edges)-1)]
+    labels_wp = [f"{i+1}: {labels_np[i]}" for i in range(len(labels_np))]
+    return edges, labels_np, labels_wp
+
+def make_bucket_color_map(labels_with_prefix):
+    """
+    Deterministically map each bucket label to a color.
+    - If <= 9 buckets: use Page-1 exact hexes in order.
+    - If > 9: smoothly sample a colorscale built from those 9 to keep the same 'look'.
+    """
+    n = len(labels_with_prefix)
+    if n <= len(BASE_BUCKET_COLORS):
+        colors = BASE_BUCKET_COLORS[:n]
+    else:
+        # Build a continuous scale from the base list and sample n points.
+        # Turn the base list into a colorscale spec [(pos,color),...]
+        scale = [(i/(len(BASE_BUCKET_COLORS)-1), c) for i, c in enumerate(BASE_BUCKET_COLORS)]
+        # sample_colorscale accepts either a named scale or a colorscale spec
+        positions = [0 if n == 1 else i/(n-1) for i in range(n)]
+        colors = sample_colorscale(scale, positions)
+    return {lbl: colors[i] for i, lbl in enumerate(labels_with_prefix)}
+
+
 # Excel export helpers
 from openpyxl import Workbook
 from openpyxl.utils.dataframe import dataframe_to_rows
@@ -118,14 +157,23 @@ def calculate_run_rate_excel_like(df):
     if df["STOP_ADJ"].iloc[-1] == 0:
         last_group = df["RUN_GROUP"].iloc[-1]
         run_durations = run_durations[run_durations["RUN_GROUP"] != last_group]
+
+    # --- Assign buckets (dynamic 20-min bins) ---
+    max_minutes = run_durations["RUN_DURATION"].max()
+    edges, labels_np, labels_wp = build_20min_bins(max_minutes)
     
-    # --- Assign buckets (only complete runs) ---
-    run_durations["TIME_BUCKET"] = pd.cut(
+    run_durations["TIME_BUCKET_RAW"] = pd.cut(
         run_durations["RUN_DURATION"],
-        bins=[0,20,40,60,80,100,120,140,160,999999],
-        labels=["0-20","20-40","40-60","60-80","80-100",
-                "100-120","120-140","140-160",">160"]
-    ).cat.add_categories("Unclassified")
+        bins=edges,
+        right=False,   # left-inclusive, right-exclusive
+        labels=labels_np
+    )
+    
+    map_np_to_wp = {np_lbl: wp_lbl for np_lbl, wp_lbl in zip(labels_np, labels_wp)}
+    run_durations["TIME_BUCKET"] = run_durations["TIME_BUCKET_RAW"].map(map_np_to_wp)
+    
+    bucket_order = labels_wp  # keep this for plotting later
+    bucket_color_map = make_bucket_color_map(bucket_order)
 
     # Bucket counts for overall distribution
     bucket_counts = run_durations["TIME_BUCKET"].value_counts().sort_index().fillna(0).astype(int)
@@ -171,7 +219,9 @@ def calculate_run_rate_excel_like(df):
         "bucket_counts": bucket_counts,
         "hourly": hourly,
         "df": df,
-        "run_durations": run_durations  # <-- NEW dataset for plotting
+        "run_durations": run_durations,      # ✅ still there
+        "bucket_order": bucket_order,        # ✅ NEW
+        "bucket_color_map": bucket_color_map # ✅ NEW
     }
 
 # --- UI ---
@@ -321,26 +371,18 @@ if uploaded_file:
     
             # --- Visual Analysis ---
             st.subheader("📈 Visual Analysis")
+            
             run_durations = results["run_durations"].copy()
-            bucket_order = [f"{i+1}: {rng}" for i, rng in enumerate(
-                ["0-20 min","20-40 min","40-60 min","60-80 min","80-100 min","100-120 min","120-140 min","140-160 min",">160 min"]
-            )]
-    
-            # Re-map bucket labels in run_durations
-            label_map = {
-                "0-20":"1: 0-20 min", "20-40":"2: 20-40 min", "40-60":"3: 40-60 min",
-                "60-80":"4: 60-80 min", "80-100":"5: 80-100 min", "100-120":"6: 100-120 min",
-                "120-140":"7: 120-140 min", "140-160":"8: 140-160 min", ">160":"9: >160 min"
-            }
-            run_durations["TIME_BUCKET"] = run_durations["TIME_BUCKET"].map(label_map)
-    
-            # 1) Time Bucket Analysis (overall distribution of run durations)
+            bucket_order = results.get("bucket_order", [])
+            bucket_color_map = results.get("bucket_color_map", {})
+            
+            # 1) Time Bucket Analysis
             bucket_counts = run_durations["TIME_BUCKET"].value_counts().reindex(bucket_order).fillna(0).astype(int)
             total_runs = bucket_counts.sum()
             bucket_df = bucket_counts.reset_index()
             bucket_df.columns = ["Time Bucket", "Occurrences"]
             bucket_df["Percentage"] = (bucket_df["Occurrences"] / total_runs * 100).round(2)
-    
+            
             fig_bucket = px.bar(
                 bucket_df[bucket_df["Time Bucket"].notna()],
                 x="Occurrences", y="Time Bucket",
@@ -348,21 +390,14 @@ if uploaded_file:
                 title="Time Bucket Analysis (Continuous Runs Before Stops)",
                 category_orders={"Time Bucket": bucket_order},
                 color="Time Bucket",
-                color_discrete_map = {
-                    "1: 0-20 min":   "#d73027",  # red
-                    "2: 20-40 min":  "#fc8d59",  # orange-red
-                    "3: 40-60 min":  "#fee090",  # yellow
-                    "4: 60-80 min":  "#c6dbef",  # very light grey-blue
-                    "5: 80-100 min": "#9ecae1",  # light steel blue
-                    "6: 100-120 min":"#6baed6",  # medium blue-grey
-                    "7: 120-140 min":"#4292c6",  # stronger blue-grey
-                    "8: 140-160 min":"#2171b5",  # dark muted blue
-                    "9: >160 min":  "#084594"    # deep navy blue
-                },
+                color_discrete_map=bucket_color_map,   # ✅ dynamic colors
                 hover_data={"Occurrences":True,"Percentage":True}
             )
             fig_bucket.update_traces(textposition="outside")
-            st.plotly_chart(fig_bucket, width="stretch")
+            st.plotly_chart(fig_bucket, use_container_width=True)
+            
+            with st.expander("📊 Time Bucket Analysis Data Table", expanded=False):
+                st.dataframe(bucket_df)
     
             with st.expander("📊 Time Bucket Analysis Data Table", expanded=False):
                 st.dataframe(bucket_df)
@@ -388,18 +423,8 @@ if uploaded_file:
                 trend, x="HOUR", y="count", color="TIME_BUCKET",
                 category_orders={"TIME_BUCKET": bucket_order},
                 title="Hourly Time Bucket Trend (Continuous Runs Before Stops)",
-                color_discrete_map = {
-                    "1: 0-20 min":   "#d73027",
-                    "2: 20-40 min":  "#fc8d59",
-                    "3: 40-60 min":  "#fee090",
-                    "4: 60-80 min":  "#c6dbef",
-                    "5: 80-100 min": "#9ecae1",
-                    "6: 100-120 min":"#6baed6",
-                    "7: 120-140 min":"#4292c6",
-                    "8: 140-160 min":"#2171b5",
-                    "9: >160 min":  "#084594"
-                },
-                hover_data={"count":True,"HOUR":True}
+                color_discrete_map=bucket_color_map,  # ✅ dynamic colors
+                hover_data={"count": True, "HOUR": True}
             )
             fig_tb_trend.update_layout(
                 barmode="stack",
@@ -789,136 +814,8 @@ if uploaded_file:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-    # ---------- Page 3: Weekly Trends ----------
-    elif page == "📅 Weekly Trends":
-        st.title("📅 Weekly Trends")
+    # ---------- Page 3: Daily Trends ----------
     
-        # Use full dataset for selected tool
-        df_tool = df[df[selection_column] == tool].copy()
-        if df_tool.empty:
-            st.warning("⚠️ No data found for this tool across the dataset.")
-        else:
-            wk_res = calculate_run_rate_excel_like(df_tool)
-            dfx = wk_res.get("df", pd.DataFrame()).copy()
-    
-            if dfx.empty or "SHOT TIME" not in dfx.columns:
-                st.warning("⚠️ No cycle-level data available for weekly analysis.")
-            else:
-                dfx["SHOT TIME"] = pd.to_datetime(dfx["SHOT TIME"], errors="coerce")
-                dfx["WEEK"] = dfx["SHOT TIME"].dt.to_period("W").apply(lambda r: r.start_time)
-                dfx["DAY"] = dfx["SHOT TIME"].dt.date
-    
-                available_weeks = sorted(dfx["WEEK"].unique())
-                selected_week = st.selectbox("Select Week", available_weeks)
-    
-                # Subset for this week
-                dfx_week = dfx[dfx["WEEK"] == selected_week].copy()
-                week_days = pd.date_range(start=selected_week, periods=7, freq="D").date
-    
-                # -------------------- WEEKLY SUMMARY --------------------
-                lower, upper = wk_res["lower_limit"], wk_res["upper_limit"]
-    
-                def safe_mean(series):
-                    return float(np.nanmean(series)) if series.notna().any() else np.nan
-    
-                weekly_summary = pd.DataFrame([{
-                    "Week": selected_week,
-                    "Total Shots": len(dfx_week),
-                    "Normal Shots": ((dfx_week["CT_diff_sec"] >= lower) & (dfx_week["CT_diff_sec"] <= upper)).sum(),
-                    "Bad Shots": ((dfx_week["CT_diff_sec"] < lower) | (dfx_week["CT_diff_sec"] > upper)).sum(),
-                    "Stop Count": dfx_week["STOP_EVENT"].sum(),
-                    "Downtime (hrs)": dfx_week.loc[dfx_week["STOP_FLAG"]==1, "CT_diff_sec"].sum()/3600,
-                    "Production Time (hrs)": (
-                        dfx_week["CT_diff_sec"].sum() - dfx_week.loc[dfx_week["STOP_FLAG"]==1, "CT_diff_sec"].sum()
-                    )/3600,
-                    "MTTR (min)": safe_mean(dfx_week.loc[dfx_week["STOP_EVENT"], "CT_diff_sec"]/60),
-                    "MTBF (min)": safe_mean(dfx_week.loc[~dfx_week["STOP_EVENT"], "CT_diff_sec"]/60),
-                }])
-                weekly_summary["Efficiency (%)"] = (weekly_summary["Normal Shots"]/weekly_summary["Total Shots"]*100).round(2)
-                weekly_summary["Stability Index (%)"] = (
-                    weekly_summary["MTBF (min)"]/(weekly_summary["MTBF (min)"]+weekly_summary["MTTR (min)"])*100
-                ).round(2)
-    
-                st.markdown("### 📊 Weekly Summary")
-                st.dataframe(weekly_summary)
-    
-                # -------------------- DAILY BUCKETS --------------------
-                runs = wk_res["run_durations"].copy()
-                run_end_times = dfx_week.groupby("RUN_GROUP")["SHOT TIME"].max().reset_index(name="RUN_END")
-                runs = runs.merge(run_end_times, on="RUN_GROUP", how="left")
-                runs["DAY"] = runs["RUN_END"].dt.date
-    
-                bucket_order = ["1: 0-20 min","2: 20-40 min","3: 40-60 min","4: 60-80 min",
-                                "5: 80-100 min","6: 100-120 min","7: 120-140 min",
-                                "8: 140-160 min","9: >160 min"]
-                trend = runs.groupby(["DAY","TIME_BUCKET"]).size().reset_index(name="count")
-                grid = pd.MultiIndex.from_product([week_days, bucket_order], names=["DAY","TIME_BUCKET"]).to_frame(index=False)
-                trend = grid.merge(trend, on=["DAY","TIME_BUCKET"], how="left").fillna({"count":0})
-    
-                # Overall bucket distribution (for the whole week)
-                st.markdown("### 📊 Time Bucket Analysis (Overall for Week)")
-                bucket_counts = runs["TIME_BUCKET"].value_counts().reindex(bucket_order).fillna(0).astype(int)
-                bucket_df = bucket_counts.reset_index()
-                bucket_df.columns = ["Time Bucket", "Occurrences"]
-                bucket_df["Percentage"] = (bucket_df["Occurrences"]/bucket_df["Occurrences"].sum()*100).round(2)
-                st.dataframe(bucket_df)
-    
-                # Daily trend
-                st.markdown("### 📊 Daily Time Bucket Trend (selected week)")
-                fig_tb_trend = px.bar(
-                    trend, x="DAY", y="count", color="TIME_BUCKET",
-                    category_orders={"TIME_BUCKET": bucket_order},
-                    barmode="stack",
-                    color_discrete_map={  # keep Page 1 colors
-                        "1: 0-20 min":"#d73027","2: 20-40 min":"#fc8d59","3: 40-60 min":"#fee090",
-                        "4: 60-80 min":"#c6dbef","5: 80-100 min":"#9ecae1","6: 100-120 min":"#6baed6",
-                        "7: 120-140 min":"#4292c6","8: 140-160 min":"#2171b5","9: >160 min":"#084594"
-                    }
-                )
-                st.plotly_chart(fig_tb_trend, use_container_width=True)
-    
-                # -------------------- MTTR & MTBF --------------------
-                st.markdown("### 📊 MTTR & MTBF by Day")
-                daily = (
-                    dfx_week.groupby("DAY")
-                            .apply(lambda g: pd.Series({
-                                "stops": g["STOP_EVENT"].sum(),
-                                "mttr": safe_mean(g.loc[g["STOP_EVENT"], "CT_diff_sec"]/60),
-                                "mtbf": safe_mean(g.loc[~g["STOP_EVENT"], "CT_diff_sec"]/60),
-                            }))
-                            .reset_index()
-                )
-                fig_mt = go.Figure()
-                fig_mt.add_trace(go.Scatter(x=daily["DAY"], y=daily["mttr"], mode="lines+markers",
-                                            name="MTTR (min)", line=dict(color="red", width=2)))
-                fig_mt.add_trace(go.Scatter(x=daily["DAY"], y=daily["mtbf"], mode="lines+markers",
-                                            name="MTBF (min)", line=dict(color="green", width=2, dash="dot"), yaxis="y2"))
-                fig_mt.update_layout(
-                    title="MTTR & MTBF by Day",
-                    xaxis=dict(title="Day"),
-                    yaxis=dict(title="MTTR (min)", side="left"),
-                    yaxis2=dict(title="MTBF (min)", overlaying="y", side="right")
-                )
-                st.plotly_chart(fig_mt, use_container_width=True)
-    
-                # -------------------- Stability Index --------------------
-                st.markdown("### 📊 Stability Index by Day")
-                daily["stability_index"] = (daily["mtbf"]/(daily["mtbf"]+daily["mttr"]))*100
-                colors = ["red" if v<=50 else "yellow" if v<=70 else "green" for v in daily["stability_index"]]
-                fig_stab = go.Figure()
-                fig_stab.add_trace(go.Scatter(
-                    x=daily["DAY"], y=daily["stability_index"], mode="lines+markers",
-                    name="Stability Index (%)", line=dict(color="blue", width=2),
-                    marker=dict(color=colors, size=8)
-                ))
-                for y0,y1,c in [(0,50,"red"),(50,70,"yellow"),(70,100,"green")]:
-                    fig_stab.add_shape(type="rect", x0=daily["DAY"].min(), x1=daily["DAY"].max(),
-                                       y0=y0, y1=y1, fillcolor=c, opacity=0.1, line_width=0, yref="y")
-                fig_stab.update_layout(yaxis=dict(range=[0,100]))
-                st.plotly_chart(fig_stab, use_container_width=True)
-    
-    
-    # ---------- Page 4: Monthly Trends ----------
     
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin. Headers in ROW 1 please.")
