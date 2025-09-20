@@ -275,9 +275,10 @@ if uploaded_file:
 )
 
     if st.sidebar.button("Generate Report"):
-        mask = (df[selection_column] == tool) & (pd.to_datetime(df["SHOT TIME"]).dt.date == date)
+        # Instead of filtering by exact date, keep all data for the tool
+        mask = (df[selection_column] == tool)
         df_filtered = df.loc[mask]
-
+    
         if df_filtered.empty:
             st.warning("No data found for this selection.")
         else:
@@ -320,14 +321,13 @@ if uploaded_file:
 
     # --- Page 1: Analysis Dashboard ---
     if page == "📊 Analysis Dashboard":
-        # ✅ always define safely
         results = st.session_state.get("results", {})
-    
         if not results:
             st.info("👈 Please generate a report first from the sidebar.")
         else:
-            st.title("📊 Run Rate Report")
-            st.subheader(f"Tool: {tool} | Date: {date.strftime('%Y-%m-%d')}")
+            df_day = results["df"].copy()
+            df_day = df_day[pd.to_datetime(df_day["SHOT TIME"]).dt.date == date]
+            # ... then calculate daily KPIs on df_day
     
             # --- Shot Counts & Efficiency ---
             st.markdown("### Shot Counts & Efficiency")
