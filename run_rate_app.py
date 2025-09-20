@@ -333,17 +333,14 @@ if uploaded_file:
                 # Time to First DT
                 if df_res["STOP_EVENT"].any():
                     first_stop_idx = df_res.index[df_res["STOP_EVENT"]].min()
-                    if first_stop_idx > 0:
-                        # Only include non-stop rows before the first stop
-                        first_dt = (
-                            df_res.loc[:first_stop_idx-1]
-                            .loc[df_res["STOP_EVENT"] == False, "CT_diff_sec"]
-                            .sum() / 60
-                        )
-                    else:
-                        first_dt = 0.0
+                
+                    # uptime = sum of CTs until the first stop event
+                    uptime_until_first = df_res.loc[:first_stop_idx, "CT_diff_sec"].sum() / 60
+                
+                    # if there was no valid uptime, still return 0.0 instead of None
+                    first_dt = max(uptime_until_first, 0.0)
                 else:
-                    first_dt = None
+                    first_dt = np.nan
             else:
                 mttr, mtbf, first_dt = None, None, None
             
