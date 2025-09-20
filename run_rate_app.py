@@ -27,21 +27,19 @@ def build_20min_bins(max_minutes: float):
     return edges, labels_np, labels_wp
 
 def make_bucket_color_map(labels_with_prefix):
-    """
-    Deterministically map each bucket label to a color.
-    - If <= 9 buckets: use Page-1 exact hexes in order.
-    - If > 9: smoothly sample a colorscale built from those 9 to keep the same 'look'.
-    """
+    base = BASE_BUCKET_COLORS
     n = len(labels_with_prefix)
-    if n <= len(BASE_BUCKET_COLORS):
-        colors = BASE_BUCKET_COLORS[:n]
+    
+    colors = []
+    if n <= len(base):
+        # still assign all 9 colors, even if unused
+        colors = base[:n] + base[n:]
     else:
-        # Build a continuous scale from the base list and sample n points.
-        # Turn the base list into a colorscale spec [(pos,color),...]
-        scale = [(i/(len(BASE_BUCKET_COLORS)-1), c) for i, c in enumerate(BASE_BUCKET_COLORS)]
-        # sample_colorscale accepts either a named scale or a colorscale spec
-        positions = [0 if n == 1 else i/(n-1) for i in range(n)]
-        colors = sample_colorscale(scale, positions)
+        # first 9 fixed, rest sampled
+        scale = [(i/(len(base)-1), c) for i, c in enumerate(base)]
+        extra_positions = [i/(n-1) for i in range(len(base), n)]
+        colors = base + sample_colorscale(scale, extra_positions)
+    
     return {lbl: colors[i] for i, lbl in enumerate(labels_with_prefix)}
 
 
@@ -328,11 +326,16 @@ if uploaded_file:
                 mtbf = total_uptime / stop_events if stop_events > 0 else None
             
                 # Time to First DT = uptime until the first stop
-                first_stop_idx = df_res.index[df_res["STOP_EVENT"]].min() if df_res["STOP_EVENT"].any() else None
-                if first_stop_idx is not None and first_stop_idx > 0:
-                    first_dt = df_res.loc[:first_stop_idx-1, "CT_diff_sec"].sum() / 60
-                else:
-                    first_dt = None
+                first_stop_idx = df_res.index[df_res["STOP_EVENT"]].min() if df_res = df_res.reset_index(drop=True)  # ✅ ensures index starts at 0
+
+                    if df_res["STOP_EVENT"].any():
+                        first_stop_idx = df_res.index[df_res["STOP_EVENT"]].min()
+                        if first_stop_idx > 0:
+                            first_dt = df_res.loc[:first_stop_idx-1, "CT_diff_sec"].sum() / 60
+                        else:
+                            first_dt = 0.0
+                    else:
+                        first_dt = None
             else:
                 mttr, mtbf, first_dt = None, None, None
             
