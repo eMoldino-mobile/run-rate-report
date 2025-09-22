@@ -60,6 +60,7 @@ def make_bucket_color_map(active_labels, all_labels_with_prefix, base_colors):
                 color_map[label] = lighten_hex(base_color, factor)
     return color_map
 
+@st.cache_data
 def calculate_run_rate_metrics(df, tolerance: float):
     """Calculates all run rate metrics from a dataframe."""
     df = df.copy()
@@ -173,6 +174,7 @@ def calculate_run_rate_metrics(df, tolerance: float):
         "mtbf": mtbf
     }
 
+@st.cache_data
 def export_to_excel(df, results):
     """Generates and returns an Excel file from dataframes and results."""
     wb = Workbook()
@@ -198,6 +200,7 @@ def export_to_excel(df, results):
     buffer.seek(0)
     return buffer
 
+@st.cache_data
 def display_summary_table(results):
     """Displays a consistent summary table."""
     st.markdown("### Shot Counts & Efficiency")
@@ -223,6 +226,7 @@ def display_summary_table(results):
     }
     st.table(pd.DataFrame(runtime_data))
 
+@st.cache_data
 def plot_time_bucket_analysis(run_durations, bucket_order, bucket_color_map, title_suffix=""):
     """Generates and displays the time bucket bar chart."""
     bucket_counts = run_durations["time_bucket"].value_counts().reindex(bucket_order).fillna(0).astype(int)
@@ -247,6 +251,7 @@ def plot_time_bucket_analysis(run_durations, bucket_order, bucket_color_map, tit
     with st.expander("📊 Time Bucket Analysis Data Table", expanded=False):
         st.dataframe(bucket_df)
     
+@st.cache_data
 def plot_mt_trend(df, time_col, mttr_col, mtbf_col, title_suffix=""):
     """Generates and displays the MTTR & MTBF trend chart."""
     fig = go.Figure()
@@ -266,6 +271,7 @@ def plot_mt_trend(df, time_col, mttr_col, mtbf_col, title_suffix=""):
     with st.expander("📊 MTTR & MTBF Data Table", expanded=False):
         st.dataframe(df)
 
+@st.cache_data
 def plot_stability_trend(df, time_col, stability_col, title_suffix=""):
     """Generates and displays the Stability Index trend chart."""
     fig = go.Figure()
@@ -286,13 +292,10 @@ def plot_stability_trend(df, time_col, stability_col, title_suffix=""):
     with st.expander("📊 Stability Index Data Table", expanded=False):
         st.dataframe(df)
 
-
-# --- New Helper Function for Daily Calculations ---
-def calculate_daily_metrics(group_df, tolerance):
-    """
-    Calculates key metrics for a single day based on that day's data.
-    """
-    daily_results = calculate_run_rate_metrics(group_df, tolerance)
+@st.cache_data
+def calculate_daily_metrics(df, tolerance):
+    """Calculates key metrics for a single day based on that day's data."""
+    daily_results = calculate_run_rate_metrics(df, tolerance)
     return pd.Series({
         "Total Shots": daily_results["total_shots"],
         "Normal Shots": daily_results["normal_shots"],
@@ -306,13 +309,37 @@ def calculate_daily_metrics(group_df, tolerance):
                         if pd.notna(daily_results["mtbf"]) and pd.notna(daily_results["mttr"]) else 100.0
     })
 
+@st.cache_data
+def calculate_weekly_metrics(df, tolerance):
+    """Calculates key metrics for a single week based on that week's data."""
+    weekly_results = calculate_run_rate_metrics(df, tolerance)
+    return pd.Series({
+        "Total Shots": weekly_results["total_shots"],
+        "Normal Shots": weekly_results["normal_shots"],
+        "Bad Shots": weekly_results["bad_shots"],
+        "Efficiency (%)": round(weekly_results["efficiency"] * 100, 2),
+        "Stops": weekly_results["stop_events"],
+        "MTTR (min)": round(weekly_results["mttr"], 2) if pd.notna(weekly_results["mttr"]) else np.nan,
+        "MTBF (min)": round(weekly_results["mtbf"], 2) if pd.notna(weekly_results["mtbf"]) else np.nan,
+        "Weekly Mode CT (sec)": round(weekly_results["mode_ct"], 2),
+        "Stability Index (%)": round((weekly_results["mtbf"] / (weekly_results["mtbf"] + weekly_results["mttr"])) * 100, 2)
+                        if pd.notna(weekly_results["mtbf"]) and pd.notna(weekly_results["mttr"]) else 100.0
+    })
+
+
 # --- Main Application Logic ---
 st.sidebar.title("Run Rate Report Generator ⚙️")
 
 uploaded_file = st.sidebar.file_uploader("Upload Run Rate Excel", type=["xlsx"])
 
 if uploaded_file:
-    df_raw = pd.read_excel(uploaded_file)
+    # Use cache to avoid re-reading file on every interaction
+    @st.cache_data
+    def load_data(file):
+        df = pd.read_excel(file)
+        return df
+
+    df_raw = load_data(uploaded_file)
     
     selection_column = "TOOLING ID" if "TOOLING ID" in df_raw.columns else "EQUIPMENT CODE" if "EQUIPMENT CODE" in df_raw.columns else None
     
@@ -322,6 +349,7 @@ if uploaded_file:
     
     tool = st.sidebar.selectbox("Select Tool", df_raw[selection_column].unique())
     
+    # Filter data for the selected tool
     df_tool = df_raw.loc[df_raw[selection_column] == tool].copy()
     
     if df_tool.empty:
@@ -335,25 +363,19 @@ if uploaded_file:
         help="Defines the ±% around Mode CT to classify normal vs. stoppage cycles"
     )
     
-    # Run the main calculation on the full tool data for consistency across pages
-    st.session_state["results_full"] = calculate_run_rate_metrics(df_tool, tolerance)
+    # Process full dataset and cache
+    results_full = calculate_run_rate_metrics(df_tool, tolerance)
 
     page = st.sidebar.radio(
         "Select Page",
-        ["📊 Analysis Dashboard", "📂 Raw & Processed Data", "📅 Daily Analysis"]
+        ["📊 Analysis Dashboard", "📂 Raw & Processed Data", "📅 Daily Analysis", "🗓️ Weekly Analysis"]
     )
     
-    results = st.session_state.get("results_full", {})
-
-    if not results:
-        st.info("👈 Please select a tool and a date to generate a report.")
-        st.stop()
-
-    # --- Page 1: Analysis Dashboard (based on a single selected day) ---
+    # --- Page 1: Analysis Dashboard ---
     if page == "📊 Analysis Dashboard":
         st.title("📊 Daily Run Rate Report")
         
-        df_full = results["df"]
+        df_full = results_full["df"]
         min_date = df_full["shot_time"].min().date()
         max_date = df_full["shot_time"].max().date()
         selected_date = st.date_input("Select Date", min_value=min_date, max_value=max_date, value=max_date)
@@ -385,12 +407,12 @@ if uploaded_file:
     elif page == "📂 Raw & Processed Data":
         st.title("📋 Raw & Processed Cycle Data")
         
-        display_summary_table(results)
+        display_summary_table(results_full)
         
         st.markdown("---")
         
         st.markdown("### Processed Cycle Data Table")
-        df_processed = results["df"].copy()
+        df_processed = results_full["df"].copy()
         
         df_processed["Actual CT (sec)"] = df_processed["ACTUAL CT"].round(1)
         df_processed["Time Diff (sec)"] = df_processed["ct_diff_sec"].round(2)
@@ -414,7 +436,7 @@ if uploaded_file:
                 mime="text/csv"
             )
         with col2:
-            excel_buffer = export_to_excel(df_processed, results)
+            excel_buffer = export_to_excel(df_processed, results_full)
             st.download_button(
                 label="📊 Download Excel Report",
                 data=excel_buffer,
@@ -422,12 +444,12 @@ if uploaded_file:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-    # --- Page 3: Daily Analysis (newly implemented) ---
+    # --- Page 3: Daily Analysis ---
     elif page == "📅 Daily Analysis":
         st.title("📅 Weekly Analysis by Day")
         st.subheader(f"Tool: {tool}")
 
-        df_full = results["df"]
+        df_full = results_full["df"]
         df_full["day"] = df_full["shot_time"].dt.date
 
         min_date, max_date = df_full["day"].min(), df_full["day"].max()
@@ -440,7 +462,6 @@ if uploaded_file:
         if df_week.empty:
             st.warning("No data found for this week.")
         else:
-            # Calculate metrics for each day in the selected week
             daily_summary = df_week.groupby("day").apply(
                 lambda g: calculate_daily_metrics(g, tolerance)
             ).reset_index()
@@ -451,24 +472,18 @@ if uploaded_file:
             st.markdown("---")
             st.subheader("Weekly Trends")
             
-            # Use the daily_summary table to plot trends
             plot_mt_trend(daily_summary, "day", "MTTR (min)", "MTBF (min)", title_suffix=" by Day")
             plot_stability_trend(daily_summary, "day", "Stability Index (%)", title_suffix=" by Day")
 
-            # Daily Time Bucket Trend (Stacked Bar Chart)
             run_durations_weekly = calculate_run_rate_metrics(df_week, tolerance)["run_durations"]
-            
             bucket_trend = run_durations_weekly.groupby(["run_end", "time_bucket"]).size().reset_index(name="count")
             bucket_trend["day"] = bucket_trend["run_end"].dt.date
-            
-            # To ensure all days appear, merge with a full day list
-            full_week_days = pd.DataFrame({'day': pd.date_range(start=selected_week, periods=7).date})
             bucket_trend_day = bucket_trend.groupby(["day", "time_bucket"])["count"].sum().reset_index()
             
             fig_tb_trend = px.bar(
                 bucket_trend_day, x="day", y="count", color="time_bucket",
-                category_orders={"time_bucket": results["bucket_order"]},
-                color_discrete_map=results["bucket_color_map"],
+                category_orders={"time_bucket": results_full["bucket_order"]},
+                color_discrete_map=results_full["bucket_color_map"],
                 title="Daily Time Bucket Trend (Selected Week)",
                 hover_data={"count": True, "day": True}
             )
@@ -477,6 +492,52 @@ if uploaded_file:
             with st.expander("📊 Daily Time Bucket Trend – Data", expanded=False):
                 st.dataframe(bucket_trend_day)
 
+    # --- Page 4: Weekly Analysis ---
+    elif page == "🗓️ Weekly Analysis":
+        st.title("🗓️ Monthly Analysis by Week")
+        st.subheader(f"Tool: {tool}")
+
+        df_full = results_full["df"]
+        df_full["week_start"] = df_full["shot_time"].dt.to_period('W-MON').dt.start_time.dt.date
+        df_full["month_start"] = df_full["shot_time"].dt.to_period('M').dt.start_time.dt.date
+
+        unique_months = df_full["month_start"].unique()
+        selected_month = st.selectbox("Select Month", unique_months, format_func=lambda d: pd.to_datetime(d).strftime('%B %Y'))
+
+        df_month = df_full.loc[df_full["month_start"] == selected_month].copy()
+        
+        if df_month.empty:
+            st.warning("No data found for this month.")
+        else:
+            weekly_summary = df_month.groupby("week_start").apply(
+                lambda g: calculate_weekly_metrics(g, tolerance)
+            ).reset_index()
+            
+            st.markdown("### 📋 Monthly Summary Table (Weekly Breakdown)")
+            st.dataframe(weekly_summary, use_container_width=True)
+            
+            st.markdown("---")
+            st.subheader("Monthly Trends")
+            
+            plot_mt_trend(weekly_summary, "week_start", "MTTR (min)", "MTBF (min)", title_suffix=" by Week")
+            plot_stability_trend(weekly_summary, "week_start", "Stability Index (%)", title_suffix=" by Week")
+            
+            run_durations_monthly = calculate_run_rate_metrics(df_month, tolerance)["run_durations"]
+            bucket_trend = run_durations_monthly.groupby(["run_end", "time_bucket"]).size().reset_index(name="count")
+            bucket_trend["week_start"] = bucket_trend["run_end"].dt.to_period('W-MON').dt.start_time.dt.date
+            bucket_trend_week = bucket_trend.groupby(["week_start", "time_bucket"])["count"].sum().reset_index()
+            
+            fig_tb_trend = px.bar(
+                bucket_trend_week, x="week_start", y="count", color="time_bucket",
+                category_orders={"time_bucket": results_full["bucket_order"]},
+                color_discrete_map=results_full["bucket_color_map"],
+                title="Weekly Time Bucket Trend (Selected Month)",
+                hover_data={"count": True, "week_start": True}
+            )
+            fig_tb_trend.update_layout(barmode="stack", xaxis=dict(title="Week Start"))
+            st.plotly_chart(fig_tb_trend, use_container_width=True)
+            with st.expander("📊 Weekly Time Bucket Trend – Data", expanded=False):
+                st.dataframe(bucket_trend_week)
 
 else:
     st.info("👈 Upload a cleaned run rate Excel file to begin. Headers in ROW 1 please.")
