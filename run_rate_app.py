@@ -871,14 +871,15 @@ if uploaded_file:
         df["DAY"] = df["SHOT TIME"].dt.date
     
         # --- Select Week ---
-        min_date, max_date = df["SHOT TIME"].min().date(), df["SHOT TIME"].max().date()
+        min_date, max_date = df["SHOT TIME"].dt.date.min(), df["SHOT TIME"].dt.date.max()
+        week_options = pd.date_range(min_date, max_date, freq="W-MON").date
         selected_week = st.selectbox(
             "Select Week",
-            pd.date_range(min_date, max_date, freq="W-MON").date,
+            week_options,
             format_func=lambda d: f"Week of {d}"
         )
-    
-        week_mask = (df["DAY"] >= selected_week) & (df["DAY"] < selected_week + pd.Timedelta(days=7))
+        
+        week_mask = (df["DAY"] >= selected_week) & (df["DAY"] < (selected_week + timedelta(days=7)))
         df_week = df.loc[week_mask].copy()
     
         if df_week.empty:
