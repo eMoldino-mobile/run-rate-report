@@ -189,6 +189,11 @@ def calculate_run_rate_excel_like(df):
 
     # --- Assign buckets (dynamic 20-min bins) ---
     max_minutes = run_durations["RUN_DURATION"].max()
+    
+    # Safety clamp (e.g., cap at 480 min = 8 hrs, or whatever your logic allows)
+    if pd.notna(max_minutes) and max_minutes > 480:
+        max_minutes = 480
+    
     edges, labels_np, labels_wp = build_20min_bins(max_minutes)
     
     run_durations["TIME_BUCKET_RAW"] = pd.cut(
@@ -203,6 +208,9 @@ def calculate_run_rate_excel_like(df):
     
     bucket_order = labels_wp  # keep this for plotting later
     bucket_color_map = make_bucket_color_map(bucket_order)
+    
+    # 🔹 Drop absurd runs > 8 hours (likely incomplete)
+    run_durations = run_durations[run_durations["RUN_DURATION"] <= 480]
 
     # Bucket counts for overall distribution
     bucket_counts = run_durations["TIME_BUCKET"].value_counts().sort_index().fillna(0).astype(int)
@@ -925,9 +933,9 @@ if uploaded_file:
         bucket_color_map = results["bucket_color_map"]
         
         rd_week = run_durations_all.loc[
-            (run_durations_all["RUN_END"].dt.date >= selected_week) &
-            (run_durations_all["RUN_END"].dt.date <= selected_week + timedelta(days=6))
-        ].copy()
+        (run_durations_all["RUN_END"].dt.date >= selected_week) &
+        (run_durations_all["RUN_END"].dt.date <= selected_week + timedelta(days=6))
+    ].copy()
         
         # 1) Time Bucket Analysis (Selected Week Only)
         bucket_counts = (
