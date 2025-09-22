@@ -676,23 +676,22 @@ if uploaded_file:
             df_vis["Actual CT"] = df_vis["ACTUAL CT"].round(1)
             df_vis["Time Diff Sec"] = df_vis["CT_diff_sec"].round(2)
             
-            # New stop columns
-            df_vis["Stop_All"] = np.where(
-                (df_vis["Time Diff Sec"] < results["lower_limit"]) | 
-                (df_vis["Time Diff Sec"] > results["upper_limit"]), 1, 0
-            )
-            df_vis["Stop_Event"] = df_vis["STOP_EVENT"].astype(int)
+            # --- Reapply dynamic threshold ---
+            threshold = st.session_state.get("threshold", results["upper_limit"])
+            threshold_mode = st.session_state.get("threshold_mode", "Multiple of Mode CT")
             
-            # Display logic for UI
-            def stop_marker(row):
-                if row["Stop_Event"] == 1:
-                    return "🔴"   # red tick
-                elif row["Stop_All"] == 1:
-                    return "⚪"   # grey tick
-                else:
-                    return ""
+            # If using threshold: mark stoppages ≥ threshold
+            if threshold_mode in ["Multiple of Mode CT", "Manual (seconds)"]:
+                df_vis["Stop_All"] = np.where(df_vis["Time Diff Sec"] >= threshold, 1, 0)
+            else:
+                # fallback to tolerance band
+                df_vis["Stop_All"] = np.where(
+                    (df_vis["Time Diff Sec"] < results["lower_limit"]) | 
+                    (df_vis["Time Diff Sec"] > results["upper_limit"]), 1, 0
+                )
             
-            df_vis["Stop_Flag"] = df_vis.apply(stop_marker, axis=1)
+            # Preserve "event vs grey" distinction
+            df_vis["Stop_Event"] = np.where(df_vis["Stop_All"] & (df_vis["Stop_All"].shift(fill_value=0) == 0), 1, 0)
             
             # Initialise
             df_vis["Cumulative Count"] = 0.0
