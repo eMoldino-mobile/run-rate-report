@@ -680,6 +680,17 @@ if uploaded_file:
             threshold = st.session_state.get("threshold", results["upper_limit"])
             threshold_mode = st.session_state.get("threshold_mode", "Multiple of Mode CT")
             
+            # UI-friendly stop marker (optional)
+            def stop_marker(row):
+                if row["Stop_Event"] == 1:
+                    return "🔴"   # red stop event
+                elif row["Stop_All"] == 1:
+                    return "⚪"   # grey non-event stop
+                else:
+                    return ""
+            
+            df_vis["Stop_Flag"] = df_vis.apply(stop_marker, axis=1)
+            
             # If using threshold: mark stoppages ≥ threshold
             if threshold_mode in ["Multiple of Mode CT", "Manual (seconds)"]:
                 df_vis["Stop_All"] = np.where(df_vis["Time Diff Sec"] >= threshold, 1, 0)
