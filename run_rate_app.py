@@ -297,22 +297,21 @@ if uploaded_file:
     if st.sidebar.button("Generate Report"):
         mask = (df[selection_column] == tool)
         df_filtered = df.loc[mask]
-
+    
         if df_filtered.empty:
             st.warning("No data found for this selection.")
         else:
-            # Store both raw and processed
-            st.session_state.results = calculate_run_rate_excel_like(df_filtered)
-            st.session_state.results["df_raw"] = df_filtered.copy()
-
-    # --- Threshold & Tolerance Settings (in sidebar) ---
-    if "results" in st.session_state and "df_raw" in st.session_state.results:
-        results = st.session_state.results
-        df_raw = results["df_raw"].copy()
-        mode_ct = results["mode_ct"]
+            # Store raw once
+            st.session_state["df_raw"] = df_filtered.copy()
+    
+    # --- Threshold & Tolerance Settings (always active if df_raw exists) ---
+    if "df_raw" in st.session_state:
+        df_raw = st.session_state["df_raw"].copy()
     
         # 🚨 Stoppage Threshold
         st.sidebar.markdown("### 🚨 Stoppage Threshold Settings")
+        mode_ct = st.session_state.get("results", {}).get("mode_ct", df_raw["ACTUAL CT"].mode().iloc[0])
+    
         threshold_mode = st.sidebar.radio(
             "Select threshold type:",
             ["Multiple of Mode CT", "Manual (seconds)"],
@@ -350,9 +349,8 @@ if uploaded_file:
         )
         st.session_state["tolerance"] = tolerance
     
-        # ✅ Re-run calculations immediately with updated tolerance
-        st.session_state.results = calculate_run_rate_excel_like(df_raw)
-        st.session_state.results["df_raw"] = df_raw
+        # ✅ Recalculate results EVERY rerun (with updated settings)
+        st.session_state["results"] = calculate_run_rate_excel_like(df_raw)
     
     # --- Page 1: Analysis Dashboard ---
     if page == "📊 Analysis Dashboard":
