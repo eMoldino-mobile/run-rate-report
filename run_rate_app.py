@@ -926,7 +926,7 @@ if uploaded_file:
         
         rd_week = run_durations_all.loc[
             (run_durations_all["RUN_END"].dt.date >= selected_week) &
-            (run_durations_all["RUN_END"].dt.date <= (selected_week + pd.Timedelta(days=6)).date())
+            (run_durations_all["RUN_END"].dt.date <= selected_week + timedelta(days=6))
         ].copy()
         
         # 1) Time Bucket Analysis (Selected Week Only)
