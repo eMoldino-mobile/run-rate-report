@@ -212,7 +212,6 @@ def export_to_excel(results: dict, tolerance: float):
     """Creates a multi-sheet Excel report with all key analyses and parameters."""
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        # Sheet 1: Dashboard
         summary_kpis = {
             "Metric": ["Total Shots", "Normal Shots", "Stop Events", "Efficiency (%)", 
                        "Stability Index (%)", "MTTR (min)", "MTBF (min)", "Downtime (min)",
@@ -224,7 +223,6 @@ def export_to_excel(results: dict, tolerance: float):
         }
         pd.DataFrame(summary_kpis).to_excel(writer, sheet_name="Dashboard", index=False)
 
-        # Sheets 2 & 3: Daily and Weekly Summaries
         df_processed = results['processed_df'].copy()
         if not df_processed.empty:
             df_processed['date'] = df_processed['shot_time'].dt.date
@@ -240,18 +238,15 @@ def export_to_excel(results: dict, tolerance: float):
                 cols = [c for c in [df_summary.columns[0], 'total_shots', 'normal_shots', 'bad_shots', 'stop_events', 'mttr_min', 'mtbf_min', 'stability_index', 'efficiency'] if c in df_summary.columns]
                 df_summary[cols].to_excel(writer, sheet_name=f"{name} Summary", index=False)
 
-        # Sheet 4: Time Bucket Analysis
         bucket_counts = results["run_durations"]["time_bucket"].value_counts().reindex(results["bucket_labels"], fill_value=0)
         df_buckets = bucket_counts.reset_index().rename(columns={'index': 'Run Duration (min)', 'time_bucket': 'Occurrences'})
         df_buckets.to_excel(writer, sheet_name="Time Bucket Analysis", index=False)
         
-        # Sheet 5: Processed Data with Parameters
         df_export = results['processed_df'].copy()
         export_cols = ['shot_time', 'ACTUAL CT', 'ct_diff_sec', 'stop_flag', 'stop_event', 'run_group']
         df_export_final = df_export[export_cols]
         df_export_final.to_excel(writer, sheet_name="Processed Shot Data", index=False, startrow=5)
         
-        # Add parameters to the top of the sheet
         ws = writer.sheets["Processed Shot Data"]
         ws['A1'] = "Calculation Parameters"
         ws['A2'] = "Mode CT (sec)"
@@ -428,36 +423,7 @@ elif page == "🗓️ Weekly Trends":
                 bucket_weekly_display['week_start'] = pd.to_datetime(bucket_weekly_display['week_start']).dt.strftime('%d %b %Y')
                 st.dataframe(bucket_weekly_display.rename(columns={'week_start': 'Week Starting', 'time_bucket': 'Run Duration (min)', 'count': 'Occurrences'}), use_container_width=True)
 
-
 elif page == "📂 View Processed Data":
     st.header("Processed Cycle Data")
     results = calculator_full.results
-    st.subheader("Calculation Parameters")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Mode CT (sec)", f"{results.get('mode_ct', 0):.2f}")
-    col2.metric("Lower Limit (sec)", f"{results.get('lower_limit', 0):.2f}", help="Cycles below this are flagged as stops.")
-    col3.metric("Upper Limit (sec)", f"{results.get('upper_limit', 0):.2f}", help="Cycles above this are flagged as stops.")
-
-    st.markdown("---")
-    st.subheader("Shot-by-Shot Data")
-    
-    df_display = results["processed_df"].copy()
-    
-    df_display["Stop"] = np.where(df_display["stop_flag"] == 1, "🔴", "🟢")
-    df_display["Stop Event Start"] = np.where(df_display["stop_event"], "🛑", "")
-    
-    display_cols = ["shot_time", "ACTUAL CT", "ct_diff_sec", "Stop", "Stop Event Start", "run_group"]
-    display_subset = df_display[display_cols].rename(columns={
-        "shot_time": "Shot Time", "ACTUAL CT": "Actual CT (sec)", "ct_diff_sec": "Time Since Last Shot (sec)", "run_group": "Run Group ID"
-    })
-    
-    st.dataframe(display_subset.style.format({
-        "Actual CT (sec)": "{:.1f}", "Time Since Last Shot (sec)": "{:.2f}"
-    }), use_container_width=True)
-    
-    excel_data = export_to_excel(calculator_full.results, calculator_full.tolerance)
-    st.download_button(
-        label="📥 Download Full Excel Report", data=excel_data,
-        file_name=f"{tool_id}_full_analysis.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+    st.
