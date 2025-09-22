@@ -266,13 +266,15 @@ def calculate_run_rate_excel_like(df):
 
 # --- UI ---
 st.sidebar.title("Run Rate Report Generator")
-uploaded_file = st.sidebar.file_uploader("Upload Run Rate Excel (clean table)", type=["xlsx"])
+
+uploaded_file = st.sidebar.file_uploader(
+    "Upload Run Rate Excel (clean table)", type=["xlsx"]
+)
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
 
-    # Tool selection
-    selection_column = None
+    # --- Tool selection ---
     if "TOOLING ID" in df.columns:
         selection_column = "TOOLING ID"
     elif "EQUIPMENT CODE" in df.columns:
@@ -282,78 +284,76 @@ if uploaded_file:
         st.stop()
 
     tool = st.sidebar.selectbox("Select Tool", df[selection_column].unique())
-    date = st.sidebar.date_input("Select Date", pd.to_datetime(df["SHOT TIME"]).dt.date.min())
+    date = st.sidebar.date_input(
+        "Select Date", pd.to_datetime(df["SHOT TIME"]).dt.date.min()
+    )
 
     page = st.sidebar.radio(
-    "Select Page", 
-    ["📊 Analysis Dashboard", "📂 Raw & Processed Data", "📅 Daily Analysis"]
-)
+        "Select Page",
+        ["📊 Analysis Dashboard", "📂 Raw & Processed Data", "📅 Daily Analysis"]
+    )
 
+    # --- Generate Report ---
     if st.sidebar.button("Generate Report"):
-        # Instead of filtering by exact date, keep all data for the tool
         mask = (df[selection_column] == tool)
         df_filtered = df.loc[mask]
-    
+
         if df_filtered.empty:
             st.warning("No data found for this selection.")
         else:
-            results = calculate_run_rate_excel_like(df_filtered)
-            st.session_state.results = results
-            
-    # --- Threshold & Tolerance Settings (in sidebar) ---
-    
-    # 🚨 Stoppage Threshold Settings
-    st.sidebar.markdown("### 🚨 Stoppage Threshold Settings")
-    
-    mode_ct = st.session_state.results["mode_ct"] if "results" in st.session_state else None
-    
-    threshold_mode = st.sidebar.radio(
-        "Select threshold type:",
-        ["Multiple of Mode CT", "Manual (seconds)"],
-        horizontal=False,
-        key="sidebar_threshold_mode"
-    )
-    
-    if threshold_mode == "Multiple of Mode CT":
-        multiplier = st.sidebar.slider(
-            "Multiplier of Mode CT",
-            min_value=1.0, max_value=5.0, value=2.0, step=0.5,
-            key="sidebar_ct_multiplier"
-        )
-        threshold = mode_ct * multiplier if mode_ct else None
-        threshold_label = f"Mode CT × {multiplier} = {threshold:.2f} sec" if threshold else ""
-    else:
-        default_val = float(mode_ct * 2) if mode_ct else 2.0
-        threshold = st.sidebar.number_input(
-            "Manual threshold (seconds)",
-            min_value=1.0, value=default_val,
-            key="sidebar_manual_threshold"
-        )
-        threshold_label = f"{threshold:.2f} sec (manual)" if threshold else ""
-    
-    # Save into session_state for use in main section
-    st.session_state["threshold_mode"] = threshold_mode
-    st.session_state["threshold"] = threshold
-    st.session_state["threshold_label"] = threshold_label
-    
-    
-    # ⚙️ Cycle Time Tolerance Settings
-    st.sidebar.markdown("### ⚙️ Cycle Time Tolerance Settings")
-    
-    tolerance = st.sidebar.slider(
-        "Tolerance Band (% of Mode CT)",
-        min_value=0.01, max_value=0.20, value=0.05, step=0.01,
-        help="Defines the ±% around Mode CT to classify normal vs. bad shots"
-    )
-    
-    # Save into session_state
-    st.session_state["tolerance"] = tolerance
-    
-    # ✅ Recalculate limits dynamically each rerun
+            # Store both raw and processed
+            st.session_state.results = calculate_run_rate_excel_like(df_filtered)
+            st.session_state.results["df_raw"] = df_filtered.copy()
+
+    # --- Threshold & Tolerance Settings ---
     if "results" in st.session_state:
-        mode_ct = st.session_state.results["mode_ct"]
-        st.session_state.results["lower_limit"] = mode_ct * (1 - tolerance)
-        st.session_state.results["upper_limit"] = mode_ct * (1 + tolerance)
+        results = st.session_state.results
+        mode_ct = results["mode_ct"]
+
+        # 🚨 Stoppage Threshold
+        st.sidebar.markdown("### 🚨 Stoppage Threshold Settings")
+        threshold_mode = st.sidebar.radio(
+            "Select threshold type:",
+            ["Multiple of Mode CT", "Manual (seconds)"],
+            horizontal=False,
+            key="sidebar_threshold_mode"
+        )
+
+        if threshold_mode == "Multiple of Mode CT":
+            multiplier = st.sidebar.slider(
+                "Multiplier of Mode CT",
+                min_value=1.0, max_value=5.0, value=2.0, step=0.5,
+                key="sidebar_ct_multiplier"
+            )
+            threshold = mode_ct * multiplier
+            threshold_label = f"Mode CT × {multiplier} = {threshold:.2f} sec"
+        else:
+            default_val = float(mode_ct * 2)
+            threshold = st.sidebar.number_input(
+                "Manual threshold (seconds)",
+                min_value=1.0, value=default_val,
+                key="sidebar_manual_threshold"
+            )
+            threshold_label = f"{threshold:.2f} sec (manual)"
+
+        st.session_state["threshold_mode"] = threshold_mode
+        st.session_state["threshold"] = threshold
+        st.session_state["threshold_label"] = threshold_label
+
+        # ⚙️ Cycle Time Tolerance
+        st.sidebar.markdown("### ⚙️ Cycle Time Tolerance Settings")
+        tolerance = st.sidebar.slider(
+            "Tolerance Band (% of Mode CT)",
+            min_value=0.01, max_value=0.20, value=0.05, step=0.01,
+            help="Defines the ±% around Mode CT to classify normal vs. bad shots"
+        )
+        st.session_state["tolerance"] = tolerance
+
+        # ✅ Always reapply tolerance to raw dataframe
+        if "df_raw" in results:
+            df_recalc = results["df_raw"].copy()
+            st.session_state.results = calculate_run_rate_excel_like(df_recalc)
+            st.session_state.results["df_raw"] = df_recalc
     
     # --- Page 1: Analysis Dashboard ---
     if page == "📊 Analysis Dashboard":
