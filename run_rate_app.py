@@ -120,8 +120,11 @@ def calculate_run_rate_excel_like(df):
 
     # Mode CT (seconds)
     mode_ct = df["ACTUAL CT"].mode().iloc[0]
-    lower_limit = mode_ct * 0.95
-    upper_limit = mode_ct * 1.05
+    
+    # ✅ Use tolerance band (from sidebar or default 10%)
+    tolerance = st.session_state.get("tolerance", 0.10)   # default 10% if not set
+    lower_limit = mode_ct * (1 - tolerance)
+    upper_limit = mode_ct * (1 + tolerance)
 
     # STOP flag (all potential stops)
     df["STOP_FLAG"] = np.where(
@@ -190,9 +193,9 @@ def calculate_run_rate_excel_like(df):
     # --- Assign buckets (dynamic 20-min bins) ---
     max_minutes = run_durations["RUN_DURATION"].max()
     
-    # Safety clamp (e.g., cap at 480 min = 8 hrs, or whatever your logic allows)
-    if pd.notna(max_minutes) and max_minutes > 480:
-        max_minutes = 480
+    # ✅ Safety clamp – cap at 240 min (4 hrs) so buckets don’t explode
+    if pd.notna(max_minutes):
+        max_minutes = min(max_minutes, 240)
     
     edges, labels_np, labels_wp = build_20min_bins(max_minutes)
     
@@ -297,7 +300,9 @@ if uploaded_file:
             results = calculate_run_rate_excel_like(df_filtered)
             st.session_state.results = results
             
-    # --- Threshold Settings (in sidebar) ---
+    # --- Threshold & Tolerance Settings (in sidebar) ---
+    
+    # 🚨 Stoppage Threshold Settings
     st.sidebar.markdown("### 🚨 Stoppage Threshold Settings")
     
     mode_ct = st.session_state.results["mode_ct"] if "results" in st.session_state else None
@@ -306,7 +311,7 @@ if uploaded_file:
         "Select threshold type:",
         ["Multiple of Mode CT", "Manual (seconds)"],
         horizontal=False,
-        key="sidebar_threshold_mode"  # unique key for sidebar
+        key="sidebar_threshold_mode"
     )
     
     if threshold_mode == "Multiple of Mode CT":
@@ -330,7 +335,20 @@ if uploaded_file:
     st.session_state["threshold_mode"] = threshold_mode
     st.session_state["threshold"] = threshold
     st.session_state["threshold_label"] = threshold_label
-
+    
+    
+    # ⚙️ Cycle Time Tolerance Settings
+    st.sidebar.markdown("### ⚙️ Cycle Time Tolerance Settings")
+    
+    tolerance = st.sidebar.slider(
+        "Tolerance Band (% of Mode CT)",
+        min_value=0.01, max_value=0.20, value=0.05, step=0.01,
+        help="Defines the ±% around Mode CT to classify normal vs. bad shots"
+    )
+    
+    # Save into session_state
+    st.session_state["tolerance"] = tolerance
+    
     # --- Page 1: Analysis Dashboard ---
     if page == "📊 Analysis Dashboard":
         results = st.session_state.get("results", {})
