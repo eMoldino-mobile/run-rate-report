@@ -289,13 +289,3 @@ def plot_stability_trend(df, time_col, stability_col, title_suffix=""):
     st.plotly_chart(fig, use_container_width=True)
     with st.expander("📊 Stability Index Data Table", expanded=False):
         st.dataframe(df)
-
-***
-
-### Summary of Key Changes
-
-* **Efficiency Added to Core Metrics:** The `calculate_run_rate_metrics` function now includes `efficiency` in its return dictionary, providing a single source of truth.
-* **MTBF Bug Fix:** When no stops occur, **MTBF** is now correctly set to `NaN` (or `None`), preventing misleadingly large values. The MTBF calculation itself was corrected to sum up total uptime before dividing by the number of stops, providing a more accurate metric.
-* **Consistent Data Filtering:** The logic for `Analysis Dashboard` and `Daily Analysis` pages now applies a time-based filter to the raw data *before* running `calculate_run_rate_metrics`. This ensures that all metrics (including `MTBF` and run buckets) are calculated accurately for the selected time period, eliminating the risk of partial runs from outside the window skewing results.
-* **Dynamic Color Map:** The `make_bucket_color_map` function has been improved to accept the list of active buckets, so the legend only displays colors and labels for the run time buckets actually present in the data. This provides a cleaner and more relevant visualization.
-* **Standardized Naming:** All internal variables and dataframe column names are now in `snake_case` (e.g., `shot_time`, `ct_diff_sec`). The original `UPPERCASE` names are only used when reading the initial file, ensuring a cleaner codebase and reducing the risk of bugs from inconsistent naming.
