@@ -175,6 +175,10 @@ def calculate_run_rate_excel_like(df):
           .reset_index(name="RUN_DURATION")
     )
     
+    # ✅ Add run end timestamp for each group right away
+    run_end_times = df.groupby("RUN_GROUP")["SHOT TIME"].max().reset_index(name="RUN_END")
+    run_durations = run_durations.merge(run_end_times, on="RUN_GROUP", how="left")
+    
     # Remove first run if it starts with a stop (edge case)
     run_durations = run_durations[run_durations["RUN_DURATION"] > 0]
     
@@ -182,10 +186,6 @@ def calculate_run_rate_excel_like(df):
     if df["STOP_ADJ"].iloc[-1] == 0:
         last_group = df["RUN_GROUP"].iloc[-1]
         run_durations = run_durations[run_durations["RUN_GROUP"] != last_group]
-        
-    # Add run end timestamp for each group
-    run_end_times = df.groupby("RUN_GROUP")["SHOT TIME"].max().reset_index(name="RUN_END")
-    run_durations = run_durations.merge(run_end_times, on="RUN_GROUP", how="left")
 
     # --- Assign buckets (dynamic 20-min bins) ---
     max_minutes = run_durations["RUN_DURATION"].max()
@@ -449,13 +449,10 @@ if uploaded_file:
     
             # 2) Time Bucket Trend (group by hour of day instead of week)
     
-            if "SHOT TIME" in results.get("df", pd.DataFrame()).columns:
-                # Get run end time for each RUN_GROUP
-                run_end_times = results["df"].groupby("RUN_GROUP")["SHOT TIME"].max().reset_index(name="RUN_END")
-                run_durations = run_durations.merge(run_end_times, on="RUN_GROUP", how="left")
+            if "RUN_END" in run_durations.columns:
                 run_durations["HOUR"] = run_durations["RUN_END"].dt.hour
             else:
-                run_durations["HOUR"] = -1  # fallback if no timestamps
+                run_durations["HOUR"] = -1
             
             trend = run_durations.groupby(["HOUR","TIME_BUCKET"]).size().reset_index(name="count")
 
@@ -920,39 +917,57 @@ if uploaded_file:
         st.dataframe(daily_summary)
     
         # --- Reuse Page-1 style charts but grouped by DAY ---
-        # 1) Time Bucket Analysis (Whole Week)
-        run_durations = results["run_durations"].copy()
+
+        # Use run end timestamps to keep only runs that ended inside the selected week
+        run_durations_all = results["run_durations"].copy()
         bucket_order = results["bucket_order"]
         bucket_color_map = results["bucket_color_map"]
-    
-        bucket_counts = run_durations["TIME_BUCKET"].value_counts().reindex(bucket_order).fillna(0).astype(int)
-        total_runs = bucket_counts.sum()
+        
+        rd_week = run_durations_all.loc[
+            (run_durations_all["RUN_END"].dt.date >= selected_week) &
+            (run_durations_all["RUN_END"].dt.date <= (selected_week + pd.Timedelta(days=6)).date())
+        ].copy()
+        
+        # 1) Time Bucket Analysis (Selected Week Only)
+        bucket_counts = (
+            rd_week["TIME_BUCKET"]
+            .value_counts()
+            .reindex(bucket_order)
+            .fillna(0)
+            .astype(int)
+        )
+        total_runs = int(bucket_counts.sum()) if not bucket_counts.empty else 0
         bucket_df = bucket_counts.reset_index()
         bucket_df.columns = ["Time Bucket", "Occurrences"]
-        bucket_df["Percentage"] = (bucket_df["Occurrences"] / total_runs * 100).round(2)
-    
+        bucket_df["Percentage"] = np.where(
+            total_runs > 0, (bucket_df["Occurrences"] / total_runs * 100).round(2), 0.0
+        )
+        
         fig_bucket = px.bar(
             bucket_df[bucket_df["Time Bucket"].notna()],
-            x="Occurrences", y="Time Bucket",
-            orientation="h", text="Occurrences",
-            title="Time Bucket Analysis (Whole Week)",
+            x="Occurrences", y="Time Bucket", orientation="h", text="Occurrences",
+            title="Time Bucket Analysis (Selected Week)",
             category_orders={"Time Bucket": bucket_order},
             color="Time Bucket",
             color_discrete_map=bucket_color_map,
             hover_data={"Occurrences": True, "Percentage": True}
         )
         fig_bucket.update_traces(textposition="outside")
+        fig_bucket.update_layout(legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center"))
         st.plotly_chart(fig_bucket, use_container_width=True)
+        
+        with st.expander("📊 Time Bucket Analysis – Data", expanded=False):
+            st.dataframe(bucket_df, use_container_width=True)
     
-        # 2) Daily Time Bucket Trend
-        run_durations["DAY"] = run_durations["RUN_END"].dt.date
-        trend = run_durations.groupby(["DAY","TIME_BUCKET"]).size().reset_index(name="count")
-    
-        # Ensure all days of week appear
+        # 2) Daily Time Bucket Trend (Selected Week)
+        rd_week["DAY"] = rd_week["RUN_END"].dt.date
+        trend = rd_week.groupby(["DAY", "TIME_BUCKET"]).size().reset_index(name="count")
+        
+        # ensure all days & buckets
         days = pd.date_range(selected_week, selected_week + pd.Timedelta(days=6)).date
         grid = pd.MultiIndex.from_product([days, bucket_order], names=["DAY","TIME_BUCKET"]).to_frame(index=False)
-        trend = grid.merge(trend, on=["DAY","TIME_BUCKET"], how="left").fillna({"count":0})
-    
+        trend = grid.merge(trend, on=["DAY","TIME_BUCKET"], how="left").fillna({"count": 0})
+        
         fig_tb_trend = px.bar(
             trend, x="DAY", y="count", color="TIME_BUCKET",
             category_orders={"TIME_BUCKET": bucket_order},
@@ -960,19 +975,49 @@ if uploaded_file:
             title="Daily Time Bucket Trend (Selected Week)",
             hover_data={"count": True, "DAY": True}
         )
-        fig_tb_trend.update_layout(barmode="stack")
+        fig_tb_trend.update_layout(
+            barmode="stack",
+            legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center"),
+            xaxis=dict(title="Day")
+        )
         st.plotly_chart(fig_tb_trend, use_container_width=True)
+        
+        with st.expander("📊 Daily Time Bucket Trend – Data", expanded=False):
+            st.dataframe(trend, use_container_width=True)
     
-        # 3) MTTR & MTBF Trend by Day
+        # 3) MTTR & MTBF Trend by Day (Dual Axis)
         fig_mt = go.Figure()
-        fig_mt.add_trace(go.Scatter(x=daily_summary["DAY"], y=daily_summary["MTTR (min)"], mode="lines+markers",
-                                    name="MTTR (min)", line=dict(color="red", width=2)))
-        fig_mt.add_trace(go.Scatter(x=daily_summary["DAY"], y=daily_summary["MTBF (min)"], mode="lines+markers",
-                                    name="MTBF (min)", line=dict(color="green", width=2, dash="dot")))
-        fig_mt.update_layout(title="MTTR & MTBF Trend by Day",
-                             xaxis=dict(title="Day"),
-                             yaxis=dict(title="Minutes"))
+        
+        x_days = daily_summary["DAY"]
+        
+        fig_mt.add_trace(go.Scatter(
+            x=x_days, y=daily_summary["MTTR (min)"],
+            mode="lines+markers", name="MTTR (min)",
+            line=dict(color="red", width=2), yaxis="y"
+        ))
+        
+        fig_mt.add_trace(go.Scatter(
+            x=x_days, y=daily_summary["MTBF (min)"],
+            mode="lines+markers", name="MTBF (min)",
+            line=dict(color="green", width=2, dash="dot"), yaxis="y2"
+        ))
+        
+        fig_mt.update_layout(
+            title="MTTR & MTBF Trend by Day",
+            xaxis=dict(title="Day"),
+            yaxis=dict(title="MTTR (min)", tickfont=dict(color="red"), side="left"),
+            yaxis2=dict(title="MTBF (min)", tickfont=dict(color="green"), overlaying="y", side="right"),
+            margin=dict(l=60, r=60, t=60, b=40),
+            legend=dict(orientation="h", x=0.5, y=-0.25, xanchor="center"),
+            showlegend=True
+        )
         st.plotly_chart(fig_mt, use_container_width=True)
+        
+        with st.expander("📊 MTTR & MTBF – Data", expanded=False):
+            st.dataframe(
+                daily_summary[["DAY","MTTR (min)","MTBF (min)","Stops"]].copy(),
+                use_container_width=True
+            )
     
         # 4) Stability Index Trend by Day
         fig_stability = go.Figure()
