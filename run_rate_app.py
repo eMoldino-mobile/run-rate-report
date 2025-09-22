@@ -207,31 +207,31 @@ def plot_stability_trend(df, time_col, stability_col, title="Stability Index Tre
     )
     st.plotly_chart(fig, use_container_width=True)
 
+# --- CORRECTED Excel Export Function ---
 @st.cache_data
-def export_to_excel(calculator: RunRateCalculator):
+def export_to_excel(results: dict, tolerance: float):
     """Creates a multi-sheet Excel report with all key analyses."""
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        results = calculator.results
         summary_kpis = {
             "Metric": ["Total Shots", "Normal Shots", "Stop Events", "Efficiency (%)", 
                        "Stability Index (%)", "MTTR (min)", "MTBF (min)", "Downtime (min)",
                        "Mode CT (sec)", "Lower Limit (sec)", "Upper Limit (sec)"],
-            "Value": [results['total_shots'], results['normal_shots'], results['stop_events'],
-                      f"{results['efficiency']*100:.2f}", f"{results['stability_index']:.2f}",
-                      f"{results['mttr_min']:.2f}", f"{results['mtbf_min']:.2f}", f"{results['downtime_min']:.2f}",
-                      f"{results['mode_ct']:.2f}", f"{results['lower_limit']:.2f}", f"{results['upper_limit']:.2f}"]
+            "Value": [results.get(k, 0) for k in ['total_shots', 'normal_shots', 'stop_events']] +
+                     [f"{results.get('efficiency', 0)*100:.2f}", f"{results.get('stability_index', 0):.2f}",
+                      f"{results.get('mttr_min', 0):.2f}", f"{results.get('mtbf_min', 0):.2f}", f"{results.get('downtime_min', 0):.2f}",
+                      f"{results.get('mode_ct', 0):.2f}", f"{results.get('lower_limit', 0):.2f}", f"{results.get('upper_limit', 0):.2f}"]
         }
         pd.DataFrame(summary_kpis).to_excel(writer, sheet_name="Dashboard", index=False)
 
         df_processed = results['processed_df'].copy()
         if not df_processed.empty:
             df_processed['date'] = df_processed['shot_time'].dt.date
-            daily_summary_data = [RunRateCalculator(df_day, calculator.tolerance).results | {'date': date} for date, df_day in df_processed.groupby('date')]
+            daily_summary_data = [RunRateCalculator(df_day, tolerance).results | {'date': date} for date, df_day in df_processed.groupby('date')]
             df_daily = pd.DataFrame(daily_summary_data)
             
             df_processed['week_start'] = df_processed['shot_time'].dt.to_period('W-MON').apply(lambda r: r.start_time).dt.date
-            weekly_summary_data = [RunRateCalculator(df_week, calculator.tolerance).results | {'week_start': week} for week, df_week in df_processed.groupby('week_start')]
+            weekly_summary_data = [RunRateCalculator(df_week, tolerance).results | {'week_start': week} for week, df_week in df_processed.groupby('week_start')]
             df_weekly = pd.DataFrame(weekly_summary_data)
 
             for df_summary, name in [(df_daily, "Daily"), (df_weekly, "Weekly")]:
@@ -290,6 +290,7 @@ st.markdown("---")
 page = st.radio("Select Analysis View", ["📊 Daily Deep-Dive", "🗓️ Weekly Trends", "📂 View Processed Data"], horizontal=True, label_visibility="collapsed")
 
 if page == "📊 Daily Deep-Dive":
+    # This page logic remains the same
     st.header("Daily Analysis")
     df_processed = calculator_full.results["processed_df"]
     available_dates = df_processed["shot_time"].dt.date.unique()
@@ -358,6 +359,7 @@ if page == "📊 Daily Deep-Dive":
                 display_stability_index_explanation() 
 
 elif page == "🗓️ Weekly Trends":
+    # This page logic remains the same
     st.header("Weekly Trend Analysis")
     df_processed = calculator_full.results["processed_df"]
     df_processed['week_start'] = df_processed['shot_time'].dt.to_period('W-MON').apply(lambda r: r.start_time).dt.date
@@ -441,7 +443,8 @@ elif page == "📂 View Processed Data":
         "Actual CT (sec)": "{:.1f}", "Time Since Last Shot (sec)": "{:.2f}"
     }), use_container_width=True)
     
-    excel_data = export_to_excel(calculator_full)
+    # --- CORRECTED Download Button Logic ---
+    excel_data = export_to_excel(calculator_full.results, calculator_full.tolerance)
     st.download_button(
         label="📥 Download Full Excel Report", data=excel_data,
         file_name=f"{tool_id}_full_analysis.xlsx",
