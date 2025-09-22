@@ -305,11 +305,12 @@ if uploaded_file:
             st.session_state.results = calculate_run_rate_excel_like(df_filtered)
             st.session_state.results["df_raw"] = df_filtered.copy()
 
-    # --- Threshold & Tolerance Settings ---
-    if "results" in st.session_state:
+    # --- Threshold & Tolerance Settings (in sidebar) ---
+    if "results" in st.session_state and "df_raw" in st.session_state.results:
         results = st.session_state.results
+        df_raw = results["df_raw"].copy()
         mode_ct = results["mode_ct"]
-
+    
         # 🚨 Stoppage Threshold
         st.sidebar.markdown("### 🚨 Stoppage Threshold Settings")
         threshold_mode = st.sidebar.radio(
@@ -318,7 +319,7 @@ if uploaded_file:
             horizontal=False,
             key="sidebar_threshold_mode"
         )
-
+    
         if threshold_mode == "Multiple of Mode CT":
             multiplier = st.sidebar.slider(
                 "Multiplier of Mode CT",
@@ -335,11 +336,11 @@ if uploaded_file:
                 key="sidebar_manual_threshold"
             )
             threshold_label = f"{threshold:.2f} sec (manual)"
-
+    
         st.session_state["threshold_mode"] = threshold_mode
         st.session_state["threshold"] = threshold
         st.session_state["threshold_label"] = threshold_label
-
+    
         # ⚙️ Cycle Time Tolerance
         st.sidebar.markdown("### ⚙️ Cycle Time Tolerance Settings")
         tolerance = st.sidebar.slider(
@@ -348,12 +349,10 @@ if uploaded_file:
             help="Defines the ±% around Mode CT to classify normal vs. bad shots"
         )
         st.session_state["tolerance"] = tolerance
-
-        # ✅ Always reapply tolerance to raw dataframe
-        if "df_raw" in results:
-            df_recalc = results["df_raw"].copy()
-            st.session_state.results = calculate_run_rate_excel_like(df_recalc)
-            st.session_state.results["df_raw"] = df_recalc
+    
+        # ✅ Re-run calculations immediately with updated tolerance
+        st.session_state.results = calculate_run_rate_excel_like(df_raw)
+        st.session_state.results["df_raw"] = df_raw
     
     # --- Page 1: Analysis Dashboard ---
     if page == "📊 Analysis Dashboard":
