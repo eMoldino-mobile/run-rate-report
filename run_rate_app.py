@@ -349,6 +349,12 @@ if uploaded_file:
     # Save into session_state
     st.session_state["tolerance"] = tolerance
     
+    # ✅ Recalculate limits dynamically each rerun
+    if "results" in st.session_state:
+        mode_ct = st.session_state.results["mode_ct"]
+        st.session_state.results["lower_limit"] = mode_ct * (1 - tolerance)
+        st.session_state.results["upper_limit"] = mode_ct * (1 + tolerance)
+    
     # --- Page 1: Analysis Dashboard ---
     if page == "📊 Analysis Dashboard":
         results = st.session_state.get("results", {})
