@@ -680,7 +680,20 @@ if uploaded_file:
             threshold = st.session_state.get("threshold", results["upper_limit"])
             threshold_mode = st.session_state.get("threshold_mode", "Multiple of Mode CT")
             
-            # UI-friendly stop marker (optional)
+            if threshold_mode in ["Multiple of Mode CT", "Manual (seconds)"]:
+                df_vis["Stop_All"] = np.where(df_vis["Time Diff Sec"] >= threshold, 1, 0)
+            else:
+                df_vis["Stop_All"] = np.where(
+                    (df_vis["Time Diff Sec"] < results["lower_limit"]) |
+                    (df_vis["Time Diff Sec"] > results["upper_limit"]), 1, 0
+                )
+            
+            # First-stop event (red tick)
+            df_vis["Stop_Event"] = np.where(
+                df_vis["Stop_All"] & (df_vis["Stop_All"].shift(fill_value=0) == 0), 1, 0
+            )
+            
+            # UI-friendly stop marker
             def stop_marker(row):
                 if row["Stop_Event"] == 1:
                     return "🔴"   # red stop event
@@ -691,20 +704,7 @@ if uploaded_file:
             
             df_vis["Stop_Flag"] = df_vis.apply(stop_marker, axis=1)
             
-            # If using threshold: mark stoppages ≥ threshold
-            if threshold_mode in ["Multiple of Mode CT", "Manual (seconds)"]:
-                df_vis["Stop_All"] = np.where(df_vis["Time Diff Sec"] >= threshold, 1, 0)
-            else:
-                # fallback to tolerance band
-                df_vis["Stop_All"] = np.where(
-                    (df_vis["Time Diff Sec"] < results["lower_limit"]) | 
-                    (df_vis["Time Diff Sec"] > results["upper_limit"]), 1, 0
-                )
-            
-            # Preserve "event vs grey" distinction
-            df_vis["Stop_Event"] = np.where(df_vis["Stop_All"] & (df_vis["Stop_All"].shift(fill_value=0) == 0), 1, 0)
-            
-            # Initialise
+            # --- Initialise run tracking ---
             df_vis["Cumulative Count"] = 0.0
             df_vis["Run Duration"] = 0.0
             
