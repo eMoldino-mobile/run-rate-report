@@ -80,8 +80,14 @@ class RunRateCalculator:
         lower_limit = mode_ct * (1 - self.tolerance)
         upper_limit = mode_ct * (1 + self.tolerance)
 
-        df["stop_flag"] = np.where((df["ct_diff_sec"] > upper_limit) & (df["ct_diff_sec"] <= 28800), 1, 0)
-        df.loc[0, "stop_flag"] = 0
+        # --- LOGIC FIX APPLIED HERE ---
+        # A stop is a cycle time that is EITHER too short OR too long.
+        stop_condition = (
+            (df["ct_diff_sec"] < lower_limit) | (df["ct_diff_sec"] > upper_limit)
+        ) & (df["ct_diff_sec"] <= 28800) # Exclude major shutdowns
+        
+        df["stop_flag"] = np.where(stop_condition, 1, 0)
+        df.loc[0, "stop_flag"] = 0 # First shot cannot be a stop
         df["stop_event"] = (df["stop_flag"] == 1) & (df["stop_flag"].shift(1, fill_value=0) == 0)
 
         total_shots = len(df)
@@ -131,8 +137,7 @@ def create_gauge(value, title, color):
     fig.update_layout(height=250, margin=dict(l=20, r=20, t=40, b=20))
     return fig
 
-def display_main_dashboard(results: dict, title="Key Performance Indicators"):
-    st.subheader(title)
+def display_main_dashboard(results: dict):
     col1, col2 = st.columns(2)
     with col1: st.plotly_chart(create_gauge(results.get('efficiency', 0) * 100, "Efficiency (%)", "cornflowerblue"), use_container_width=True)
     with col2: st.plotly_chart(create_gauge(results.get('stability_index', 0), "Stability Index (%)", "lightseagreen"), use_container_width=True)
@@ -219,8 +224,6 @@ if not calculator_full.results:
     st.stop()
 
 st.title(f"Run Rate Dashboard: {tool_id}")
-with st.container(border=True):
-    display_main_dashboard(calculator_full.results, title=f"Overall Summary (Full Dataset)")
 
 with st.expander("What is the Stability Index?"):
     st.markdown("""
@@ -271,20 +274,23 @@ if page == "📊 Daily Deep-Dive":
         else:
             calc_day = RunRateCalculator(df_day, tolerance)
             
+            st.subheader(f"Dashboard for {selected_date.strftime('%d %b %Y')}")
             with st.container(border=True):
-                display_main_dashboard(calc_day.results, title=f"Dashboard for {selected_date.strftime('%d %b %Y')}")
+                display_main_dashboard(calc_day.results)
             
             st.markdown("---")
             st.subheader("Daily Charts")
-            plot_time_bucket_analysis(calc_day.results["run_durations"], calc_day.results["bucket_labels"], calc_day.results["bucket_color_map"], title=f"Time Bucket Analysis for {selected_date.strftime('%d %b %Y')}")
+            plot_time_bucket_analysis(calc_day.results["run_durations"], calc_day.results["bucket_labels"], calc_day.results["bucket_color_map"], title=f"Time Bucket Analysis")
 
-            # --- NEW: Hourly Breakdown of Continuous Runs ---
             st.markdown("---")
             st.subheader("Hourly Breakdown of Continuous Runs")
-            run_durations_day = calc_day.results['run_durations']
+            results_day = calc_day.results
+            run_durations_day = results_day['run_durations']
+            
             if not run_durations_day.empty:
-                # Associate each run group with its starting hour
-                run_start_times = df_day[['run_group', 'shot_time']].drop_duplicates(subset=['run_group'], keep='first')
+                processed_day_df = results_day['processed_df']
+                run_start_times = processed_day_df[['run_group', 'shot_time']].drop_duplicates(subset=['run_group'], keep='first')
+
                 run_times = run_durations_day.merge(run_start_times, on='run_group', how='left')
                 run_times['hour'] = run_times['shot_time'].dt.hour
                 
@@ -293,10 +299,9 @@ if page == "📊 Daily Deep-Dive":
                 if not bucket_hourly.empty:
                     fig_hourly_bucket = px.bar(
                         bucket_hourly, x='hour', y='count', color='time_bucket',
-                        title=f'Hourly Distribution of Run Durations on {selected_date.strftime("%d %b %Y")}',
-                        barmode='stack',
-                        category_orders={"time_bucket": calc_day.results["bucket_labels"]},
-                        color_discrete_map=calc_day.results["bucket_color_map"],
+                        title=f'Hourly Distribution of Run Durations', barmode='stack',
+                        category_orders={"time_bucket": results_day["bucket_labels"]},
+                        color_discrete_map=results_day["bucket_color_map"],
                         labels={'hour': 'Hour of Day', 'count': 'Number of Runs', 'time_bucket': 'Run Duration (min)'}
                     )
                     st.plotly_chart(fig_hourly_bucket, use_container_width=True)
@@ -305,13 +310,12 @@ if page == "📊 Daily Deep-Dive":
             else:
                 st.info("No run data to display for hourly bucket breakdown.")
 
-
             st.markdown("---")
             st.subheader("Hourly Trends for Selected Day")
             hourly_df = calc_day.results['hourly_summary']
             if not hourly_df.empty and hourly_df['stops'].sum() > 0:
-                plot_mt_trend(hourly_df, 'hour', 'mttr_min', 'mtbf_min', title="Hourly MTTR & MTBF Trend")
-                plot_stability_trend(hourly_df, 'hour', 'stability_index', title="Hourly Stability Index Trend")
+                plot_mt_trend(hourly_df, 'hour', 'mttr_min', 'mtbf_min')
+                plot_stability_trend(hourly_df, 'hour', 'stability_index')
                 
                 with st.expander("View Hourly Data Table"):
                     hourly_display = hourly_df[['hour', 'stops', 'mttr_min', 'mtbf_min', 'stability_index']].copy()
