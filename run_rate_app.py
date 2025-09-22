@@ -207,12 +207,12 @@ def plot_stability_trend(df, time_col, stability_col, title="Stability Index Tre
     )
     st.plotly_chart(fig, use_container_width=True)
 
-# --- CORRECTED Excel Export Function ---
 @st.cache_data
 def export_to_excel(results: dict, tolerance: float):
-    """Creates a multi-sheet Excel report with all key analyses."""
+    """Creates a multi-sheet Excel report with all key analyses and parameters."""
     output = BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        # Sheet 1: Dashboard
         summary_kpis = {
             "Metric": ["Total Shots", "Normal Shots", "Stop Events", "Efficiency (%)", 
                        "Stability Index (%)", "MTTR (min)", "MTBF (min)", "Downtime (min)",
@@ -224,6 +224,7 @@ def export_to_excel(results: dict, tolerance: float):
         }
         pd.DataFrame(summary_kpis).to_excel(writer, sheet_name="Dashboard", index=False)
 
+        # Sheets 2 & 3: Daily and Weekly Summaries
         df_processed = results['processed_df'].copy()
         if not df_processed.empty:
             df_processed['date'] = df_processed['shot_time'].dt.date
@@ -239,13 +240,26 @@ def export_to_excel(results: dict, tolerance: float):
                 cols = [c for c in [df_summary.columns[0], 'total_shots', 'normal_shots', 'bad_shots', 'stop_events', 'mttr_min', 'mtbf_min', 'stability_index', 'efficiency'] if c in df_summary.columns]
                 df_summary[cols].to_excel(writer, sheet_name=f"{name} Summary", index=False)
 
+        # Sheet 4: Time Bucket Analysis
         bucket_counts = results["run_durations"]["time_bucket"].value_counts().reindex(results["bucket_labels"], fill_value=0)
         df_buckets = bucket_counts.reset_index().rename(columns={'index': 'Run Duration (min)', 'time_bucket': 'Occurrences'})
         df_buckets.to_excel(writer, sheet_name="Time Bucket Analysis", index=False)
         
+        # Sheet 5: Processed Data with Parameters
         df_export = results['processed_df'].copy()
         export_cols = ['shot_time', 'ACTUAL CT', 'ct_diff_sec', 'stop_flag', 'stop_event', 'run_group']
-        df_export[export_cols].to_excel(writer, sheet_name="Processed Shot Data", index=False)
+        df_export_final = df_export[export_cols]
+        df_export_final.to_excel(writer, sheet_name="Processed Shot Data", index=False, startrow=5)
+        
+        # Add parameters to the top of the sheet
+        ws = writer.sheets["Processed Shot Data"]
+        ws['A1'] = "Calculation Parameters"
+        ws['A2'] = "Mode CT (sec)"
+        ws['B2'] = results['mode_ct']
+        ws['A3'] = "Lower Limit (sec)"
+        ws['B3'] = results['lower_limit']
+        ws['A4'] = "Upper Limit (sec)"
+        ws['B4'] = results['upper_limit']
 
     return output.getvalue()
 
@@ -290,7 +304,6 @@ st.markdown("---")
 page = st.radio("Select Analysis View", ["📊 Daily Deep-Dive", "🗓️ Weekly Trends", "📂 View Processed Data"], horizontal=True, label_visibility="collapsed")
 
 if page == "📊 Daily Deep-Dive":
-    # This page logic remains the same
     st.header("Daily Analysis")
     df_processed = calculator_full.results["processed_df"]
     available_dates = df_processed["shot_time"].dt.date.unique()
@@ -359,7 +372,6 @@ if page == "📊 Daily Deep-Dive":
                 display_stability_index_explanation() 
 
 elif page == "🗓️ Weekly Trends":
-    # This page logic remains the same
     st.header("Weekly Trend Analysis")
     df_processed = calculator_full.results["processed_df"]
     df_processed['week_start'] = df_processed['shot_time'].dt.to_period('W-MON').apply(lambda r: r.start_time).dt.date
@@ -443,7 +455,6 @@ elif page == "📂 View Processed Data":
         "Actual CT (sec)": "{:.1f}", "Time Since Last Shot (sec)": "{:.2f}"
     }), use_container_width=True)
     
-    # --- CORRECTED Download Button Logic ---
     excel_data = export_to_excel(calculator_full.results, calculator_full.tolerance)
     st.download_button(
         label="📥 Download Full Excel Report", data=excel_data,
