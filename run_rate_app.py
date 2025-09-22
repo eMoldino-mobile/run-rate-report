@@ -904,8 +904,11 @@ if uploaded_file:
             "Stops": g["STOP_EVENT"].sum(),
             "MTTR (min)": (g.loc[g["STOP_EVENT"], "CT_diff_sec"].mean() / 60) 
                           if g["STOP_EVENT"].any() else np.nan,
-            "MTBF (min)": (g.loc[~g["STOP_EVENT"], "CT_diff_sec"].mean() / 60) 
-                          if (~g["STOP_EVENT"]).any() else np.nan,
+            "MTBF (min)": (
+                g["CT_diff_sec"].loc[~g["STOP_EVENT"]].mean() / 60
+                if g["STOP_EVENT"].sum() > 0 and (~g["STOP_EVENT"]).any()
+                else np.nan
+            ),
         })).reset_index()
         
         # Efficiency (%)
@@ -913,7 +916,7 @@ if uploaded_file:
             daily_summary["Normal Shots"] / daily_summary["Total Shots"] * 100
         ).round(2)
         
-        # Stability Index (%)
+        # --- Stability Index (%)
         daily_summary["Stability Index (%)"] = (
             daily_summary.apply(
                 lambda r: (r["MTBF (min)"] / (r["MTBF (min)"] + r["MTTR (min)"])) * 100
@@ -922,8 +925,11 @@ if uploaded_file:
             )
         ).round(2)
         
-        st.markdown("### 📋 Weekly Summary Table (Daily Breakdown)")
-        st.dataframe(daily_summary)
+        # ✅ Force Stability Index to 100% if no stops (same as page 1 logic)
+        daily_summary.loc[
+            (daily_summary["Stops"] == 0) & (daily_summary["MTBF (min)"].isna()),
+            "Stability Index (%)"
+        ] = 100.0
     
         # --- Reuse Page-1 style charts but grouped by DAY ---
 
