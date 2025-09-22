@@ -340,15 +340,38 @@ if uploaded_file:
     
                 # --- Shot Counts & Efficiency ---
                 st.markdown("### Shot Counts & Efficiency")
-                st.table(pd.DataFrame({
-                    "Total Shot Count": [daily_results['total_shots']],
-                    "Normal Shot Count": [daily_results['normal_shots']],
-                    "Bad Shot Count": [daily_results['bad_shots']],
-                    "Efficiency": [f"{(daily_results['normal_shots']/daily_results['total_shots'])*100:.2f}%"],
-                    "Stop Count": [daily_results['stop_events']]
-                }))
-    
-                # ... and below, use daily_results instead of results
+                
+                df_day = results["df"].copy()
+                df_day = df_day[pd.to_datetime(df_day["SHOT TIME"]).dt.date == date]
+                
+                if df_day.empty:
+                    st.warning("No data found for this date.")
+                else:
+                    # Use tolerance-based limits
+                    mode_ct = results["mode_ct"]
+                    tolerance = st.session_state.get("tolerance", 0.05)
+                    lower_limit = mode_ct * (1 - tolerance)
+                    upper_limit = mode_ct * (1 + tolerance)
+                
+                    # Classify shots
+                    total_shots = len(df_day)
+                    normal_shots = ((df_day["CT_diff_sec"] >= lower_limit) &
+                                    (df_day["CT_diff_sec"] <= upper_limit)).sum()
+                    bad_shots = total_shots - normal_shots
+                
+                    # Stop events: transitions into a "bad shot" sequence
+                    stop_flags = ((df_day["CT_diff_sec"] < lower_limit) | (df_day["CT_diff_sec"] > upper_limit)).astype(int)
+                    stop_events = ((stop_flags == 1) & (stop_flags.shift(fill_value=0) == 0)).sum()
+                
+                    efficiency = (normal_shots / total_shots * 100) if total_shots else 0
+                
+                    st.table(pd.DataFrame({
+                        "Total Shot Count": [total_shots],
+                        "Normal Shot Count": [normal_shots],
+                        "Bad Shot Count": [bad_shots],
+                        "Efficiency": [f"{efficiency:.2f}%"],
+                        "Stop Count": [stop_events]
+                    }))
             
             # --- Reliability Metrics ---
             results = st.session_state.get("results", {})
