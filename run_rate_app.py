@@ -176,6 +176,45 @@ def create_gauge(value, title, color):
     fig.update_layout(height=250, margin=dict(l=20, r=20, t=40, b=20))
     return fig
 
+# --- Restored Function Definition ---
+def plot_time_bucket_analysis(run_durations, bucket_labels, color_map, title="Time Bucket Analysis"):
+    """Generates and displays the time bucket bar chart."""
+    fig = px.bar(
+        run_durations["time_bucket"].value_counts().reindex(bucket_labels, fill_value=0),
+        title=title, labels={"index": "Continuous Run Duration (min)", "value": "Number of Occurrences"},
+        text_auto=True, color=bucket_labels, color_discrete_map=color_map
+    )
+    fig.update_layout(showlegend=False)
+    st.plotly_chart(fig, use_container_width=True)
+
+def plot_mt_trend(df, time_col, mttr_col, mtbf_col, title="MTTR & MTBF Trend"):
+    """Generates and displays the MTTR & MTBF trend chart."""
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df[time_col], y=df[mttr_col], name='MTTR (min)', mode='lines+markers', line=dict(color='red')))
+    fig.add_trace(go.Scatter(x=df[time_col], y=df[mtbf_col], name='MTBF (min)', mode='lines+markers', line=dict(color='green'), yaxis='y2'))
+    fig.update_layout(title=title, yaxis=dict(title='MTTR (min)'), yaxis2=dict(title='MTBF (min)', overlaying='y', side='right'),
+                      legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+    st.plotly_chart(fig, use_container_width=True)
+
+def plot_stability_trend(df, time_col, stability_col, title="Stability Index Trend"):
+    """Plots the stability index with color-coded markers and background zones."""
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=df[time_col], y=df[stability_col], mode="lines+markers",
+        name="Stability Index (%)", line=dict(color="blue", width=2),
+        marker=dict(color=["red" if v <= 50 else "orange" if v <= 70 else "green" for v in df[stability_col]], size=8)
+    ))
+    for y0, y1, c in [(0, 50, "red"), (50, 70, "orange"), (70, 100, "green")]:
+        fig.add_shape(type="rect", xref="paper", x0=0, x1=1, y0=y0, y1=y1,
+                      fillcolor=c, opacity=0.1, line_width=0, layer="below")
+    fig.update_layout(
+        title=title, xaxis_title=time_col.replace('_', ' ').title(),
+        yaxis=dict(title="Stability Index (%)", range=[0, 101]),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
 # --- Main Application Logic ---
 st.sidebar.title("Run Rate Report Generator ⚙️")
 uploaded_file = st.sidebar.file_uploader("Upload Run Rate Excel", type=["xlsx", "xls"])
@@ -287,7 +326,7 @@ if page == "📊 Daily Deep-Dive":
                 
                 # --- Chart 4: Hourly Stability Index ---
                 plot_stability_trend(hourly_df, 'hour', 'stability_index')
-                display_stability_index_explanation() # Moved explanation here
+                display_stability_index_explanation() 
 
 elif page == "🗓️ Weekly Trends":
     st.header("Weekly Trend Analysis")
@@ -329,7 +368,7 @@ elif page == "🗓️ Weekly Trends":
 
         # --- Chart 2: Weekly Stability ---
         plot_stability_trend(summary_df, 'week_start', 'stability_index')
-        display_stability_index_explanation() # Moved explanation here
+        display_stability_index_explanation()
 
         # --- Chart 3: Weekly Bucket Trend ---
         all_run_durations = calculator_full.results['run_durations']
