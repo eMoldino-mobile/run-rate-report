@@ -51,7 +51,7 @@ class RunRateCalculator:
             ct_from_col = df["ACTUAL CT"].shift(1)
             df["ct_diff_sec"] = np.where(ct_from_col == 999.9, df["ct_diff_sec"], ct_from_col)
         
-        if pd.isna(df.loc[0, "ct_diff_sec"]):
+        if not df.empty and pd.isna(df.loc[0, "ct_diff_sec"]):
              df.loc[0, "ct_diff_sec"] = df.loc[0, "ACTUAL CT"] if "ACTUAL CT" in df.columns else 0
                  
         return df
@@ -75,10 +75,13 @@ class RunRateCalculator:
         hourly_summary['mttr_min'] = hourly_summary['total_downtime_min'] / hourly_summary['stops'].replace(0, np.nan)
         hourly_summary['mtbf_min'] = hourly_summary['uptime_min'] / hourly_summary['stops'].replace(0, np.nan)
         hourly_summary['mtbf_min'] = hourly_summary['mtbf_min'].fillna(hourly_summary['uptime_min'])
-        hourly_summary['stability_index'] = (hourly_summary['mtbf_min'] / (hourly_summary['mtbf_min'] + hourly_summary['mttr_min'].fillna(0))) * 100
         
-        return hourly_summary.fillna(0)
+        # When stops are 0, MTTR is NaN. Fill with 0 for the calculation.
+        hourly_summary['stability_index'] = (hourly_summary['mtbf_min'] / (hourly_summary['mtbf_min'] + hourly_summary['mttr_min'].fillna(0))) * 100
+        # Explicitly set to 100 where no stops occurred
+        hourly_summary.loc[hourly_summary['stops'] == 0, 'stability_index'] = 100.0
 
+        return hourly_summary
 
     def _calculate_all_metrics(self) -> dict:
         """Executes the full analysis pipeline."""
@@ -98,14 +101,19 @@ class RunRateCalculator:
         total_shots = len(df)
         stop_events = df["stop_event"].sum()
         downtime_sec = df.loc[df["stop_flag"] == 1, "ct_diff_sec"].sum()
-        total_runtime_sec = (df["shot_time"].max() - df["shot_time"].min()).total_seconds()
+        total_runtime_sec = (df["shot_time"].max() - df["shot_time"].min()).total_seconds() if total_shots > 1 else 0
         production_time_sec = total_runtime_sec - downtime_sec
         
         downtime_per_event_sec = df.loc[df["stop_event"], "ct_diff_sec"]
         mttr_min = (downtime_per_event_sec.mean() / 60) if stop_events > 0 else 0
         mtbf_min = (production_time_sec / 60 / stop_events) if stop_events > 0 else (production_time_sec / 60)
-        stability_index = (mtbf_min / (mtbf_min + mttr_min) * 100) if (mtbf_min + mttr_min) > 0 else 100
         
+        # Handle division by zero for stability if there's no runtime
+        if (mtbf_min + mttr_min) > 0:
+            stability_index = (mtbf_min / (mtbf_min + mttr_min) * 100)
+        else:
+            stability_index = 100.0 if stop_events == 0 else 0.0
+
         normal_shots = total_shots - df["stop_flag"].sum()
         efficiency = normal_shots / total_shots if total_shots > 0 else 0
 
@@ -134,7 +142,6 @@ class RunRateCalculator:
 
 @st.cache_data
 def create_gauge(value, title, color):
-    """Creates a cleaner, simplified Plotly gauge indicator."""
     fig = go.Figure(go.Indicator(
         mode="gauge+number", value=value, title={'text': title, 'font': {'size': 20}},
         gauge={'axis': {'range': [0, 100]}, 'bar': {'color': color}},
@@ -143,27 +150,24 @@ def create_gauge(value, title, color):
     fig.update_layout(height=250, margin=dict(l=20, r=20, t=40, b=20))
     return fig
 
-def display_main_dashboard(results: dict):
-    """Renders the main KPI dashboard."""
-    st.subheader("📈 Key Performance Indicators")
+def display_main_dashboard(results: dict, title="Key Performance Indicators"):
+    st.subheader(title)
     col1, col2 = st.columns(2)
     with col1:
         st.plotly_chart(create_gauge(results.get('efficiency', 0) * 100, "Efficiency (%)", "cornflowerblue"), use_container_width=True)
     with col2:
         st.plotly_chart(create_gauge(results.get('stability_index', 0), "Stability Index (%)", "lightseagreen"), use_container_width=True)
     
-    st.markdown("---")
     col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("MTTR (min)", f"{results.get('mttr_min', 0):.2f}", help="Mean Time To Recover: The average duration of a stop.")
-    col2.metric("MTBF (min)", f"{results.get('mtbf_min', 0):.2f}", help="Mean Time Between Failures: The average uptime between stops.")
-    col3.metric("Total Stops", f"{results.get('stop_events', 0):,}", help="The total number of detected stop events.")
-    col4.metric("Downtime (hrs)", f"{results.get('downtime_min', 0) / 60:.2f}", help="Total time the process was stopped.")
-    col5.metric("Total Shots", f"{results.get('total_shots', 0):,}", help="Total cycles in the period.")
+    col1.metric("MTTR (min)", f"{results.get('mttr_min', 0):.2f}")
+    col2.metric("MTBF (min)", f"{results.get('mtbf_min', 0):.2f}")
+    col3.metric("Total Stops", f"{results.get('stop_events', 0):,}")
+    col4.metric("Downtime (hrs)", f"{results.get('downtime_min', 0) / 60:.2f}")
+    col5.metric("Total Shots", f"{results.get('total_shots', 0):,}")
     
-    st.markdown("---")
-    st.subheader("⏱️ Cycle Time Analysis")
+    st.markdown("---",)
     col1, col2, col3 = st.columns(3)
-    col1.metric("Mode CT (sec)", f"{results.get('mode_ct', 0):.2f}", help="The most frequent cycle time, used as the baseline.")
+    col1.metric("Mode CT (sec)", f"{results.get('mode_ct', 0):.2f}")
     col2.metric("Lower Limit (sec)", f"{results.get('lower_limit', 0):.2f}")
     col3.metric("Upper Limit (sec)", f"{results.get('upper_limit', 0):.2f}")
 
@@ -183,7 +187,6 @@ def plot_time_bucket_analysis(run_durations, bucket_labels, color_map, title="Ti
 
 @st.cache_data
 def plot_mt_trend(df, time_col, mttr_col, mtbf_col, title="MTTR & MTBF Trend"):
-    """Generates and displays the MTTR & MTBF trend chart with a dual axis."""
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=df[time_col], y=df[mttr_col], name='MTTR (min)', mode='lines+markers', line=dict(color='red')))
     fig.add_trace(go.Scatter(x=df[time_col], y=df[mtbf_col], name='MTBF (min)', mode='lines+markers', line=dict(color='green'), yaxis='y2'))
@@ -195,8 +198,21 @@ def plot_mt_trend(df, time_col, mttr_col, mtbf_col, title="MTTR & MTBF Trend"):
 
 @st.cache_data
 def plot_stability_trend(df, time_col, stability_col, title="Stability Index Trend"):
-    fig = px.line(df, x=time_col, y=stability_col, title=title, markers=True, labels={stability_col: "Stability Index (%)"})
-    fig.update_layout(yaxis_range=[0, 100])
+    """Plots the stability index with color-coded markers and background zones."""
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=df[time_col], y=df[stability_col], mode="lines+markers",
+        name="Stability Index (%)", line=dict(color="blue", width=2),
+        marker=dict(color=["red" if v <= 50 else "orange" if v <= 70 else "green" for v in df[stability_col]], size=8)
+    ))
+    for y0, y1, c in [(0, 50, "red"), (50, 70, "orange"), (70, 100, "green")]:
+        fig.add_shape(type="rect", xref="paper", x0=0, x1=1, y0=y0, y1=y1,
+                      fillcolor=c, opacity=0.1, line_width=0, layer="below")
+    fig.update_layout(
+        title=title, xaxis_title=time_col.replace('_', ' ').title(),
+        yaxis=dict(title="Stability Index (%)", range=[0, 101]),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
     st.plotly_chart(fig, use_container_width=True)
     with st.expander("View Data Table"):
         st.dataframe(df)
@@ -237,7 +253,7 @@ calculator_full = get_calculator(df_tool, tolerance)
 
 st.title(f"Run Rate Dashboard: {tool_id}")
 with st.container(border=True):
-    display_main_dashboard(calculator_full.results)
+    display_main_dashboard(calculator_full.results, title=f"Overall Summary (Full Dataset)")
 
 st.markdown("---")
 page = st.radio("Select Analysis View", ["📊 Daily Deep-Dive", "🗓️ Weekly Trends", "📂 View Processed Data"], horizontal=True)
@@ -246,25 +262,34 @@ if page == "📊 Daily Deep-Dive":
     st.header("Daily Analysis")
     df_processed = calculator_full.results["processed_df"]
     available_dates = df_processed["shot_time"].dt.date.unique()
-    selected_date = st.selectbox("Select Date", options=available_dates, index=len(available_dates)-1, format_func=lambda d: pd.to_datetime(d).strftime('%d %B %Y'))
-
-    df_day = df_processed[df_processed["shot_time"].dt.date == selected_date]
     
-    if df_day.empty:
-        st.warning(f"No data for {selected_date.strftime('%d %B %Y')}.")
+    if len(available_dates) == 0:
+        st.warning("No date data available in the uploaded file.")
     else:
-        calc_day = RunRateCalculator(df_day, tolerance)
-        plot_time_bucket_analysis(calc_day.results["run_durations"], calc_day.results["bucket_labels"], calc_day.results["bucket_color_map"], title=f"Time Bucket Analysis for {selected_date.strftime('%d %B %Y')}")
+        selected_date = st.selectbox("Select Date", options=available_dates, index=len(available_dates)-1, format_func=lambda d: pd.to_datetime(d).strftime('%d %B %Y'))
+        df_day = df_processed[df_processed["shot_time"].dt.date == selected_date]
         
-        st.markdown("---")
-        st.subheader("Hourly Trends")
-        hourly_df = calc_day.results['hourly_summary']
-        if not hourly_df.empty:
-            plot_mt_trend(hourly_df, 'hour', 'mttr_min', 'mtbf_min', title="Hourly MTTR & MTBF Trend")
-            plot_stability_trend(hourly_df, 'hour', 'stability_index', title="Hourly Stability Index Trend")
+        if df_day.empty:
+            st.warning(f"No data for {selected_date.strftime('%d %B %Y')}.")
         else:
-            st.info("Not enough data to generate hourly trends for this day.")
-
+            calc_day = RunRateCalculator(df_day, tolerance)
+            
+            # --- Display Day-Specific Dashboard ---
+            with st.container(border=True):
+                display_main_dashboard(calc_day.results, title=f"Dashboard for {selected_date.strftime('%d %B %Y')}")
+            
+            st.markdown("---")
+            st.subheader("Daily Charts")
+            plot_time_bucket_analysis(calc_day.results["run_durations"], calc_day.results["bucket_labels"], calc_day.results["bucket_color_map"], title=f"Time Bucket Analysis for {selected_date.strftime('%d %B %Y')}")
+            
+            st.markdown("---")
+            st.subheader("Hourly Trends for Selected Day")
+            hourly_df = calc_day.results['hourly_summary']
+            if not hourly_df.empty and hourly_df['stops'].sum() > 0:
+                plot_mt_trend(hourly_df, 'hour', 'mttr_min', 'mtbf_min', title="Hourly MTTR & MTBF Trend")
+                plot_stability_trend(hourly_df, 'hour', 'stability_index', title="Hourly Stability Index Trend")
+            else:
+                st.info("No stop events recorded on this day to generate hourly trends.")
 
 elif page == "🗓️ Weekly Trends":
     st.header("Weekly Trend Analysis")
@@ -275,16 +300,30 @@ elif page == "🗓️ Weekly Trends":
     summary_df = pd.DataFrame(weekly_summary_data)
     
     if not summary_df.empty:
+        # --- Display styled summary table first ---
+        st.subheader("Weekly Summary Table")
+        def highlight_stability(val):
+            if pd.isna(val) or val > 70: return ""
+            elif val <= 50: return "background-color: rgba(255, 77, 77, 0.3);"
+            else: return "background-color: rgba(255, 191, 0, 0.3);"
+        
+        display_cols = ['week_start', 'total_shots', 'stop_events', 'mttr_min', 'mtbf_min', 'stability_index']
+        st.dataframe(summary_df[display_cols].style
+            .applymap(highlight_stability, subset=["stability_index"])
+            .format({'mttr_min': '{:.2f}', 'mtbf_min': '{:.2f}', 'stability_index': '{:.2f}%'}),
+            use_container_width=True)
+
+        st.markdown("---")
+        st.subheader("Weekly Trend Charts")
         plot_mt_trend(summary_df, 'week_start', 'mttr_min', 'mtbf_min', title='Weekly MTTR & MTBF Trend')
         plot_stability_trend(summary_df, 'week_start', 'stability_index', title='Weekly Stability Index Trend')
         
-        # Weekly Time Bucket Trend Chart
         all_run_durations = calculator_full.results['run_durations']
         if not all_run_durations.empty:
-            df_processed_with_groups = calculator_full.results['processed_df'][['shot_time', 'run_group']].drop_duplicates()
-            run_times = all_run_durations.merge(df_processed_with_groups, on='run_group', how='left').dropna(subset=['shot_time'])
+            df_proc_groups = calculator_full.results['processed_df'][['shot_time', 'run_group']].drop_duplicates()
+            run_times = all_run_durations.merge(df_proc_groups, on='run_group', how='left').dropna(subset=['shot_time'])
             run_times['week_start'] = run_times['shot_time'].dt.to_period('W-MON').apply(lambda r: r.start_time).dt.date
-            bucket_weekly = run_times.groupby(['week_start', 'time_bucket']).size().reset_index(name='count')
+            bucket_weekly = run_times.groupby(['week_start', 'time_bucket'], observed=False).size().reset_index(name='count')
             
             fig_bucket = px.bar(bucket_weekly, x='week_start', y='count', color='time_bucket', title='Weekly Time Bucket Trend',
                                 category_orders={"time_bucket": calculator_full.results["bucket_labels"]},
