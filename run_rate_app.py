@@ -623,26 +623,6 @@ if uploaded_file:
             df_res = results.get("df", pd.DataFrame()).copy()
             df_vis = results.get("df", pd.DataFrame()).copy()
             stop_events = results.get("stop_events", 0)
-            
-            
-            # --- Download options ---
-            csv = df_vis.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                label="💾 Download Processed Data (CSV)",
-                data=csv,
-                file_name="processed_cycle_data.csv",
-                mime="text/csv"
-            )
-    
-            # ✅ safe Excel export
-            excel_buffer = export_to_excel(df_vis, results)
-            if excel_buffer:
-                st.download_button(
-                    label="📊 Download Excel Report (with Dashboard)",
-                    data=excel_buffer,
-                    file_name="processed_cycle_data.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
     
             # --- Summary ---
             st.markdown("### Shot Counts & Efficiency")
@@ -736,6 +716,24 @@ if uploaded_file:
             st.markdown("### Cycle Data Table (Processed)")
             st.data_editor(df_clean, width="stretch")
     
+            # --- Download options ---
+            csv = df_vis.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="💾 Download Processed Data (CSV)",
+                data=csv,
+                file_name="processed_cycle_data.csv",
+                mime="text/csv"
+            )
+    
+            # ✅ safe Excel export
+            excel_buffer = export_to_excel(df_vis, results)
+            if excel_buffer:
+                st.download_button(
+                    label="📊 Download Excel Report (with Dashboard)",
+                    data=excel_buffer,
+                    file_name="processed_cycle_data.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
 
     # --- Page 3: Daily Analysis (selected week) ---
     elif page == "📅 Daily Analysis":
