@@ -184,8 +184,10 @@ def export_to_excel(df, results):
     summary_data = [
         ["Total Shot Count", results.get("total_shots", 0)],
         ["Normal Shot Count", results.get("normal_shots", 0)],
+        # Corrected f-string on this line
         ["Efficiency", f"{results.get('efficiency', 0) * 100:.2f}%"],
         ["Stop Count", results.get("stop_events", 0)],
+        # Corrected f-string on these lines
         ["Mode CT", f"{results.get('mode_ct', 0):.2f}"],
         ["Lower Limit", f"{results.get('lower_limit', 0):.2f}"],
         ["Upper Limit", f"{results.get('upper_limit', 0):.2f}"]
