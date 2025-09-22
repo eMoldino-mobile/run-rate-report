@@ -222,6 +222,36 @@ st.title(f"Run Rate Dashboard: {tool_id}")
 with st.container(border=True):
     display_main_dashboard(calculator_full.results, title=f"Overall Summary (Full Dataset)")
 
+with st.expander("What is the Stability Index?"):
+    st.markdown("""
+    #### 🔹 Stability Index Calculation
+    The Stability Index (SI) is derived from two key reliability metrics:
+    - **MTBF (Mean Time Between Failures)** → average uptime between stoppages
+    - **MTTR (Mean Time To Repair/Recover)** → average downtime per stoppage
+
+    **Formula:**
+    $$\\text{Stability Index (\\%)} = \\frac{\\text{MTBF}}{\\text{MTBF} + \\text{MTTR}} \\times 100$$
+
+    *Special cases:*
+    - If no stops occur in a period, SI is 100% (perfect stability).
+    - It can be calculated at different granularities: Hourly, Daily, Weekly, etc.
+
+    ---
+    #### 🔹 Stability Index Meaning
+    The Stability Index gives a single number representing production consistency:
+    - 🟩 **70–100% (Low Risk / Stable):** Long runs between stoppages and short recovery times. The process is smooth.
+    - 🟨 **50–70% (Medium Risk / Watch):** Moderate stoppages or slower-than-normal recoveries. Flow is inconsistent and needs monitoring.
+    - 🟥 **0–50% (High Risk / Unstable):** Frequent stops with long recovery. Production is highly unstable and requires intervention.
+    
+    ---
+    #### 🔹 Why It’s Useful
+    - Combines uptime (MTBF) and downtime (MTTR) into one score.
+    - Easier for operators and managers to interpret than raw MTTR/MTBF values.
+    - Supports trend analysis (by hour, day, week) to spot risk patterns.
+
+    👉 In short, the **Stability Index is a risk-oriented health score of your production flow** — higher is better, with 100% meaning no stoppages.
+    """)
+
 st.markdown("---")
 page = st.radio("Select Analysis View", ["📊 Daily Deep-Dive", "🗓️ Weekly Trends", "📂 View Processed Data"], horizontal=True, label_visibility="collapsed")
 
@@ -247,7 +277,35 @@ if page == "📊 Daily Deep-Dive":
             st.markdown("---")
             st.subheader("Daily Charts")
             plot_time_bucket_analysis(calc_day.results["run_durations"], calc_day.results["bucket_labels"], calc_day.results["bucket_color_map"], title=f"Time Bucket Analysis for {selected_date.strftime('%d %b %Y')}")
-            
+
+            # --- NEW: Hourly Breakdown of Continuous Runs ---
+            st.markdown("---")
+            st.subheader("Hourly Breakdown of Continuous Runs")
+            run_durations_day = calc_day.results['run_durations']
+            if not run_durations_day.empty:
+                # Associate each run group with its starting hour
+                run_start_times = df_day[['run_group', 'shot_time']].drop_duplicates(subset=['run_group'], keep='first')
+                run_times = run_durations_day.merge(run_start_times, on='run_group', how='left')
+                run_times['hour'] = run_times['shot_time'].dt.hour
+                
+                bucket_hourly = run_times.groupby(['hour', 'time_bucket'], observed=False).size().reset_index(name='count')
+                
+                if not bucket_hourly.empty:
+                    fig_hourly_bucket = px.bar(
+                        bucket_hourly, x='hour', y='count', color='time_bucket',
+                        title=f'Hourly Distribution of Run Durations on {selected_date.strftime("%d %b %Y")}',
+                        barmode='stack',
+                        category_orders={"time_bucket": calc_day.results["bucket_labels"]},
+                        color_discrete_map=calc_day.results["bucket_color_map"],
+                        labels={'hour': 'Hour of Day', 'count': 'Number of Runs', 'time_bucket': 'Run Duration (min)'}
+                    )
+                    st.plotly_chart(fig_hourly_bucket, use_container_width=True)
+                else:
+                    st.info("No run data to display for hourly bucket breakdown.")
+            else:
+                st.info("No run data to display for hourly bucket breakdown.")
+
+
             st.markdown("---")
             st.subheader("Hourly Trends for Selected Day")
             hourly_df = calc_day.results['hourly_summary']
@@ -279,7 +337,6 @@ elif page == "🗓️ Weekly Trends":
         summary_df['bad_shots'] = summary_df['total_shots'] - summary_df['normal_shots']
         display_cols = ['week_start', 'total_shots', 'normal_shots', 'bad_shots', 'stop_events', 'mttr_min', 'mtbf_min', 'stability_index']
         
-        # Rename for display
         summary_display = summary_df[display_cols].copy()
         summary_display.rename(columns={
             'week_start': 'Week Starting', 'total_shots': 'Total Shots', 'normal_shots': 'Normal Shots',
