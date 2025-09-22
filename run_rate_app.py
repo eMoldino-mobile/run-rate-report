@@ -725,15 +725,38 @@ if uploaded_file:
                 mime="text/csv"
             )
     
-            # ✅ safe Excel export
+            # ✅ Define a safe Excel export function right here
+            from openpyxl import Workbook
+            from openpyxl.utils.dataframe import dataframe_to_rows
+            from io import BytesIO
+    
+            def export_to_excel(df, results):
+                wb = Workbook()
+                ws1 = wb.active
+                ws1.title = "Dashboard"
+                ws1.append(["Metric", "Value"])
+                ws1.append(["Total Shot Count", results.get("total_shots", 0)])
+                ws1.append(["Normal Shot Count", results.get("normal_shots", 0)])
+                ws1.append(["Efficiency", f"{results.get('efficiency', 0)*100:.2f}%"])
+                ws1.append(["Stop Count", results.get("stop_events", 0)])
+    
+                ws2 = wb.create_sheet("Processed Data")
+                ws2.append(list(df.columns))
+                for r in dataframe_to_rows(df, index=False, header=False):
+                    ws2.append(r)
+    
+                buffer = BytesIO()
+                wb.save(buffer)
+                buffer.seek(0)
+                return buffer
+    
             excel_buffer = export_to_excel(df_vis, results)
-            if excel_buffer:
-                st.download_button(
-                    label="📊 Download Excel Report (with Dashboard)",
-                    data=excel_buffer,
-                    file_name="processed_cycle_data.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+            st.download_button(
+                label="📊 Download Excel Report (with Dashboard)",
+                data=excel_buffer,
+                file_name="processed_cycle_data.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 
     # --- Page 3: Daily Analysis (selected week) ---
     elif page == "📅 Daily Analysis":
