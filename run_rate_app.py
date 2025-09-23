@@ -129,6 +129,38 @@ class RunRateCalculator:
 
 # --- UI Helper and Plotting Functions ---
 
+def load_css():
+    """Injects custom CSS to handle theme-aware text colors."""
+    st.markdown("""
+    <style>
+        .metric-box {
+            background-color: #FFFFFF;
+            border: 1px solid #e1e1e1;
+            border-radius: 5px;
+            padding: 1rem;
+            text-align: center;
+        }
+        .metric-label {
+            font-size: 0.9rem;
+            color: #555555; /* Default for light mode */
+        }
+        .metric-value {
+            font-size: 1.75rem;
+            font-weight: bold;
+            color: #111111; /* Default for light mode */
+            margin-bottom: 0;
+        }
+        
+        /* CSS for Streamlit's dark theme */
+        body[data-theme="dark"] .metric-label {
+            color: #AAAAAA;
+        }
+        body[data-theme="dark"] .metric-value {
+            color: #FFFFFF;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
 def create_gauge(value, title, steps=None):
     gauge_config = {'axis': {'range': [0, 100]}}
     if steps:
@@ -190,6 +222,7 @@ def styled_metric_box(label, value, background_color="#FFFFFF"):
     """, unsafe_allow_html=True)
 
 # --- Main Application Logic ---
+load_css()
 st.sidebar.title("Run Rate Report Generator ⚙️")
 uploaded_file = st.sidebar.file_uploader("Upload Run Rate Excel", type=["xlsx", "xls"])
 
@@ -264,15 +297,14 @@ else:
                 ]
                 st.plotly_chart(create_gauge(results_day.get('stability_index', 0), "Stability Index (%)", steps=stability_steps), use_container_width=True)
         
-        st.subheader("Daily Cycle Time Parameters")
-        with st.container(border=True):
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                styled_metric_box("Lower Limit (sec)", f"{results_day.get('lower_limit', 0):.2f}")
-            with col2:
-                styled_metric_box("Mode CT (sec)", f"{results_day.get('mode_ct', 0):.2f}", background_color="#e0f3ff")
-            with col3:
-                styled_metric_box("Upper Limit (sec)", f"{results_day.get('upper_limit', 0):.2f}")
+        def styled_metric_box(label, value, background_color="transparent"):
+            """Creates a styled box that uses CSS classes for theme awareness."""
+            st.markdown(f"""
+            <div class="metric-box" style="background-color: {background_color};">
+                <div class="metric-label">{label}</div>
+                <p class="metric-value">{value}</p>
+            </div>
+            """, unsafe_allow_html=True)
                 
         # --- SECTION 2: Main CT Graph ---
         plot_shot_bar_chart(results_day['processed_df'], results_day['lower_limit'], results_day['upper_limit'], results_day['mode_ct'])
