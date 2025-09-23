@@ -33,18 +33,18 @@ class RunRateCalculator:
             df["shot_time"] = pd.to_datetime(df["SHOT TIME"], errors="coerce")
         else:
             return pd.DataFrame()
-            
+
         df = df.dropna(subset=["shot_time"]).sort_values("shot_time").reset_index(drop=True)
         if df.empty: return pd.DataFrame()
 
         df["ct_diff_sec"] = df["shot_time"].diff().dt.total_seconds()
-        
+
         if "ACTUAL CT" in df.columns:
             ct_from_col = df["ACTUAL CT"].shift(1)
             df["ct_diff_sec"] = np.where(ct_from_col == 999.9, df["ct_diff_sec"], ct_from_col)
-        
+
         if not df.empty and pd.isna(df.loc[0, "ct_diff_sec"]):
-             df.loc[0, "ct_diff_sec"] = df.loc[0, "ACTUAL CT"] if "ACTUAL CT" in df.columns else 0
+                df.loc[0, "ct_diff_sec"] = df.loc[0, "ACTUAL CT"] if "ACTUAL CT" in df.columns else 0
         return df
 
     def _calculate_hourly_summary(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -52,12 +52,12 @@ class RunRateCalculator:
 
         df['hour'] = df['shot_time'].dt.hour
         df['downtime_min_event'] = np.where(df['stop_event'], df['ct_diff_sec'] / 60, np.nan)
-        
+
         hourly_groups = df.groupby('hour')
         stops = hourly_groups['stop_event'].sum()
         total_downtime = hourly_groups['downtime_min_event'].sum()
         uptime_min = df[df['stop_flag'] == 0].groupby('hour')['ct_diff_sec'].sum() / 60
-        
+
         hourly_summary = pd.DataFrame({'stops': stops, 'total_downtime_min': total_downtime})
         hourly_summary = hourly_summary.join(uptime_min.rename('uptime_min')).fillna(0).reset_index()
 
@@ -75,9 +75,9 @@ class RunRateCalculator:
         mode_ct = df["ACTUAL CT"].mode().iloc[0] if not df["ACTUAL CT"].mode().empty else 0
         lower_limit = mode_ct * (1 - self.tolerance)
         upper_limit = mode_ct * (1 + self.tolerance)
-        
+
         stop_condition = ((df["ct_diff_sec"] < lower_limit) | (df["ct_diff_sec"] > upper_limit)) & (df["ct_diff_sec"] <= 28800)
-        
+
         df["stop_flag"] = np.where(stop_condition, 1, 0)
         df.loc[0, "stop_flag"] = 0
         df["stop_event"] = (df["stop_flag"] == 1) & (df["stop_flag"].shift(1, fill_value=0) == 0)
@@ -86,10 +86,10 @@ class RunRateCalculator:
         stop_events = df["stop_event"].sum()
         normal_shots = total_shots - df["stop_flag"].sum()
         efficiency = normal_shots / total_shots if total_shots > 0 else 0
-        
+
         downtime_per_event_sec = df.loc[df["stop_event"], "ct_diff_sec"]
         mttr_min = (downtime_per_event_sec.mean() / 60) if stop_events > 0 else 0
-        
+
         total_runtime_sec = (df["shot_time"].max() - df["shot_time"].min()).total_seconds() if total_shots > 1 else 0
         downtime_sec = df.loc[df["stop_flag"] == 1, "ct_diff_sec"].sum()
         production_time_sec = total_runtime_sec - downtime_sec
@@ -98,13 +98,13 @@ class RunRateCalculator:
 
         df["run_group"] = df["stop_event"].cumsum()
         run_durations = df[df['stop_flag'] == 0].groupby("run_group")["ct_diff_sec"].sum().div(60).reset_index(name="duration_min")
-        
+
         max_minutes = min(run_durations["duration_min"].max() if not run_durations.empty else 0, 240)
         upper_bound = int(np.ceil(max_minutes / 20.0) * 20)
         edges = list(range(0, upper_bound + 20, 20)) if upper_bound > 0 else [0, 20]
         labels = [f"{edges[i]}-{edges[i+1]}" for i in range(len(edges)-1)]
         run_durations["time_bucket"] = pd.cut(run_durations["duration_min"], bins=edges, labels=labels, right=False)
-        
+
         reds = px.colors.sequential.Reds[4:8]
         blues = px.colors.sequential.Blues[3:9]
         greens = px.colors.sequential.Greens[4:9]
@@ -115,7 +115,7 @@ class RunRateCalculator:
             if lower_bound < 60: bucket_color_map[label] = reds[red_idx % len(reds)]; red_idx += 1
             elif 60 <= lower_bound < 160: bucket_color_map[label] = blues[blue_idx % len(blues)]; blue_idx += 1
             else: bucket_color_map[label] = greens[green_idx % len(greens)]; green_idx += 1
-        
+
         hourly_summary = self._calculate_hourly_summary(df)
 
         return {
@@ -132,7 +132,7 @@ def create_gauge(value, title, steps=None):
     gauge_config = {'axis': {'range': [0, 100]}}
     if steps:
         gauge_config['steps'] = steps
-        gauge_config['bar'] = {'color': '#262730'} 
+        gauge_config['bar'] = {'color': '#262730'}
     else:
         gauge_config['bar'] = {'color': "darkblue"}
         gauge_config['bgcolor'] = "lightgray"
@@ -146,19 +146,39 @@ def create_gauge(value, title, steps=None):
     return fig
 
 def plot_shot_bar_chart(df, lower_limit, upper_limit, mode_ct):
+    # Add color coding for stops
+    df = df.copy()
     df['color'] = np.where(df['stop_flag'] == 1, PASTEL_COLORS['red'], '#3498DB')
+
+    # Plot bars with x = shot_time
     fig = go.Figure()
-    fig.add_shape(type="rect", xref="paper", yref="y", x0=0, y0=lower_limit, x1=1, y1=upper_limit,
-                  fillcolor=PASTEL_COLORS['green'], opacity=0.2, layer="below", line_width=0)
-    
+
+    # Add green tolerance band
+    fig.add_shape(
+        type="rect", xref="x", yref="y",
+        x0=df['shot_time'].min(), y0=lower_limit,
+        x1=df['shot_time'].max(), y1=upper_limit,
+        fillcolor=PASTEL_COLORS['green'], opacity=0.2,
+        layer="below", line_width=0
+    )
+
+    # Cycle time bars
     fig.add_trace(go.Bar(
-        x=df.index, y=df['ct_diff_sec'],
+        x=df['shot_time'],  # <-- time on X axis
+        y=df['ct_diff_sec'],
         marker_color=df['color'],
-        name='Shots'
+        name='Cycle Time',
     ))
+
     fig.update_layout(
         title="Cycle Time per Shot vs. Daily Tolerance",
-        xaxis_title="Shot Sequence", yaxis_title="Cycle Time (sec)"
+        xaxis_title="Time",
+        yaxis_title="Cycle Time (sec)",
+        bargap=0.05,
+        xaxis=dict(
+            tickformat="%H:%M",  # format timestamps as hours:minutes
+            showgrid=True
+        )
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -195,7 +215,7 @@ id_col = "TOOLING ID" if "TOOLING ID" in df_raw.columns else "EQUIPMENT CODE"
 if id_col not in df_raw.columns:
     st.error(f"File must contain 'TOOLING ID' or 'EQUIPMENT CODE'.")
     st.stop()
-    
+
 tool_id = st.sidebar.selectbox(f"Select {id_col}", df_raw[id_col].unique())
 df_tool = df_raw.loc[df_raw[id_col] == tool_id].copy()
 
@@ -225,16 +245,17 @@ if len(available_dates) == 0:
     st.warning("No date data available in the uploaded file.")
 else:
     selected_date = st.selectbox("Select Date", options=available_dates, index=len(available_dates)-1, format_func=lambda d: pd.to_datetime(d).strftime('%d %b %Y'))
-    
+
     df_day = df_processed[df_processed["shot_time"].dt.date == selected_date]
     if df_day.empty:
         st.warning(f"No data for {selected_date.strftime('%d %b %Y')}.")
     else:
         calc_day = RunRateCalculator(df_day, tolerance)
         results_day = calc_day.results
-        
+
+        # --- SECTION 1: Summary ---
         st.header(f"Daily Analysis for {selected_date.strftime('%d %b %Y')}")
-        
+
         with st.container(border=True):
             col1, col2, col3 = st.columns(3)
             col1.metric("Total Shots", f"{results_day.get('total_shots', 0):,}")
@@ -247,12 +268,12 @@ else:
                 st.plotly_chart(create_gauge(results_day.get('efficiency', 0) * 100, "Efficiency (%)"), use_container_width=True)
             with col2:
                 stability_steps = [
-                    {'range': [0, 50], 'color': PASTEL_COLORS['red']}, 
-                    {'range': [50, 70], 'color': PASTEL_COLORS['orange']}, 
+                    {'range': [0, 50], 'color': PASTEL_COLORS['red']},
+                    {'range': [50, 70], 'color': PASTEL_COLORS['orange']},
                     {'range': [70, 100], 'color': PASTEL_COLORS['green']}
                 ]
                 st.plotly_chart(create_gauge(results_day.get('stability_index', 0), "Stability Index (%)", steps=stability_steps), use_container_width=True)
-        
+
         with st.container(border=True):
             col1, col2, col3 = st.columns(3)
             col1.metric("Lower Limit (sec)", f"{results_day.get('lower_limit', 0):.2f}")
@@ -261,8 +282,10 @@ else:
                     st.metric("Mode CT (sec)", f"{results_day.get('mode_ct', 0):.2f}")
             col3.metric("Upper Limit (sec)", f"{results_day.get('upper_limit', 0):.2f}")
 
+        # --- SECTION 2: Main CT Graph ---
         plot_shot_bar_chart(results_day['processed_df'], results_day['lower_limit'], results_day['upper_limit'], results_day['mode_ct'])
-        
+
+        # --- SECTION 3: Graph Section ---
         st.markdown("---")
         st.header("Hourly Analysis")
 
@@ -307,7 +330,7 @@ else:
             fig_mt.add_trace(go.Scatter(x=hourly_summary['hour'], y=hourly_summary['mttr_min'], name='MTTR (min)', mode='lines+markers', line=dict(color='red', width=4)))
             fig_mt.add_trace(go.Scatter(x=hourly_summary['hour'], y=hourly_summary['mtbf_min'], name='MTBF (min)', mode='lines+markers', line=dict(color='green', width=4), yaxis='y2'))
             fig_mt.update_layout(title="Hourly MTTR & MTBF Trend", yaxis=dict(title='MTTR (min)'), yaxis2=dict(title='MTBF (min)', overlaying='y', side='right'),
-                               legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_mt, use_container_width=True)
             with st.expander("View MTTR/MTBF Data"):
                 st.dataframe(hourly_summary)
