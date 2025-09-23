@@ -222,7 +222,6 @@ def styled_metric_box(label, value, background_color="#FFFFFF"):
     """, unsafe_allow_html=True)
 
 # --- Main Application Logic ---
-load_css()
 st.sidebar.title("Run Rate Report Generator ⚙️")
 uploaded_file = st.sidebar.file_uploader("Upload Run Rate Excel", type=["xlsx", "xls"])
 
@@ -297,14 +296,15 @@ else:
                 ]
                 st.plotly_chart(create_gauge(results_day.get('stability_index', 0), "Stability Index (%)", steps=stability_steps), use_container_width=True)
         
-        def styled_metric_box(label, value, background_color="transparent"):
-            """Creates a styled box that uses CSS classes for theme awareness."""
-            st.markdown(f"""
-            <div class="metric-box" style="background-color: {background_color};">
-                <div class="metric-label">{label}</div>
-                <p class="metric-value">{value}</p>
-            </div>
-            """, unsafe_allow_html=True)
+        st.subheader("Daily Cycle Time Parameters")
+        with st.container(border=True):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                styled_metric_box("Lower Limit (sec)", f"{results_day.get('lower_limit', 0):.2f}")
+            with col2:
+                styled_metric_box("Mode CT (sec)", f"{results_day.get('mode_ct', 0):.2f}", background_color="#e0f3ff")
+            with col3:
+                styled_metric_box("Upper Limit (sec)", f"{results_day.get('upper_limit', 0):.2f}")
                 
         # --- SECTION 2: Main CT Graph ---
         plot_shot_bar_chart(results_day['processed_df'], results_day['lower_limit'], results_day['upper_limit'], results_day['mode_ct'])
