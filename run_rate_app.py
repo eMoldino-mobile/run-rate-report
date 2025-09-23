@@ -68,10 +68,10 @@ class RunRateCalculator:
         hourly_summary.loc[hourly_summary['stops'] == 0, 'stability_index'] = 100.0
         return hourly_summary
 
-        def _calculate_all_metrics(self) -> dict:
-            df = self._prepare_data()
-            if df.empty or "ACTUAL CT" not in df.columns: 
-                return {}
+    def _calculate_all_metrics(self) -> dict:
+        df = self._prepare_data()
+        if df.empty or "ACTUAL CT" not in df.columns: 
+            return {}
     
             mode_ct = df["ACTUAL CT"].mode().iloc[0] if not df["ACTUAL CT"].mode().empty else 0
             lower_limit = mode_ct * (1 - self.tolerance)
