@@ -124,14 +124,6 @@ def create_gauge(value, title, steps=None):
     fig.update_layout(height=250, margin=dict(l=20, r=20, t=50, b=20))
     return fig
 
-def styled_metric_box(label, value, background_color="#FFFFFF"):
-    st.markdown(f"""
-    <div style="background-color: {background_color}; border: 1px solid #e1e1e1; border-radius: 5px; padding: 1em; text-align: center;">
-        <label style="font-size: 0.9rem; color: #555;">{label}</label>
-        <p style="font-size: 1.75rem; font-weight: bold; margin-bottom: 0;">{value}</p>
-    </div>
-    """, unsafe_allow_html=True)
-
 def plot_shot_bar_chart(df, lower_limit, upper_limit, mode_ct):
     df['color'] = np.where(df['stop_flag'] == 1, PASTEL_COLORS['red'], '#3498DB')
     fig = go.Figure()
@@ -225,25 +217,18 @@ else:
                 ]
                 st.plotly_chart(create_gauge(results_day.get('stability_index', 0), "Stability Index (%)", steps=stability_steps), use_container_width=True)
         
-        # --- Mini Dashboard 3: CT Parameters (Corrected Layout) ---
+        # --- Mini Dashboard 3: CT Parameters ---
         with st.container(border=True):
             col1, col2, col3 = st.columns(3)
-            with col1:
-                styled_metric_box("Lower Limit (sec)", f"{results_day.get('lower_limit', 0):.2f}")
+            col1.metric("Lower Limit (sec)", f"{results_day.get('lower_limit', 0):.2f}")
             with col2:
-                styled_metric_box("Mode CT (sec)", f"{results_day.get('mode_ct', 0):.2f}", background_color="#e0f3ff")
-            with col3:
-                styled_metric_box("Upper Limit (sec)", f"{results_day.get('upper_limit', 0):.2f}")
+                # Highlight the Mode CT
+                st.markdown(f"""<div style="background-color: #e0f3ff; border-radius: 5px; padding: 0.1em 0.5em 0.5em 0.5em; text-align: center; margin-top: 1.2em;">
+                                <label style="font-size: 0.8rem;">Mode CT (sec)</label>
+                                <p style="font-size: 1.75rem; font-weight: bold; margin-bottom: 0;">{results_day.get('mode_ct', 0):.2f}</p>
+                                </div>""", unsafe_allow_html=True)
+            col3.metric("Upper Limit (sec)", f"{results_day.get('upper_limit', 0):.2f}")
 
-        # --- Remainder of the page ---
-        st.markdown("---")
-        plot_shot_bar_chart(results_day['processed_df'], results_day['lower_limit'], results_day['upper_limit'], results_day['mode_ct'])
-
-        # --- SECTION 2: Main CT Graph ---
-        st.markdown("---")
-        plot_shot_bar_chart(results_day['processed_df'], results_day['lower_limit'], results_day['upper_limit'], results_day['mode_ct'])
-        with st.expander("View Shot Data"):
-            st.dataframe(results_day['processed_df'])
         
         # --- SECTION 3: Graph Section ---
         st.markdown("---")
