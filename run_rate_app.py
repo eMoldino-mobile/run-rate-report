@@ -23,7 +23,6 @@ def load_css():
 
 # --- Core Calculation Class ---
 class RunRateCalculator:
-    """Encapsulates all logic for calculating run rate and stability metrics."""
     def __init__(self, df: pd.DataFrame, tolerance: float):
         self.df_raw = df.copy()
         self.tolerance = tolerance
@@ -320,11 +319,26 @@ if page == "📊 Daily Deep-Dive":
                 st.caption("This chart shows the average cycle time for each hour (red line) compared to the acceptable tolerance band (grey area) for the entire day.")
             else:
                 st.info("Not enough data to generate the hourly cycle time trend for this day.")
-
+            
             st.markdown("---")
             st.subheader("Additional Daily Charts")
             plot_time_bucket_analysis(results_day["run_durations"], results_day["bucket_labels"], results_day["bucket_color_map"], f"Time Bucket Analysis")
             st.caption("This chart groups continuous production runs by their duration. Shorter red bars indicate frequent stops, while longer blue bars show periods of stable production.")
+
+            st.markdown("---")
+            st.subheader("🚨 Stoppage Alerts")
+            df_day_processed = calc_day.results['processed_df']
+            stoppage_alerts = df_day_processed[df_day_processed['stop_event']].copy()
+            
+            if stoppage_alerts.empty:
+                st.info("✅ No new stop events were recorded on this day.")
+            else:
+                stop_event_indices = stoppage_alerts.index.to_series()
+                shots_since_last = stop_event_indices.diff().fillna(stop_event_indices.iloc[0] + 1).astype(int) - 1
+                stoppage_alerts['Shots Since Last Stop'] = shots_since_last.values
+                stoppage_alerts["Duration (min)"] = (stoppage_alerts["ct_diff_sec"] / 60)
+                display_table = stoppage_alerts[['shot_time', 'Duration (min)', 'Shots Since Last Stop']].rename(columns={"shot_time": "Event Time"})
+                st.dataframe(display_table.style.format({'Duration (min)': '{:.1f}'}), use_container_width=True)
 
 elif page == "🗓️ Weekly Trends":
     st.header("Weekly Trend Analysis")
