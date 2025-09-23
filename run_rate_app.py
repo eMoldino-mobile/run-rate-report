@@ -84,18 +84,17 @@ class RunRateCalculator:
 
         total_shots = len(df)
         stop_events = df["stop_event"].sum()
-        downtime_sec = df.loc[df["stop_flag"] == 1, "ct_diff_sec"].sum()
-        total_runtime_sec = (df["shot_time"].max() - df["shot_time"].min()).total_seconds() if total_shots > 1 else 0
-        production_time_sec = total_runtime_sec - downtime_sec
+        normal_shots = total_shots - df["stop_flag"].sum()
+        efficiency = normal_shots / total_shots if total_shots > 0 else 0
         
         downtime_per_event_sec = df.loc[df["stop_event"], "ct_diff_sec"]
         mttr_min = (downtime_per_event_sec.mean() / 60) if stop_events > 0 else 0
-        mtbf_min = (production_time_sec / 60 / stop_events) if stop_events > 0 else (production_time_sec / 60)
         
+        total_runtime_sec = (df["shot_time"].max() - df["shot_time"].min()).total_seconds() if total_shots > 1 else 0
+        downtime_sec = df.loc[df["stop_flag"] == 1, "ct_diff_sec"].sum()
+        production_time_sec = total_runtime_sec - downtime_sec
+        mtbf_min = (production_time_sec / 60 / stop_events) if stop_events > 0 else (production_time_sec / 60)
         stability_index = (mtbf_min / (mtbf_min + mttr_min) * 100) if (mtbf_min + mttr_min) > 0 else (100.0 if stop_events == 0 else 0.0)
-
-        normal_shots = total_shots - df["stop_flag"].sum()
-        efficiency = normal_shots / total_shots if total_shots > 0 else 0
 
         df["run_group"] = df["stop_event"].cumsum()
         run_durations = df[df['stop_flag'] == 0].groupby("run_group")["ct_diff_sec"].sum().div(60).reset_index(name="duration_min")
@@ -122,44 +121,12 @@ class RunRateCalculator:
         return {
             "processed_df": df, "mode_ct": mode_ct, "lower_limit": lower_limit, "upper_limit": upper_limit,
             "total_shots": total_shots, "efficiency": efficiency, "stop_events": stop_events, "normal_shots": normal_shots,
-            "downtime_min": downtime_sec / 60, "mttr_min": mttr_min, "mtbf_min": mtbf_min, "stability_index": stability_index,
+            "mttr_min": mttr_min, "mtbf_min": mtbf_min, "stability_index": stability_index,
             "run_durations": run_durations, "bucket_labels": labels, "bucket_color_map": bucket_color_map,
             "hourly_summary": hourly_summary
         }
 
 # --- UI Helper and Plotting Functions ---
-
-def load_css():
-    """Injects custom CSS to handle theme-aware text colors."""
-    st.markdown("""
-    <style>
-        .metric-box {
-            background-color: #FFFFFF;
-            border: 1px solid #e1e1e1;
-            border-radius: 5px;
-            padding: 1rem;
-            text-align: center;
-        }
-        .metric-label {
-            font-size: 0.9rem;
-            color: #555555; /* Default for light mode */
-        }
-        .metric-value {
-            font-size: 1.75rem;
-            font-weight: bold;
-            color: #111111; /* Default for light mode */
-            margin-bottom: 0;
-        }
-        
-        /* CSS for Streamlit's dark theme */
-        body[data-theme="dark"] .metric-label {
-            color: #AAAAAA;
-        }
-        body[data-theme="dark"] .metric-value {
-            color: #FFFFFF;
-        }
-    </style>
-    """, unsafe_allow_html=True)
 
 def create_gauge(value, title, steps=None):
     gauge_config = {'axis': {'range': [0, 100]}}
@@ -211,15 +178,6 @@ def plot_stability_trend(df):
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     st.plotly_chart(fig, use_container_width=True)
-    
-def styled_metric_box(label, value, background_color="#FFFFFF"):
-    """Creates a styled box for a single metric that is readable in both light and dark mode."""
-    st.markdown(f"""
-    <div style="background-color: {background_color}; border: 1px solid #e1e1e1; border-radius: 5px; padding: 1rem; text-align: center;">
-        <div style="font-size: 0.9rem; color: var(--text-color); opacity: 0.7;">{label}</div>
-        <div style="font-size: 1.75rem; font-weight: bold; color: var(--text-color);">{value}</div>
-    </div>
-    """, unsafe_allow_html=True)
 
 # --- Main Application Logic ---
 st.sidebar.title("Run Rate Report Generator ⚙️")
@@ -296,16 +254,14 @@ else:
                 ]
                 st.plotly_chart(create_gauge(results_day.get('stability_index', 0), "Stability Index (%)", steps=stability_steps), use_container_width=True)
         
-        st.subheader("Daily Cycle Time Parameters")
         with st.container(border=True):
             col1, col2, col3 = st.columns(3)
-            with col1:
-                styled_metric_box("Lower Limit (sec)", f"{results_day.get('lower_limit', 0):.2f}")
+            col1.metric("Lower Limit (sec)", f"{results_day.get('lower_limit', 0):.2f}")
             with col2:
-                styled_metric_box("Mode CT (sec)", f"{results_day.get('mode_ct', 0):.2f}", background_color="#e0f3ff")
-            with col3:
-                styled_metric_box("Upper Limit (sec)", f"{results_day.get('upper_limit', 0):.2f}")
-                
+                with st.container(border=True):
+                    st.metric("Mode CT (sec)", f"{results_day.get('mode_ct', 0):.2f}")
+            col3.metric("Upper Limit (sec)", f"{results_day.get('upper_limit', 0):.2f}")
+
         # --- SECTION 2: Main CT Graph ---
         plot_shot_bar_chart(results_day['processed_df'], results_day['lower_limit'], results_day['upper_limit'], results_day['mode_ct'])
         with st.expander("View Shot Data"):
