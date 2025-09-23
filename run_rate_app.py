@@ -10,6 +10,7 @@ import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 st.set_page_config(layout="wide", page_title="Run Rate Analysis Dashboard")
 
+
 # --- Core Calculation Class ---
 class RunRateCalculator:
     """Encapsulates all logic for calculating run rate and stability metrics."""
@@ -342,6 +343,7 @@ with tab2:
                                 color_discrete_map=calculator_full.results["bucket_color_map"],
                                 labels={'week_start': 'Week Starting', 'count': 'Number of Occurrences', 'time_bucket': 'Run Duration (min)'})
             st.plotly_chart(fig_bucket, use_container_width=True)
+
 
 with tab3:
     st.header("Processed Cycle Data")
