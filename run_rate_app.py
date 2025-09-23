@@ -184,7 +184,7 @@ def styled_metric_box(label, value, background_color="#FFFFFF"):
     """Creates a styled box for a single metric that is readable in both light and dark mode."""
     st.markdown(f"""
     <div style="background-color: {background_color}; border: 1px solid #e1e1e1; border-radius: 5px; padding: 1rem; text-align: center;">
-        <div style="font-size: 0.9rem; color: gray;">{label}</div>
+        <div style="font-size: 0.9rem; color: var(--text-color); opacity: 0.7;">{label}</div>
         <div style="font-size: 1.75rem; font-weight: bold; color: var(--text-color);">{value}</div>
     </div>
     """, unsafe_allow_html=True)
