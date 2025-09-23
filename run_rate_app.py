@@ -264,16 +264,6 @@ else:
                 ]
                 st.plotly_chart(create_gauge(results_day.get('stability_index', 0), "Stability Index (%)", steps=stability_steps), use_container_width=True)
         
-        with st.container(border=True):
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Lower Limit (sec)", f"{results_day.get('lower_limit', 0):.2f}")
-            with col2:
-                st.markdown(f"""<div style="background-color: #e0f3ff; border-radius: 5px; padding: 0.1em 0.5em 0.5em 0.5em; text-align: center; margin-top: 1.2em;">
-                                <label style="font-size: 0.8rem;">Mode CT (sec)</label>
-                                <p style="font-size: 1.75rem; font-weight: bold; margin-bottom: 0;">{results_day.get('mode_ct', 0):.2f}</p>
-                                </div>""", unsafe_allow_html=True)
-            col3.metric("Upper Limit (sec)", f"{results_day.get('upper_limit', 0):.2f}")
-        
         st.subheader("Daily Cycle Time Parameters")
         with st.container(border=True):
             col1, col2, col3 = st.columns(3)
