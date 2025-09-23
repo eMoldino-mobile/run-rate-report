@@ -146,39 +146,19 @@ def create_gauge(value, title, steps=None):
     return fig
 
 def plot_shot_bar_chart(df, lower_limit, upper_limit, mode_ct):
-    # Add color coding for stops
-    df = df.copy()
     df['color'] = np.where(df['stop_flag'] == 1, PASTEL_COLORS['red'], '#3498DB')
-
-    # Plot bars with x = shot_time
     fig = go.Figure()
-
-    # Add green tolerance band
-    fig.add_shape(
-        type="rect", xref="x", yref="y",
-        x0=df['shot_time'].min(), y0=lower_limit,
-        x1=df['shot_time'].max(), y1=upper_limit,
-        fillcolor=PASTEL_COLORS['green'], opacity=0.2,
-        layer="below", line_width=0
-    )
-
-    # Cycle time bars
+    fig.add_shape(type="rect", xref="paper", yref="y", x0=0, y0=lower_limit, x1=1, y1=upper_limit,
+                  fillcolor=PASTEL_COLORS['green'], opacity=0.2, layer="below", line_width=0)
+    
     fig.add_trace(go.Bar(
-        x=df['shot_time'],  # <-- time on X axis
-        y=df['ct_diff_sec'],
+        x=df.index, y=df['ct_diff_sec'],
         marker_color=df['color'],
-        name='Cycle Time',
+        name='Shots'
     ))
-
     fig.update_layout(
         title="Cycle Time per Shot vs. Daily Tolerance",
-        xaxis_title="Time",
-        yaxis_title="Cycle Time (sec)",
-        bargap=0.05,
-        xaxis=dict(
-            tickformat="%H:%M",  # format timestamps as hours:minutes
-            showgrid=True
-        )
+        xaxis_title="Shot Sequence", yaxis_title="Cycle Time (sec)"
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -253,7 +233,6 @@ else:
         calc_day = RunRateCalculator(df_day, tolerance)
         results_day = calc_day.results
         
-        # --- SECTION 1: Summary ---
         st.header(f"Daily Analysis for {selected_date.strftime('%d %b %Y')}")
         
         with st.container(border=True):
@@ -282,10 +261,8 @@ else:
                     st.metric("Mode CT (sec)", f"{results_day.get('mode_ct', 0):.2f}")
             col3.metric("Upper Limit (sec)", f"{results_day.get('upper_limit', 0):.2f}")
 
-        # --- SECTION 2: Main CT Graph ---
         plot_shot_bar_chart(results_day['processed_df'], results_day['lower_limit'], results_day['upper_limit'], results_day['mode_ct'])
         
-        # --- SECTION 3: Graph Section ---
         st.markdown("---")
         st.header("Hourly Analysis")
 
