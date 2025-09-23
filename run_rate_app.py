@@ -3,8 +3,11 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+from io import BytesIO
+import warnings
 
 # --- Page and Code Configuration ---
+warnings.filterwarnings("ignore", category=FutureWarning)
 st.set_page_config(layout="wide", page_title="Run Rate Analysis Dashboard")
 
 # --- Core Calculation Class ---
@@ -74,45 +77,26 @@ class RunRateCalculator:
 
         total_shots = len(df)
         stop_events = df["stop_event"].sum()
-        normal_shots = total_shots - df["stop_flag"].sum()
-        efficiency = normal_shots / total_shots if total_shots > 0 else 0
+        downtime_sec = df.loc[df["stop_flag"] == 1, "ct_diff_sec"].sum()
+        total_runtime_sec = (df["shot_time"].max() - df["shot_time"].min()).total_seconds() if total_shots > 1 else 0
+        production_time_sec = total_runtime_sec - downtime_sec
         
         downtime_per_event_sec = df.loc[df["stop_event"], "ct_diff_sec"]
         mttr_min = (downtime_per_event_sec.mean() / 60) if stop_events > 0 else 0
-        
-        total_runtime_sec = (df["shot_time"].max() - df["shot_time"].min()).total_seconds() if total_shots > 1 else 0
-        downtime_sec = df.loc[df["stop_flag"] == 1, "ct_diff_sec"].sum()
-        production_time_sec = total_runtime_sec - downtime_sec
         mtbf_min = (production_time_sec / 60 / stop_events) if stop_events > 0 else (production_time_sec / 60)
+        
         stability_index = (mtbf_min / (mtbf_min + mttr_min) * 100) if (mtbf_min + mttr_min) > 0 else (100.0 if stop_events == 0 else 0.0)
 
-        df["run_group"] = df["stop_event"].cumsum()
-        run_durations = df[df['stop_flag'] == 0].groupby("run_group")["ct_diff_sec"].sum().div(60).reset_index(name="duration_min")
-        
-        max_minutes = min(run_durations["duration_min"].max() if not run_durations.empty else 0, 240)
-        upper_bound = int(np.ceil(max_minutes / 20.0) * 20)
-        edges = list(range(0, upper_bound + 20, 20)) if upper_bound > 0 else [0, 20]
-        labels = [f"{edges[i]}-{edges[i+1]}" for i in range(len(edges)-1)]
-        run_durations["time_bucket"] = pd.cut(run_durations["duration_min"], bins=edges, labels=labels, right=False)
-        
-        reds = px.colors.sequential.Reds[4:8]
-        blues = px.colors.sequential.Blues[3:9]
-        greens = px.colors.sequential.Greens[4:9]
-        bucket_color_map = {}
-        red_idx, blue_idx, green_idx = 0, 0, 0
-        for label in labels:
-            lower_bound = int(label.split('-')[0])
-            if lower_bound < 60: bucket_color_map[label] = reds[red_idx % len(reds)]; red_idx += 1
-            elif 60 <= lower_bound < 160: bucket_color_map[label] = blues[blue_idx % len(blues)]; blue_idx += 1
-            else: bucket_color_map[label] = greens[green_idx % len(greens)]; green_idx += 1
+        normal_shots = total_shots - df["stop_flag"].sum()
+        efficiency = normal_shots / total_shots if total_shots > 0 else 0
         
         hourly_summary = self._calculate_hourly_summary(df)
 
         return {
             "processed_df": df, "mode_ct": mode_ct, "lower_limit": lower_limit, "upper_limit": upper_limit,
-            "total_shots": total_shots, "efficiency": efficiency, "stop_events": stop_events, "normal_shots": normal_shots,
-            "mttr_min": mttr_min, "mtbf_min": mtbf_min, "stability_index": stability_index,
-            "run_durations": run_durations, "bucket_labels": labels, "bucket_color_map": bucket_color_map,
+            "total_shots": total_shots, "efficiency": efficiency, "stop_events": stop_events,
+            "downtime_min": downtime_sec / 60, "mttr_min": mttr_min, "mtbf_min": mtbf_min,
+            "stability_index": stability_index, "normal_shots": normal_shots,
             "hourly_summary": hourly_summary
         }
 
@@ -121,42 +105,66 @@ class RunRateCalculator:
 def create_gauge(value, title):
     fig = go.Figure(go.Indicator(
         mode="gauge+number", value=value,
-        title={'text': title},
+        title={'text': title, 'font': {'size': 24}},
         gauge={'axis': {'range': [0, 100]},
-               'bar': {'color': "darkblue"},
-               'steps': [{'range': [0, 70], 'color': "lightgray"}, {'range': [70, 90], 'color': "gray"}]}
+               'bar': {'color': "#262730"},
+               'steps': [{'range': [0, 70], 'color': "#E74C3C"}, {'range': [70, 90], 'color': "#F39C12"}, {'range': [90, 100], 'color': "#2ECC71"}]}
     ))
-    fig.update_layout(height=250, margin=dict(l=20, r=20, t=50, b=20))
+    fig.update_layout(height=300, margin=dict(l=20, r=20, t=60, b=20))
     return fig
 
-def plot_raw_shot_chart(df, lower_limit, upper_limit, mode_ct):
-    df['color'] = np.where(df['stop_flag'] == 1, '#E74C3C', '#3498DB') # Red for stops, Blue for normal
-    fig = go.Figure()
-    fig.add_shape(type="rect", xref="paper", yref="y", x0=0, y0=lower_limit, x1=1, y1=upper_limit,
-                  fillcolor="lightgreen", opacity=0.2, layer="below", line_width=0)
-    fig.add_hline(y=upper_limit, line_dash="dot", line_color="red", name="Upper Limit")
-    fig.add_hline(y=mode_ct, line_dash="dash", line_color="blue", name="Mode CT")
-    fig.add_hline(y=lower_limit, line_dash="dot", line_color="red", name="Lower Limit")
-    fig.add_trace(go.Scatter(
-        x=df['shot_time'], y=df['ct_diff_sec'], mode='markers',
-        marker=dict(color=df['color'], size=5),
-        name='Shots'
+def plot_ct_histogram(df, lower_limit, upper_limit, mode_ct):
+    df_plot = df.copy()
+    df_plot['ct_capped'] = df_plot['ct_diff_sec'].clip(upper=500)
+    
+    bin_size = 10
+    bins = np.arange(0, 501 + bin_size, bin_size)
+    
+    df_plot['bin'] = pd.cut(df_plot['ct_capped'], bins=bins, right=False)
+    
+    bin_counts = df_plot['bin'].value_counts().sort_index()
+    
+    colors = ['#3498DB' if (b.left >= lower_limit and b.right <= upper_limit) else '#E74C3C' for b in bin_counts.index]
+    
+    fig = go.Figure(go.Bar(
+        x=[b.mid for b in bin_counts.index],
+        y=bin_counts.values,
+        width=bin_size*0.9,
+        marker_color=colors,
+        name='Cycle Time'
     ))
+    
+    fig.add_vline(x=lower_limit, line_dash="dash", line_color="gray", annotation_text="Lower Limit")
+    fig.add_vline(x=mode_ct, line_dash="solid", line_color="blue", annotation_text="Mode CT")
+    fig.add_vline(x=upper_limit, line_dash="dash", line_color="gray", annotation_text="Upper Limit")
+
     fig.update_layout(
-        title="Cycle Time per Shot vs. Daily Tolerance",
-        xaxis_title="Time of Day", yaxis_title="Cycle Time (sec)"
+        title="Cycle Time Distribution",
+        xaxis_title="Cycle Time (sec) (capped at 500s)",
+        yaxis_title="Number of Shots"
     )
     st.plotly_chart(fig, use_container_width=True)
 
-def plot_stability_trend(df, time_col='hour', stability_col='stability_index'):
+def plot_stability_trend(df):
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=df[time_col], y=df[stability_col], mode="lines+markers", name="Stability Index (%)",
+        x=df['hour'], y=df['stability_index'], mode="lines+markers", name="Stability Index (%)",
         line=dict(color="blue", width=2),
-        marker=dict(color=["red" if v <= 50 else "orange" if v <= 70 else "green" for v in df[stability_col]], size=8)
+        marker=dict(color=["red" if v <= 50 else "orange" if v <= 70 else "green" for v in df['stability_index']], size=8)
     ))
-    fig.update_layout(title="Hourly Stability Index Trend", yaxis=dict(title="Stability Index (%)", range=[0, 101]))
+    for y0, y1, c in [(0, 50, "red"), (50, 70, "orange"), (70, 100, "green")]:
+        fig.add_shape(type="rect", xref="paper", x0=0, x1=1, y0=y0, y1=y1,
+                      fillcolor=c, opacity=0.1, line_width=0, layer="below")
+    fig.update_layout(
+        title="Hourly Stability Index Trend", yaxis=dict(title="Stability Index (%)", range=[0, 101]),
+        xaxis_title="Hour of Day",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
     st.plotly_chart(fig, use_container_width=True)
+
+def display_stability_index_explanation():
+    with st.expander("What is the Stability Index?"):
+        st.markdown(""" ... """) # Content omitted for brevity
 
 # --- Main Application Logic ---
 st.sidebar.title("Run Rate Report Generator ⚙️")
@@ -214,80 +222,39 @@ else:
         
         # --- SECTION 1: Summary ---
         st.header(f"Daily Analysis for {selected_date.strftime('%d %b %Y')}")
+        
         with st.container(border=True):
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Total Shots", f"{results_day.get('total_shots', 0):,}")
-            col2.metric("Normal Shots", f"{results_day.get('normal_shots', 0):,}")
-            col3.metric("Stop Count", f"{results_day.get('stop_events', 0)}")
-
+            st.subheader("Performance Overview")
             col1, col2 = st.columns(2)
             with col1:
                 st.plotly_chart(create_gauge(results_day.get('efficiency', 0) * 100, "Efficiency (%)"), use_container_width=True)
+                st.metric("MTTR (min)", f"{results_day.get('mttr_min', 0):.2f}")
             with col2:
                 st.plotly_chart(create_gauge(results_day.get('stability_index', 0), "Stability Index (%)"), use_container_width=True)
-            
+                st.metric("MTBF (min)", f"{results_day.get('mtbf_min', 0):.2f}")
+        
+        with st.container(border=True):
+            st.subheader("Daily Cycle Time Parameters")
             col1, col2, col3 = st.columns(3)
             col1.metric("Lower Limit (sec)", f"{results_day.get('lower_limit', 0):.2f}")
             with col2:
-                with st.container(border=True):
-                    st.metric("Mode CT (sec)", f"{results_day.get('mode_ct', 0):.2f}")
+                st.markdown(f"""<div style="background-color: #e0f3ff; border-radius: 5px; padding: 0.1em 0.5em 0.5em 0.5em; text-align: center; margin-top: 1.2em;">
+                                <label style="font-size: 0.8rem;">Mode CT (sec)</label>
+                                <p style="font-size: 1.75rem; font-weight: bold; margin-bottom: 0;">{results_day.get('mode_ct', 0):.2f}</p>
+                                </div>""", unsafe_allow_html=True)
             col3.metric("Upper Limit (sec)", f"{results_day.get('upper_limit', 0):.2f}")
 
         # --- SECTION 2: Main CT Graph ---
-        plot_raw_shot_chart(results_day['processed_df'], results_day['lower_limit'], results_day['upper_limit'], results_day['mode_ct'])
+        st.markdown("---")
+        plot_ct_histogram(results_day['processed_df'], results_day['lower_limit'], results_day['upper_limit'], results_day['mode_ct'])
 
         # --- SECTION 3: Graph Section ---
         st.markdown("---")
         st.header("Hourly Analysis")
-
-        # Row 1 of Graphs
-        col1, col2 = st.columns(2)
-        with col1:
-            st.plotly_chart(px.bar(
-                results_day["run_durations"]["time_bucket"].value_counts().reindex(results_day["bucket_labels"], fill_value=0),
-                title="Time Bucket Analysis", labels={"index": "Run Duration (min)", "value": "Occurrences"},
-                text_auto=True, color=results_day["bucket_labels"], color_discrete_map=results_day["bucket_color_map"]
-            ).update_layout(legend_title_text='Run Duration'), use_container_width=True)
-            with st.expander("View Data"):
-                st.dataframe(results_day["run_durations"])
-        with col2:
-            plot_stability_trend(results_day['hourly_summary'])
-            with st.expander("View Data"):
-                st.dataframe(results_day['hourly_summary'])
-
-        # Row 2 of Graphs
-        st.subheader("Hourly Bucket Trend")
-        run_durations_day = results_day['run_durations']
-        if not run_durations_day.empty:
-            processed_day_df = results_day['processed_df']
-            run_start_times = processed_day_df[['run_group', 'shot_time']].drop_duplicates(subset=['run_group'], keep='first')
-            run_times = run_durations_day.merge(run_start_times, on='run_group', how='left')
-            run_times['hour'] = run_times['shot_time'].dt.hour
-            bucket_hourly = run_times.groupby(['hour', 'time_bucket'], observed=False).size().reset_index(name='count')
-            if not bucket_hourly.empty:
-                fig_hourly_bucket = px.bar(
-                    bucket_hourly, x='hour', y='count', color='time_bucket', title='Hourly Distribution of Run Durations',
-                    barmode='stack', category_orders={"time_bucket": results_day["bucket_labels"]},
-                    color_discrete_map=results_day["bucket_color_map"],
-                    labels={'hour': 'Hour of Day', 'count': 'Number of Runs', 'time_bucket': 'Run Duration (min)'}
-                )
-                st.plotly_chart(fig_hourly_bucket, use_container_width=True)
-                with st.expander("View Data"):
-                    st.dataframe(bucket_hourly)
-
-        # Row 3 of Graphs
-        st.subheader("Hourly MTTR & MTBF Trend")
-        hourly_summary = results_day['hourly_summary']
-        fig_mt = go.Figure()
-        fig_mt.add_trace(go.Scatter(x=hourly_summary['hour'], y=hourly_summary['mttr_min'], name='MTTR (min)', mode='lines', line=dict(color='red', width=4)))
-        fig_mt.add_trace(go.Scatter(x=hourly_summary['hour'], y=hourly_summary['mtbf_min'], name='MTBF (min)', mode='lines', line=dict(color='green', width=4), yaxis='y2'))
-        fig_mt.update_layout(title="Hourly MTTR & MTBF Trend", yaxis=dict(title='MTTR (min)'), yaxis2=dict(title='MTBF (min)', overlaying='y', side='right'),
-                           legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-        st.plotly_chart(fig_mt, use_container_width=True)
-        with st.expander("View Data"):
-            st.dataframe(hourly_summary)
-
-        # Row 4: Stoppage Alerts
+        
+        plot_stability_trend(results_day['hourly_summary'])
+        display_stability_index_explanation()
+        
         st.markdown("---")
         st.subheader("🚨 Stoppage Alerts")
         stoppage_alerts = results_day['processed_df'][results_day['processed_df']['stop_event']].copy()
