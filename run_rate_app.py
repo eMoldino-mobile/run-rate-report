@@ -12,7 +12,7 @@ st.set_page_config(layout="wide", page_title="Run Rate Analysis Dashboard")
 
 # --- Core Calculation Class ---
 class RunRateCalculator:
-    # ... (This class remains unchanged from the previous version)
+    """Encapsulates all logic for calculating run rate and stability metrics."""
     def __init__(self, df: pd.DataFrame, tolerance: float):
         self.df_raw = df.copy()
         self.tolerance = tolerance
@@ -130,11 +130,13 @@ class RunRateCalculator:
 # --- UI Helper and Plotting Functions ---
 
 def display_stability_index_explanation():
-    # ... (function content as before)
-    pass
+    with st.expander("What is the Stability Index?"):
+        st.markdown("""
+        #### 🔹 Stability Index Calculation
+        ...
+        """) # Content omitted for brevity
 
 def create_kpi_card(title, value, unit=""):
-    """Creates a single KPI card figure."""
     fig = go.Figure(go.Indicator(
         mode = "number",
         value = value,
@@ -145,19 +147,13 @@ def create_kpi_card(title, value, unit=""):
     return fig
 
 def plot_control_chart_example(mode_ct, lower_limit, upper_limit):
-    """Creates an example control chart to explain the tolerance bands."""
     fig = go.Figure()
-
-    # In-spec green zone
     fig.add_shape(type="rect", xref="paper", yref="y", x0=0, y0=lower_limit, x1=1, y1=upper_limit,
                   fillcolor="lightgreen", opacity=0.3, layer="below", line_width=0)
-    
-    # Lines for limits and mode
     fig.add_hline(y=upper_limit, line_dash="solid", line_color="red", annotation_text="Upper Limit", annotation_position="bottom right")
     fig.add_hline(y=mode_ct, line_dash="dash", line_color="blue", annotation_text="Mode CT", annotation_position="bottom right")
     fig.add_hline(y=lower_limit, line_dash="solid", line_color="red", annotation_text="Lower Limit", annotation_position="bottom right")
     
-    # Example data points
     example_x = [1, 2, 3, 4, 5, 6, 7, 8]
     example_y = [mode_ct - 2, upper_limit + 5, mode_ct + 1, lower_limit - 4, mode_ct, mode_ct - 3, upper_limit - 1, mode_ct + 2]
     colors = ['red' if y > upper_limit or y < lower_limit else 'royalblue' for y in example_y]
@@ -165,60 +161,77 @@ def plot_control_chart_example(mode_ct, lower_limit, upper_limit):
     fig.add_trace(go.Scatter(x=example_x, y=example_y, mode='lines+markers', name='Example Shots',
                              marker=dict(color=colors, size=10, symbol='diamond'), line=dict(color='grey')))
     
-    fig.update_layout(
-        title="Visualizing Cycle Time Tolerance",
-        xaxis_title="Example Shot Sequence",
-        yaxis_title="Cycle Time (sec)",
-        showlegend=False
-    )
+    fig.update_layout(title="Visualizing Cycle Time Tolerance", xaxis_title="Example Shot Sequence", yaxis_title="Cycle Time (sec)", showlegend=False)
     return fig
 
 def display_main_dashboard(results: dict):
-    # Top Gauges
     col1, col2 = st.columns(2)
     with col1: st.plotly_chart(create_gauge(results.get('efficiency', 0) * 100, "Efficiency (%)", "cornflowerblue"), use_container_width=True)
     with col2: st.plotly_chart(create_gauge(results.get('stability_index', 0), "Stability Index (%)", "lightseagreen"), use_container_width=True)
     
     st.markdown("---")
     
-    # KPI Grid
     st.subheader("Key Metrics")
     col1, col2, col3 = st.columns(3)
     with col1: st.plotly_chart(create_kpi_card("MTTR", round(results.get('mttr_min', 0), 2), " min"), use_container_width=True)
     with col2: st.plotly_chart(create_kpi_card("MTBF", round(results.get('mtbf_min', 0), 2), " min"), use_container_width=True)
     with col3: st.plotly_chart(create_kpi_card("Total Stops", results.get('stop_events', 0)), use_container_width=True)
     
-    col1, col2 = st.columns([2,1]) # Make Downtime wider
+    col1, col2 = st.columns([2,1])
     with col1: st.plotly_chart(create_kpi_card("Total Downtime", round(results.get('downtime_min', 0) / 60, 2), " hrs"), use_container_width=True)
     with col2: st.plotly_chart(create_kpi_card("Total Shots", f"{results.get('total_shots', 0):,}", ""), use_container_width=True)
 
     st.markdown("---")
 
-    # Control Chart Explanation
     st.subheader("Cycle Time Analysis")
     st.plotly_chart(plot_control_chart_example(
-        results.get('mode_ct', 0),
-        results.get('lower_limit', 0),
-        results.get('upper_limit', 0)
+        results.get('mode_ct', 0), results.get('lower_limit', 0), results.get('upper_limit', 0)
     ), use_container_width=True)
     st.caption("This chart explains the tolerance band. Shots falling within the green zone are 'Normal,' while shots outside this zone are flagged as 'Stoppages.'")
 
 @st.cache_data
 def create_gauge(value, title, color):
-    # ... (function content as before)
-    pass
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number", value=value, title={'text': title, 'font': {'size': 20}},
+        gauge={'axis': {'range': [0, 100]}, 'bar': {'color': color}},
+        domain={'x': [0, 1], 'y': [0, 1]}
+    ))
+    fig.update_layout(height=250, margin=dict(l=20, r=20, t=40, b=20))
+    return fig
 
 def plot_time_bucket_analysis(run_durations, bucket_labels, color_map, title="Time Bucket Analysis"):
-    # ... (function content as before)
-    pass
+    fig = px.bar(
+        run_durations["time_bucket"].value_counts().reindex(bucket_labels, fill_value=0),
+        title=title, labels={"index": "Continuous Run Duration (min)", "value": "Number of Occurrences"},
+        text_auto=True, color=bucket_labels, color_discrete_map=color_map
+    )
+    fig.update_layout(legend_title_text='Run Duration (min)')
+    st.plotly_chart(fig, use_container_width=True)
 
 def plot_mt_trend(df, time_col, mttr_col, mtbf_col, title="MTTR & MTBF Trend"):
-    # ... (function content as before)
-    pass
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df[time_col], y=df[mttr_col], name='MTTR (min)', mode='lines+markers', line=dict(color='red')))
+    fig.add_trace(go.Scatter(x=df[time_col], y=df[mtbf_col], name='MTBF (min)', mode='lines+markers', line=dict(color='green'), yaxis='y2'))
+    fig.update_layout(title=title, yaxis=dict(title='MTTR (min)'), yaxis2=dict(title='MTBF (min)', overlaying='y', side='right'),
+                      legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+    st.plotly_chart(fig, use_container_width=True)
 
 def plot_stability_trend(df, time_col, stability_col, title="Stability Index Trend"):
-    # ... (function content as before)
-    pass
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=df[time_col], y=df[stability_col], mode="lines+markers",
+        name="Stability Index (%)", line=dict(color="blue", width=2),
+        marker=dict(color=["red" if v <= 50 else "orange" if v <= 70 else "green" for v in df[stability_col]], size=8)
+    ))
+    for y0, y1, c in [(0, 50, "red"), (50, 70, "orange"), (70, 100, "green")]:
+        fig.add_shape(type="rect", xref="paper", x0=0, x1=1, y0=y0, y1=y1,
+                      fillcolor=c, opacity=0.1, line_width=0, layer="below")
+    fig.update_layout(
+        title=title, xaxis_title=time_col.replace('_', ' ').title(),
+        yaxis=dict(title="Stability Index (%)", range=[0, 101]),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
 @st.cache_data
 def export_to_excel(results: dict, tolerance: float):
@@ -285,7 +298,7 @@ if page == "📊 Daily Deep-Dive":
             with st.container(border=True):
                 display_main_dashboard(calc_day.results)
             
-            # The rest of the page logic (Daily Charts, Hourly Breakdown, etc.) remains the same
+            # The rest of the page logic (Daily Charts, Hourly Breakdown, etc.)
             # ...
 
 elif page == "🗓️ Weekly Trends":
