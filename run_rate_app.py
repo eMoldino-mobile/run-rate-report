@@ -69,85 +69,85 @@ class RunRateCalculator:
         return hourly_summary
 
         def _calculate_all_metrics(self) -> dict:
-            df = self._prepare_data()
-            if df.empty or "ACTUAL CT" not in df.columns: 
-                return {}
-    
-            mode_ct = df["ACTUAL CT"].mode().iloc[0] if not df["ACTUAL CT"].mode().empty else 0
-            lower_limit = mode_ct * (1 - self.tolerance)
-            upper_limit = mode_ct * (1 + self.tolerance)
-    
-            # Stop detection
-            stop_condition = ((df["ct_diff_sec"] < lower_limit) | 
-                              (df["ct_diff_sec"] > upper_limit)) & (df["ct_diff_sec"] <= 28800)
-            df["stop_flag"] = np.where(stop_condition, 1, 0)
-            df.loc[0, "stop_flag"] = 0
-            df["stop_event"] = (df["stop_flag"] == 1) & (df["stop_flag"].shift(1, fill_value=0) == 0)
-    
-            total_shots = len(df)
-            stop_events = df["stop_event"].sum()
-            normal_shots = total_shots - df["stop_flag"].sum()
-            efficiency = normal_shots / total_shots if total_shots > 0 else 0
-    
-            # MTTR / MTBF
-            downtime_per_event_sec = df.loc[df["stop_event"], "ct_diff_sec"]
-            mttr_min = (downtime_per_event_sec.mean() / 60) if stop_events > 0 else 0
-    
-            total_runtime_sec = (df["shot_time"].max() - df["shot_time"].min()).total_seconds() if total_shots > 1 else 0
-            downtime_sec = df.loc[df["stop_flag"] == 1, "ct_diff_sec"].sum()
-            production_time_sec = total_runtime_sec - downtime_sec
-            mtbf_min = (production_time_sec / 60 / stop_events) if stop_events > 0 else (production_time_sec / 60)
-            stability_index = (mtbf_min / (mtbf_min + mttr_min) * 100) if (mtbf_min + mttr_min) > 0 else (100.0 if stop_events == 0 else 0.0)
-    
-            # Run duration buckets
-            df["run_group"] = df["stop_event"].cumsum()
-            run_durations = df[df['stop_flag'] == 0].groupby("run_group")["ct_diff_sec"].sum().div(60).reset_index(name="duration_min")
-    
-            max_minutes = min(run_durations["duration_min"].max() if not run_durations.empty else 0, 240)
-            upper_bound = int(np.ceil(max_minutes / 20.0) * 20)
-            edges = list(range(0, upper_bound + 20, 20)) if upper_bound > 0 else [0, 20]
-            labels = [f"{edges[i]}-{edges[i+1]}" for i in range(len(edges)-1)]
-    
-            run_durations["time_bucket"] = pd.cut(run_durations["duration_min"], bins=edges, labels=labels, right=False)
-    
-            # Assign colors (fixed 160 boundary issue)
-            reds = px.colors.sequential.Reds[4:8]
-            blues = px.colors.sequential.Blues[3:9]
-            greens = px.colors.sequential.Greens[4:9]
-            bucket_color_map = {}
-            red_idx, blue_idx, green_idx = 0, 0, 0
-            for label in labels:
-                lower_bound = int(label.split('-')[0])
-                if lower_bound < 60:
-                    bucket_color_map[label] = reds[red_idx % len(reds)]; red_idx += 1
-                elif 60 <= lower_bound <= 160:   # FIXED inclusive
-                    bucket_color_map[label] = blues[blue_idx % len(blues)]; blue_idx += 1
-                else:
-                    bucket_color_map[label] = greens[green_idx % len(greens)]; green_idx += 1
-    
-            # Hourly summary
-            hourly_summary = self._calculate_hourly_summary(df)
-    
-            # Only keep active bucket labels (avoid phantom greens)
-            active_labels = run_durations["time_bucket"].dropna().unique().tolist()
-    
-            return {
-                "processed_df": df,
-                "mode_ct": mode_ct,
-                "lower_limit": lower_limit,
-                "upper_limit": upper_limit,
-                "total_shots": total_shots,
-                "efficiency": efficiency,
-                "stop_events": stop_events,
-                "normal_shots": normal_shots,
-                "mttr_min": mttr_min,
-                "mtbf_min": mtbf_min,
-                "stability_index": stability_index,
-                "run_durations": run_durations,
-                "bucket_labels": active_labels,   # FIXED
-                "bucket_color_map": bucket_color_map,
-                "hourly_summary": hourly_summary
-            }
+        df = self._prepare_data()
+        if df.empty or "ACTUAL CT" not in df.columns: 
+            return {}
+
+        mode_ct = df["ACTUAL CT"].mode().iloc[0] if not df["ACTUAL CT"].mode().empty else 0
+        lower_limit = mode_ct * (1 - self.tolerance)
+        upper_limit = mode_ct * (1 + self.tolerance)
+
+        # Stop detection
+        stop_condition = ((df["ct_diff_sec"] < lower_limit) | 
+                          (df["ct_diff_sec"] > upper_limit)) & (df["ct_diff_sec"] <= 28800)
+        df["stop_flag"] = np.where(stop_condition, 1, 0)
+        df.loc[0, "stop_flag"] = 0
+        df["stop_event"] = (df["stop_flag"] == 1) & (df["stop_flag"].shift(1, fill_value=0) == 0)
+
+        total_shots = len(df)
+        stop_events = df["stop_event"].sum()
+        normal_shots = total_shots - df["stop_flag"].sum()
+        efficiency = normal_shots / total_shots if total_shots > 0 else 0
+
+        # MTTR / MTBF
+        downtime_per_event_sec = df.loc[df["stop_event"], "ct_diff_sec"]
+        mttr_min = (downtime_per_event_sec.mean() / 60) if stop_events > 0 else 0
+
+        total_runtime_sec = (df["shot_time"].max() - df["shot_time"].min()).total_seconds() if total_shots > 1 else 0
+        downtime_sec = df.loc[df["stop_flag"] == 1, "ct_diff_sec"].sum()
+        production_time_sec = total_runtime_sec - downtime_sec
+        mtbf_min = (production_time_sec / 60 / stop_events) if stop_events > 0 else (production_time_sec / 60)
+        stability_index = (mtbf_min / (mtbf_min + mttr_min) * 100) if (mtbf_min + mttr_min) > 0 else (100.0 if stop_events == 0 else 0.0)
+
+        # Run duration buckets
+        df["run_group"] = df["stop_event"].cumsum()
+        run_durations = df[df['stop_flag'] == 0].groupby("run_group")["ct_diff_sec"].sum().div(60).reset_index(name="duration_min")
+
+        max_minutes = min(run_durations["duration_min"].max() if not run_durations.empty else 0, 240)
+        upper_bound = int(np.ceil(max_minutes / 20.0) * 20)
+        edges = list(range(0, upper_bound + 20, 20)) if upper_bound > 0 else [0, 20]
+        labels = [f"{edges[i]}-{edges[i+1]}" for i in range(len(edges)-1)]
+
+        run_durations["time_bucket"] = pd.cut(run_durations["duration_min"], bins=edges, labels=labels, right=False)
+
+        # Assign colors (fixed 160 boundary issue)
+        reds = px.colors.sequential.Reds[4:8]
+        blues = px.colors.sequential.Blues[3:9]
+        greens = px.colors.sequential.Greens[4:9]
+        bucket_color_map = {}
+        red_idx, blue_idx, green_idx = 0, 0, 0
+        for label in labels:
+            lower_bound = int(label.split('-')[0])
+            if lower_bound < 60:
+                bucket_color_map[label] = reds[red_idx % len(reds)]; red_idx += 1
+            elif 60 <= lower_bound <= 160:   # FIXED inclusive
+                bucket_color_map[label] = blues[blue_idx % len(blues)]; blue_idx += 1
+            else:
+                bucket_color_map[label] = greens[green_idx % len(greens)]; green_idx += 1
+
+        # Hourly summary
+        hourly_summary = self._calculate_hourly_summary(df)
+
+        # Only keep active bucket labels (avoid phantom greens)
+        active_labels = run_durations["time_bucket"].dropna().unique().tolist()
+
+        return {
+            "processed_df": df,
+            "mode_ct": mode_ct,
+            "lower_limit": lower_limit,
+            "upper_limit": upper_limit,
+            "total_shots": total_shots,
+            "efficiency": efficiency,
+            "stop_events": stop_events,
+            "normal_shots": normal_shots,
+            "mttr_min": mttr_min,
+            "mtbf_min": mtbf_min,
+            "stability_index": stability_index,
+            "run_durations": run_durations,
+            "bucket_labels": active_labels,   # FIXED
+            "bucket_color_map": bucket_color_map,
+            "hourly_summary": hourly_summary
+        }
 
 # --- UI Helper and Plotting Functions ---
 
@@ -315,11 +315,7 @@ else:
         col1, col2 = st.columns(2)
         with col1:
             st.plotly_chart(px.bar(
-                bucket_counts = (
-                    results_day["run_durations"]["time_bucket"]
-                    .value_counts()
-                    .reindex(results_day["bucket_labels"], fill_value=0)
-                )
+                results_day["run_durations"]["time_bucket"].value_counts().reindex(results_day["bucket_labels"], fill_value=0),
                 title="Time Bucket Analysis", labels={"index": "Run Duration (min)", "value": "Occurrences"},
                 text_auto=True, color=results_day["bucket_labels"], color_discrete_map=results_day["bucket_color_map"]
             ).update_layout(legend_title_text='Run Duration'), use_container_width=True)
