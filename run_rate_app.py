@@ -179,6 +179,15 @@ def plot_stability_trend(df):
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     st.plotly_chart(fig, use_container_width=True)
+    
+def styled_metric_box(label, value, background_color="#FFFFFF"):
+    """Creates a styled box for a single metric, ensuring vertical alignment."""
+    st.markdown(f"""
+    <div style="background-color: {background_color}; border: 1px solid #e1e1e1; border-radius: 5px; padding: 1rem; text-align: center;">
+        <div style="font-size: 0.9rem; color: #555;">{label}</div>
+        <div style="font-size: 1.75rem; font-weight: bold; margin-bottom: 0;">{value}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 # --- Main Application Logic ---
 st.sidebar.title("Run Rate Report Generator ⚙️")
@@ -264,7 +273,17 @@ else:
                                 <p style="font-size: 1.75rem; font-weight: bold; margin-bottom: 0;">{results_day.get('mode_ct', 0):.2f}</p>
                                 </div>""", unsafe_allow_html=True)
             col3.metric("Upper Limit (sec)", f"{results_day.get('upper_limit', 0):.2f}")
-
+        
+        st.subheader("Daily Cycle Time Parameters")
+        with st.container(border=True):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                styled_metric_box("Lower Limit (sec)", f"{results_day.get('lower_limit', 0):.2f}")
+            with col2:
+                styled_metric_box("Mode CT (sec)", f"{results_day.get('mode_ct', 0):.2f}", background_color="#e0f3ff")
+            with col3:
+                styled_metric_box("Upper Limit (sec)", f"{results_day.get('upper_limit', 0):.2f}")
+                
         # --- SECTION 2: Main CT Graph ---
         plot_shot_bar_chart(results_day['processed_df'], results_day['lower_limit'], results_day['upper_limit'], results_day['mode_ct'])
         with st.expander("View Shot Data"):
