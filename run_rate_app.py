@@ -47,6 +47,27 @@ class RunRateCalculator:
              df.loc[0, "ct_diff_sec"] = df.loc[0, "ACTUAL CT"] if "ACTUAL CT" in df.columns else 0
         return df
 
+    def _calculate_hourly_summary(self, df: pd.DataFrame) -> pd.DataFrame:
+        if df.empty or 'stop_event' not in df.columns: return pd.DataFrame()
+
+        df['hour'] = df['shot_time'].dt.hour
+        df['downtime_min_event'] = np.where(df['stop_event'], df['ct_diff_sec'] / 60, np.nan)
+        
+        hourly_groups = df.groupby('hour')
+        stops = hourly_groups['stop_event'].sum()
+        total_downtime = hourly_groups['downtime_min_event'].sum()
+        uptime_min = df[df['stop_flag'] == 0].groupby('hour')['ct_diff_sec'].sum() / 60
+        
+        hourly_summary = pd.DataFrame({'stops': stops, 'total_downtime_min': total_downtime})
+        hourly_summary = hourly_summary.join(uptime_min.rename('uptime_min')).fillna(0).reset_index()
+
+        hourly_summary['mttr_min'] = hourly_summary['total_downtime_min'] / hourly_summary['stops'].replace(0, np.nan)
+        hourly_summary['mtbf_min'] = hourly_summary['uptime_min'] / hourly_summary['stops'].replace(0, np.nan)
+        hourly_summary['mtbf_min'] = hourly_summary['mtbf_min'].fillna(hourly_summary['uptime_min'])
+        hourly_summary['stability_index'] = (hourly_summary['mtbf_min'] / (hourly_summary['mtbf_min'] + hourly_summary['mttr_min'].fillna(0))) * 100
+        hourly_summary.loc[hourly_summary['stops'] == 0, 'stability_index'] = 100.0
+        return hourly_summary
+
     def _calculate_all_metrics(self) -> dict:
         df = self._prepare_data()
         if df.empty or "ACTUAL CT" not in df.columns: return {}
@@ -75,10 +96,34 @@ class RunRateCalculator:
         mtbf_min = (production_time_sec / 60 / stop_events) if stop_events > 0 else (production_time_sec / 60)
         stability_index = (mtbf_min / (mtbf_min + mttr_min) * 100) if (mtbf_min + mttr_min) > 0 else (100.0 if stop_events == 0 else 0.0)
 
+        df["run_group"] = df["stop_event"].cumsum()
+        run_durations = df[df['stop_flag'] == 0].groupby("run_group")["ct_diff_sec"].sum().div(60).reset_index(name="duration_min")
+        
+        max_minutes = min(run_durations["duration_min"].max() if not run_durations.empty else 0, 240)
+        upper_bound = int(np.ceil(max_minutes / 20.0) * 20)
+        edges = list(range(0, upper_bound + 20, 20)) if upper_bound > 0 else [0, 20]
+        labels = [f"{edges[i]}-{edges[i+1]}" for i in range(len(edges)-1)]
+        run_durations["time_bucket"] = pd.cut(run_durations["duration_min"], bins=edges, labels=labels, right=False)
+        
+        reds = px.colors.sequential.Reds[4:8]
+        blues = px.colors.sequential.Blues[3:9]
+        greens = px.colors.sequential.Greens[4:9]
+        bucket_color_map = {}
+        red_idx, blue_idx, green_idx = 0, 0, 0
+        for label in labels:
+            lower_bound = int(label.split('-')[0])
+            if lower_bound < 60: bucket_color_map[label] = reds[red_idx % len(reds)]; red_idx += 1
+            elif 60 <= lower_bound < 160: bucket_color_map[label] = blues[blue_idx % len(blues)]; blue_idx += 1
+            else: bucket_color_map[label] = greens[green_idx % len(greens)]; green_idx += 1
+        
+        hourly_summary = self._calculate_hourly_summary(df)
+
         return {
             "processed_df": df, "mode_ct": mode_ct, "lower_limit": lower_limit, "upper_limit": upper_limit,
             "total_shots": total_shots, "efficiency": efficiency, "stop_events": stop_events, "normal_shots": normal_shots,
             "mttr_min": mttr_min, "mtbf_min": mtbf_min, "stability_index": stability_index,
+            "run_durations": run_durations, "bucket_labels": labels, "bucket_color_map": bucket_color_map,
+            "hourly_summary": hourly_summary
         }
 
 # --- UI Helper and Plotting Functions ---
@@ -106,14 +151,32 @@ def plot_shot_chart(df, lower_limit, upper_limit, mode_ct):
     fig.add_shape(type="rect", xref="paper", yref="y", x0=0, y0=lower_limit, x1=1, y1=upper_limit,
                   fillcolor=PASTEL_COLORS['green'], opacity=0.2, layer="below", line_width=0)
     
-    fig.add_trace(go.Bar(
+    fig.add_trace(go.Scatter(
         x=df['shot_time'], y=df['ct_diff_sec'],
-        marker_color=df['color'],
+        mode='markers',
+        marker=dict(color=df['color'], size=5),
         name='Shots'
     ))
     fig.update_layout(
         title="Cycle Time per Shot vs. Daily Tolerance",
         xaxis_title="Time of Day", yaxis_title="Cycle Time (sec)"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+def plot_stability_trend(df):
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=df['hour'], y=df['stability_index'], mode="lines+markers", name="Stability Index (%)",
+        line=dict(color="black", width=2),
+        marker=dict(color=[PASTEL_COLORS['red'] if v <= 50 else PASTEL_COLORS['orange'] if v <= 70 else PASTEL_COLORS['green'] for v in df['stability_index']], size=10)
+    ))
+    for y0, y1, c in [(0, 50, PASTEL_COLORS['red']), (50, 70, PASTEL_COLORS['orange']), (70, 100, PASTEL_COLORS['green'])]:
+        fig.add_shape(type="rect", xref="paper", x0=0, x1=1, y0=y0, y1=y1,
+                      fillcolor=c, opacity=0.2, line_width=0, layer="below")
+    fig.update_layout(
+        title="Hourly Stability Index Trend", yaxis=dict(title="Stability Index (%)", range=[0, 101]),
+        xaxis_title="Hour of Day",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -171,7 +234,7 @@ else:
         calc_day = RunRateCalculator(df_day, tolerance)
         results_day = calc_day.results
         
-        # --- Summary Section ---
+        # --- SECTION 1: Summary ---
         st.header(f"Daily Analysis for {selected_date.strftime('%d %b %Y')}")
         
         with st.container(border=True):
@@ -200,8 +263,10 @@ else:
                     st.metric("Mode CT (sec)", f"{results_day.get('mode_ct', 0):.2f}")
             col3.metric("Upper Limit (sec)", f"{results_day.get('upper_limit', 0):.2f}")
 
-        # --- Main CT Graph ---
+        # --- SECTION 2: Main CT Graph ---
         plot_shot_chart(results_day['processed_df'], results_day['lower_limit'], results_day['upper_limit'], results_day['mode_ct'])
+        with st.expander("View Shot Data"):
+            st.dataframe(results_day['processed_df'])
 
         # --- SECTION 3: Graph Section ---
         st.markdown("---")
