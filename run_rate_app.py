@@ -84,18 +84,17 @@ class RunRateCalculator:
 
         total_shots = len(df)
         stop_events = df["stop_event"].sum()
-        downtime_sec = df.loc[df["stop_flag"] == 1, "ct_diff_sec"].sum()
-        total_runtime_sec = (df["shot_time"].max() - df["shot_time"].min()).total_seconds() if total_shots > 1 else 0
-        production_time_sec = total_runtime_sec - downtime_sec
+        normal_shots = total_shots - df["stop_flag"].sum()
+        efficiency = normal_shots / total_shots if total_shots > 0 else 0
         
         downtime_per_event_sec = df.loc[df["stop_event"], "ct_diff_sec"]
         mttr_min = (downtime_per_event_sec.mean() / 60) if stop_events > 0 else 0
-        mtbf_min = (production_time_sec / 60 / stop_events) if stop_events > 0 else (production_time_sec / 60)
         
+        total_runtime_sec = (df["shot_time"].max() - df["shot_time"].min()).total_seconds() if total_shots > 1 else 0
+        downtime_sec = df.loc[df["stop_flag"] == 1, "ct_diff_sec"].sum()
+        production_time_sec = total_runtime_sec - downtime_sec
+        mtbf_min = (production_time_sec / 60 / stop_events) if stop_events > 0 else (production_time_sec / 60)
         stability_index = (mtbf_min / (mtbf_min + mttr_min) * 100) if (mtbf_min + mttr_min) > 0 else (100.0 if stop_events == 0 else 0.0)
-
-        normal_shots = total_shots - df["stop_flag"].sum()
-        efficiency = normal_shots / total_shots if total_shots > 0 else 0
 
         df["run_group"] = df["stop_event"].cumsum()
         run_durations = df[df['stop_flag'] == 0].groupby("run_group")["ct_diff_sec"].sum().div(60).reset_index(name="duration_min")
@@ -122,7 +121,7 @@ class RunRateCalculator:
         return {
             "processed_df": df, "mode_ct": mode_ct, "lower_limit": lower_limit, "upper_limit": upper_limit,
             "total_shots": total_shots, "efficiency": efficiency, "stop_events": stop_events, "normal_shots": normal_shots,
-            "downtime_min": downtime_sec / 60, "mttr_min": mttr_min, "mtbf_min": mtbf_min, "stability_index": stability_index,
+            "mttr_min": mttr_min, "mtbf_min": mtbf_min, "stability_index": stability_index,
             "run_durations": run_durations, "bucket_labels": labels, "bucket_color_map": bucket_color_map,
             "hourly_summary": hourly_summary
         }
@@ -147,19 +146,39 @@ def create_gauge(value, title, steps=None):
     return fig
 
 def plot_shot_bar_chart(df, lower_limit, upper_limit, mode_ct):
+    # Add color coding for stops
+    df = df.copy()
     df['color'] = np.where(df['stop_flag'] == 1, PASTEL_COLORS['red'], '#3498DB')
+
+    # Plot bars with x = shot_time
     fig = go.Figure()
-    fig.add_shape(type="rect", xref="paper", yref="y", x0=0, y0=lower_limit, x1=1, y1=upper_limit,
-                  fillcolor=PASTEL_COLORS['green'], opacity=0.2, layer="below", line_width=0)
-    
+
+    # Add green tolerance band
+    fig.add_shape(
+        type="rect", xref="x", yref="y",
+        x0=df['shot_time'].min(), y0=lower_limit,
+        x1=df['shot_time'].max(), y1=upper_limit,
+        fillcolor=PASTEL_COLORS['green'], opacity=0.2,
+        layer="below", line_width=0
+    )
+
+    # Cycle time bars
     fig.add_trace(go.Bar(
-        x=df.index, y=df['ct_diff_sec'],
+        x=df['shot_time'],  # <-- time on X axis
+        y=df['ct_diff_sec'],
         marker_color=df['color'],
-        name='Shots'
+        name='Cycle Time',
     ))
+
     fig.update_layout(
         title="Cycle Time per Shot vs. Daily Tolerance",
-        xaxis_title="Shot Sequence", yaxis_title="Cycle Time (sec)"
+        xaxis_title="Time",
+        yaxis_title="Cycle Time (sec)",
+        bargap=0.05,
+        xaxis=dict(
+            tickformat="%H:%M",  # format timestamps as hours:minutes
+            showgrid=True
+        )
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -178,14 +197,6 @@ def plot_stability_trend(df, title="Hourly Stability Index Trend"):
         xaxis_title="Hour of Day",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
-    st.plotly_chart(fig, use_container_width=True)
-
-def plot_mt_trend(df):
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df['hour'], y=df['mttr_min'], name='MTTR (min)', mode='lines+markers', line=dict(color='red', width=4)))
-    fig.add_trace(go.Scatter(x=df['hour'], y=df['mtbf_min'], name='MTBF (min)', mode='lines+markers', line=dict(color='green', width=4), yaxis='y2'))
-    fig.update_layout(title="Hourly MTTR & MTBF Trend", yaxis=dict(title='MTTR (min)'), yaxis2=dict(title='MTBF (min)', overlaying='y', side='right'),
-                       legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     st.plotly_chart(fig, use_container_width=True)
 
 # --- Main Application Logic ---
@@ -242,6 +253,7 @@ else:
         calc_day = RunRateCalculator(df_day, tolerance)
         results_day = calc_day.results
         
+        # --- SECTION 1: Summary ---
         st.header(f"Daily Analysis for {selected_date.strftime('%d %b %Y')}")
         
         with st.container(border=True):
@@ -270,8 +282,10 @@ else:
                     st.metric("Mode CT (sec)", f"{results_day.get('mode_ct', 0):.2f}")
             col3.metric("Upper Limit (sec)", f"{results_day.get('upper_limit', 0):.2f}")
 
+        # --- SECTION 2: Main CT Graph ---
         plot_shot_bar_chart(results_day['processed_df'], results_day['lower_limit'], results_day['upper_limit'], results_day['mode_ct'])
         
+        # --- SECTION 3: Graph Section ---
         st.markdown("---")
         st.header("Hourly Analysis")
 
@@ -312,7 +326,14 @@ else:
         st.subheader("Hourly MTTR & MTBF Trend")
         hourly_summary = results_day['hourly_summary']
         if not hourly_summary.empty and hourly_summary['stops'].sum() > 0:
-            plot_mt_trend(hourly_summary, 'hour', 'mttr_min', 'mtbf_min')
+            fig_mt = go.Figure()
+            fig_mt.add_trace(go.Scatter(x=hourly_summary['hour'], y=hourly_summary['mttr_min'], name='MTTR (min)', mode='lines+markers', line=dict(color='red', width=4)))
+            fig_mt.add_trace(go.Scatter(x=hourly_summary['hour'], y=hourly_summary['mtbf_min'], name='MTBF (min)', mode='lines+markers', line=dict(color='green', width=4), yaxis='y2'))
+            fig_mt.update_layout(title="Hourly MTTR & MTBF Trend", yaxis=dict(title='MTTR (min)'), yaxis2=dict(title='MTBF (min)', overlaying='y', side='right'),
+                               legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+            st.plotly_chart(fig_mt, use_container_width=True)
+            with st.expander("View MTTR/MTBF Data"):
+                st.dataframe(hourly_summary)
         else:
             st.info("No stops on this day to generate MTTR/MTBF trend.")
 
