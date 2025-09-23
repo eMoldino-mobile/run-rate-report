@@ -145,25 +145,24 @@ def create_gauge(value, title, steps=None):
     fig.update_layout(height=250, margin=dict(l=20, r=20, t=50, b=20))
     return fig
 
-def plot_shot_chart(df, lower_limit, upper_limit, mode_ct):
+def plot_shot_bar_chart(df, lower_limit, upper_limit, mode_ct):
     df['color'] = np.where(df['stop_flag'] == 1, PASTEL_COLORS['red'], '#3498DB')
     fig = go.Figure()
     fig.add_shape(type="rect", xref="paper", yref="y", x0=0, y0=lower_limit, x1=1, y1=upper_limit,
                   fillcolor=PASTEL_COLORS['green'], opacity=0.2, layer="below", line_width=0)
     
-    fig.add_trace(go.Scatter(
-        x=df['shot_time'], y=df['ct_diff_sec'],
-        mode='markers',
-        marker=dict(color=df['color'], size=5),
+    fig.add_trace(go.Bar(
+        x=df.index, y=df['ct_diff_sec'],
+        marker_color=df['color'],
         name='Shots'
     ))
     fig.update_layout(
         title="Cycle Time per Shot vs. Daily Tolerance",
-        xaxis_title="Time of Day", yaxis_title="Cycle Time (sec)"
+        xaxis_title="Shot Sequence", yaxis_title="Cycle Time (sec)"
     )
     st.plotly_chart(fig, use_container_width=True)
 
-def plot_stability_trend(df):
+def plot_stability_trend(df, title="Hourly Stability Index Trend"):
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=df['hour'], y=df['stability_index'], mode="lines+markers", name="Stability Index (%)",
@@ -174,7 +173,7 @@ def plot_stability_trend(df):
         fig.add_shape(type="rect", xref="paper", x0=0, x1=1, y0=y0, y1=y1,
                       fillcolor=c, opacity=0.2, line_width=0, layer="below")
     fig.update_layout(
-        title="Hourly Stability Index Trend", yaxis=dict(title="Stability Index (%)", range=[0, 101]),
+        title=title, yaxis=dict(title="Stability Index (%)", range=[0, 101]),
         xaxis_title="Hour of Day",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
@@ -218,7 +217,7 @@ if not calculator_full.results:
 
 st.title(f"Run Rate Dashboard: {tool_id}")
 
-# --- Main Page Content ---
+# --- SINGLE PAGE LAYOUT ---
 df_processed = calculator_full.results["processed_df"]
 available_dates = df_processed["shot_time"].dt.date.unique()
 
@@ -264,10 +263,8 @@ else:
             col3.metric("Upper Limit (sec)", f"{results_day.get('upper_limit', 0):.2f}")
 
         # --- SECTION 2: Main CT Graph ---
-        plot_shot_chart(results_day['processed_df'], results_day['lower_limit'], results_day['upper_limit'], results_day['mode_ct'])
-        with st.expander("View Shot Data"):
-            st.dataframe(results_day['processed_df'])
-
+        plot_shot_bar_chart(results_day['processed_df'], results_day['lower_limit'], results_day['upper_limit'], results_day['mode_ct'])
+        
         # --- SECTION 3: Graph Section ---
         st.markdown("---")
         st.header("Hourly Analysis")
@@ -319,6 +316,11 @@ else:
                 st.dataframe(hourly_summary)
         else:
             st.info("No stops on this day to generate MTTR/MTBF trend.")
+
+        st.subheader("Hourly Stability Index Trend (Full Width)")
+        plot_stability_trend(results_day['hourly_summary'], title="Hourly Stability Index Trend (Full Width)")
+        with st.expander("View Stability Data"):
+            st.dataframe(results_day['hourly_summary'])
 
         st.markdown("---")
         st.subheader("🚨 Stoppage Alerts")
