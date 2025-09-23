@@ -10,7 +10,6 @@ import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 st.set_page_config(layout="wide", page_title="Run Rate Analysis Dashboard")
 
-
 # --- Core Calculation Class ---
 class RunRateCalculator:
     """Encapsulates all logic for calculating run rate and stability metrics."""
@@ -120,14 +119,16 @@ class RunRateCalculator:
         
         df['hour'] = df['shot_time'].dt.hour
         hourly_summary = self._calculate_hourly_summary(df)
-        hourly_ct_summary = df.groupby('hour').agg(average_ct=('ct_diff_sec', 'mean')).reset_index()
+        hourly_ct_summary = df.groupby('hour').agg(
+            average_ct=('ct_diff_sec', 'mean')
+        ).reset_index()
 
         return {
             "processed_df": df, "mode_ct": mode_ct, "lower_limit": lower_limit, "upper_limit": upper_limit,
             "total_shots": total_shots, "efficiency": efficiency, "stop_events": stop_events,
             "downtime_min": downtime_sec / 60, "mttr_min": mttr_min, "mtbf_min": mtbf_min,
             "stability_index": stability_index, "run_durations": run_durations, "bucket_labels": labels,
-            "hourly_summary": hourly_summary, "bucket_color_map": bucket_color_map, "normal_shots": normal_shots,
+            "bucket_color_map": bucket_color_map, "normal_shots": normal_shots,
             "hourly_ct_summary": hourly_ct_summary
         }
 
@@ -137,25 +138,28 @@ def styled_metric(label, value, color):
     st.markdown(f"""
     <div style="border-left: 5px solid {color}; padding: 1em; background-color: white; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
         <div style="font-size: 0.9rem; color: #888888;">{label}</div>
-        <div style="font-size: 2.2rem; font-weight: bold; color: #111111;">{value}</div>
+        <div style="font-size: 2.2rem; font-weight: bold;">{value}</div>
     </div>
     """, unsafe_allow_html=True)
 
 def plot_hourly_ct_trend(df_hourly, daily_mode_ct, daily_lower_limit, daily_upper_limit):
     fig = go.Figure()
     fig.add_shape(type="rect", xref="paper", yref="y", x0=0, y0=daily_lower_limit, x1=1, y1=daily_upper_limit,
-                  fillcolor="rgba(0, 128, 0, 0.1)", layer="below", line_width=0)
-    fig.add_hline(y=daily_upper_limit, line_dash="dot", line_color="red", annotation_text="Upper Limit")
-    fig.add_hline(y=daily_mode_ct, line_dash="dash", line_color="blue", annotation_text="Daily Mode CT")
-    fig.add_hline(y=daily_lower_limit, line_dash="dot", line_color="red", annotation_text="Lower Limit")
+                  fillcolor="rgba(211,211,211,0.2)", layer="below", line_width=0, name="Tolerance Band")
+    fig.add_hline(y=daily_upper_limit, line_dash="dot", line_color="red", name="Daily Upper Limit")
+    fig.add_hline(y=daily_mode_ct, line_dash="dash", line_color="blue", name="Daily Mode CT")
+    fig.add_hline(y=daily_lower_limit, line_dash="dot", line_color="red", name="Daily Lower Limit")
+    
     fig.add_trace(go.Scatter(
         x=df_hourly['hour'], y=df_hourly['average_ct'],
-        mode='lines+markers', line=dict(color='black', width=3),
+        mode='lines+markers', line=dict(color='#E74C3C', width=3),
         name='Hourly Average CT'
     ))
+
     fig.update_layout(
         title="Hourly Average Cycle Time vs. Daily Tolerance", xaxis_title="Hour of Day",
-        yaxis_title="Cycle Time (sec)", showlegend=False, margin=dict(t=50, b=10, l=10, r=10)
+        yaxis_title="Cycle Time (sec)", template="plotly_white",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     return fig
 
@@ -247,7 +251,6 @@ with tab1:
             
             st.subheader(f"Dashboard for {selected_date.strftime('%d %b %Y')}")
             
-            # --- Main KPI Cards ---
             cols = st.columns(4)
             with cols[0]:
                 eff = results_day.get('efficiency', 0) * 100
@@ -264,7 +267,6 @@ with tab1:
 
             st.markdown("---")
 
-            # --- Main CT Trend Chart ---
             df_hourly_ct = results_day.get('hourly_ct_summary')
             if df_hourly_ct is not None and not df_hourly_ct.empty:
                 st.plotly_chart(plot_hourly_ct_trend(
@@ -273,14 +275,13 @@ with tab1:
                     results_day['lower_limit'],
                     results_day['upper_limit']
                 ), use_container_width=True)
-                st.caption("Shows the average cycle time per hour (red line) vs. the daily tolerance band (grey area).")
+                st.caption("This chart shows the average cycle time for each hour compared to the daily tolerance band.")
             else:
                 st.info("Not enough data to generate the hourly cycle time trend for this day.")
             
             st.markdown("---")
             st.subheader("Additional Daily Analysis")
             
-            # --- Bucket Analysis & Stoppage Alerts in Columns ---
             col1, col2 = st.columns(2)
             with col1:
                 plot_time_bucket_analysis(results_day["run_durations"], results_day["bucket_labels"], results_day["bucket_color_map"])
@@ -330,7 +331,6 @@ with tab2:
             plot_stability_trend(summary_df, 'week_start', 'stability_index')
             
         st.markdown("---")
-        # Weekly Bucket Trend Chart
         all_run_durations = calculator_full.results['run_durations']
         if not all_run_durations.empty and 'run_group' in all_run_durations.columns:
             df_proc_groups = calculator_full.results['processed_df'][['shot_time', 'run_group']].drop_duplicates()
@@ -344,25 +344,6 @@ with tab2:
                                 labels={'week_start': 'Week Starting', 'count': 'Number of Occurrences', 'time_bucket': 'Run Duration (min)'})
             st.plotly_chart(fig_bucket, use_container_width=True)
 
-
 with tab3:
-    st.header("Processed Cycle Data")
-    results = calculator_full.results
-    st.subheader("Calculation Parameters")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Mode CT (sec)", f"{results.get('mode_ct', 0):.2f}")
-    col2.metric("Lower Limit (sec)", f"{results.get('lower_limit', 0):.2f}")
-    col3.metric("Upper Limit (sec)", f"{results.get('upper_limit', 0):.2f}")
-
-    st.markdown("---")
-    st.subheader("Shot-by-Shot Data")
-    
-    df_display = results["processed_df"].copy()
-    st.dataframe(df_display, use_container_width=True)
-    
-    # excel_data = export_to_excel(calculator_full.results, calculator_full.tolerance)
-    # st.download_button(
-    #     label="📥 Download Full Excel Report", data=excel_data,
-    #     file_name=f"{tool_id}_full_analysis.xlsx",
-    #     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    # )
+    st.header("Processed Data")
+    st.info("This section is under development.")
