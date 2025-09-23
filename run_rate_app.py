@@ -302,81 +302,46 @@ else:
         plot_shot_bar_chart(results_day['processed_df'], results_day['lower_limit'], results_day['upper_limit'], results_day['mode_ct'])
 
         # --- SECTION 3: Graph Section ---
-    st.markdown("---")
-    st.header("Hourly Analysis")
-    
-    col1, col2 = st.columns(2)
-    
-    # --- Time Bucket Analysis ---
-    with col1:
-        bucket_counts = (
-            results_day["run_durations"]["time_bucket"]
-            .value_counts()
-            .reindex(results_day["bucket_labels"], fill_value=0)
-        )
-    
-        fig_bucket = px.bar(
-            bucket_counts,
-            title="Time Bucket Analysis",
-            labels={"index": "Run Duration (min)", "value": "Occurrences"},
-            text_auto=True,
-            color=bucket_counts.index,  # ✅ only plot actual buckets
-            color_discrete_map=results_day["bucket_color_map"]
-        ).update_layout(legend_title_text="Run Duration")
-    
-        st.plotly_chart(fig_bucket, use_container_width=True)
-    
-        with st.expander("View Bucket Data"):
-            st.dataframe(results_day["run_durations"])
-    
-    # --- Stability Index Trend ---
-    with col2:
-        plot_stability_trend(results_day["hourly_summary"])
-        with st.expander("View Stability Data"):
-            st.dataframe(results_day["hourly_summary"])
-    
-    # --- Hourly Bucket Trend ---
-    st.subheader("Hourly Bucket Trend")
-    run_durations_day = results_day["run_durations"]
-    
-    if not run_durations_day.empty:
-        processed_day_df = results_day["processed_df"]
-    
-        run_start_times = (
-            processed_day_df[["run_group", "shot_time"]]
-            .drop_duplicates(subset=["run_group"], keep="first")
-        )
-    
-        run_times = run_durations_day.merge(run_start_times, on="run_group", how="left")
-        run_times["hour"] = run_times["shot_time"].dt.hour
-    
-        bucket_hourly = (
-            run_times.groupby(["hour", "time_bucket"], observed=False)
-            .size()
-            .reset_index(name="count")
-        )
-    
-        if not bucket_hourly.empty:
-            fig_hourly_bucket = px.bar(
-                bucket_hourly,
-                x="hour",
-                y="count",
-                color="time_bucket",
-                title="Hourly Distribution of Run Durations",
-                barmode="stack",
-                category_orders={"time_bucket": results_day["bucket_labels"]},
-                color_discrete_map=results_day["bucket_color_map"],
-                labels={
-                    "hour": "Hour of Day",
-                    "count": "Number of Runs",
-                    "time_bucket": "Run Duration (min)",
-                },
-            )
-            fig_hourly_bucket.update_xaxes(range=[-0.5, 23.5], tickvals=list(range(24)))
-            st.plotly_chart(fig_hourly_bucket, use_container_width=True)
-    
-            with st.expander("View Bucket Trend Data"):
-                st.dataframe(bucket_hourly)
+        st.markdown("---")
+        st.header("Hourly Analysis")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.plotly_chart(px.bar(
+                bucket_counts = (
+                    results_day["run_durations"]["time_bucket"]
+                    .value_counts()
+                    .reindex(results_day["bucket_labels"], fill_value=0)
+                )
+                title="Time Bucket Analysis", labels={"index": "Run Duration (min)", "value": "Occurrences"},
+                text_auto=True, color=results_day["bucket_labels"], color_discrete_map=results_day["bucket_color_map"]
+            ).update_layout(legend_title_text='Run Duration'), use_container_width=True)
+            with st.expander("View Bucket Data"):
+                st.dataframe(results_day["run_durations"])
+        with col2:
+            plot_stability_trend(results_day['hourly_summary'])
+            with st.expander("View Stability Data"):
+                st.dataframe(results_day['hourly_summary'])
+
+        st.subheader("Hourly Bucket Trend")
+        run_durations_day = results_day['run_durations']
+        if not run_durations_day.empty:
+            processed_day_df = results_day['processed_df']
+            run_start_times = processed_day_df[['run_group', 'shot_time']].drop_duplicates(subset=['run_group'], keep='first')
+            run_times = run_durations_day.merge(run_start_times, on='run_group', how='left')
+            run_times['hour'] = run_times['shot_time'].dt.hour
+            bucket_hourly = run_times.groupby(['hour', 'time_bucket'], observed=False).size().reset_index(name='count')
+            if not bucket_hourly.empty:
+                fig_hourly_bucket = px.bar(
+                    bucket_hourly, x='hour', y='count', color='time_bucket', title='Hourly Distribution of Run Durations',
+                    barmode='stack', category_orders={"time_bucket": results_day["bucket_labels"]},
+                    color_discrete_map=results_day["bucket_color_map"],
+                    labels={'hour': 'Hour of Day', 'count': 'Number of Runs', 'time_bucket': 'Run Duration (min)'}
+                )
+                fig_hourly_bucket.update_xaxes(range=[-0.5, 23.5], tickvals=list(range(24)))
+                st.plotly_chart(fig_hourly_bucket, use_container_width=True)
+                with st.expander("View Bucket Trend Data"):
+                    st.dataframe(bucket_hourly)
 
         st.subheader("Hourly MTTR & MTBF Trend")
         hourly_summary = results_day['hourly_summary']
