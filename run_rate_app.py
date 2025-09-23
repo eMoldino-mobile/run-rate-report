@@ -10,6 +10,13 @@ import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 st.set_page_config(layout="wide", page_title="Run Rate Analysis Dashboard")
 
+# --- Constants ---
+PASTEL_COLORS = {
+    'red': '#ff6961',
+    'orange': '#ffb347',
+    'green': '#77dd77'
+}
+
 # --- Core Calculation Class ---
 class RunRateCalculator:
     def __init__(self, df: pd.DataFrame, tolerance: float):
@@ -88,26 +95,6 @@ class RunRateCalculator:
         production_time_sec = total_runtime_sec - downtime_sec
         mtbf_min = (production_time_sec / 60 / stop_events) if stop_events > 0 else (production_time_sec / 60)
         stability_index = (mtbf_min / (mtbf_min + mttr_min) * 100) if (mtbf_min + mttr_min) > 0 else (100.0 if stop_events == 0 else 0.0)
-
-        df["run_group"] = df["stop_event"].cumsum()
-        run_durations = df[df['stop_flag'] == 0].groupby("run_group")["ct_diff_sec"].sum().div(60).reset_index(name="duration_min")
-        
-        max_minutes = min(run_durations["duration_min"].max() if not run_durations.empty else 0, 240)
-        upper_bound = int(np.ceil(max_minutes / 20.0) * 20)
-        edges = list(range(0, upper_bound + 20, 20)) if upper_bound > 0 else [0, 20]
-        labels = [f"{edges[i]}-{edges[i+1]}" for i in range(len(edges)-1)]
-        run_durations["time_bucket"] = pd.cut(run_durations["duration_min"], bins=edges, labels=labels, right=False)
-        
-        reds = px.colors.sequential.Reds[4:8]
-        blues = px.colors.sequential.Blues[3:9]
-        greens = px.colors.sequential.Greens[4:9]
-        bucket_color_map = {}
-        red_idx, blue_idx, green_idx = 0, 0, 0
-        for label in labels:
-            lower_bound = int(label.split('-')[0])
-            if lower_bound < 60: bucket_color_map[label] = reds[red_idx % len(reds)]; red_idx += 1
-            elif 60 <= lower_bound < 160: bucket_color_map[label] = blues[blue_idx % len(blues)]; blue_idx += 1
-            else: bucket_color_map[label] = greens[green_idx % len(greens)]; green_idx += 1
         
         hourly_summary = self._calculate_hourly_summary(df)
 
@@ -115,31 +102,42 @@ class RunRateCalculator:
             "processed_df": df, "mode_ct": mode_ct, "lower_limit": lower_limit, "upper_limit": upper_limit,
             "total_shots": total_shots, "efficiency": efficiency, "stop_events": stop_events, "normal_shots": normal_shots,
             "mttr_min": mttr_min, "mtbf_min": mtbf_min, "stability_index": stability_index,
-            "run_durations": run_durations, "bucket_labels": labels, "bucket_color_map": bucket_color_map,
             "hourly_summary": hourly_summary
         }
 
 # --- UI Helper and Plotting Functions ---
 
-def create_gauge(value, title):
+def create_gauge(value, title, steps=None):
+    gauge_config = {'axis': {'range': [0, 100]}}
+    if steps:
+        gauge_config['steps'] = steps
+        gauge_config['bar'] = {'color': '#262730'} 
+    else:
+        gauge_config['bar'] = {'color': "darkblue"}
+        gauge_config['bgcolor'] = "lightgray"
+
     fig = go.Figure(go.Indicator(
         mode="gauge+number", value=value,
         title={'text': title},
-        gauge={'axis': {'range': [0, 100]},
-               'bar': {'color': "#262730"},
-               'steps': [{'range': [0, 70], 'color': "#E74C3C"}, {'range': [70, 90], 'color': "#F39C12"}, {'range': [90, 100], 'color': "#2ECC71"}]}
+        gauge=gauge_config
     ))
     fig.update_layout(height=250, margin=dict(l=20, r=20, t=50, b=20))
     return fig
 
+def styled_metric_box(label, value, background_color="#FFFFFF"):
+    st.markdown(f"""
+    <div style="background-color: {background_color}; border: 1px solid #e1e1e1; border-radius: 5px; padding: 1em; text-align: center;">
+        <label style="font-size: 0.9rem; color: #555;">{label}</label>
+        <p style="font-size: 1.75rem; font-weight: bold; margin-bottom: 0;">{value}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
 def plot_shot_bar_chart(df, lower_limit, upper_limit, mode_ct):
-    df['color'] = np.where(df['stop_flag'] == 1, '#E74C3C', '#3498DB')
+    df['color'] = np.where(df['stop_flag'] == 1, PASTEL_COLORS['red'], '#3498DB')
     fig = go.Figure()
     fig.add_shape(type="rect", xref="paper", yref="y", x0=0, y0=lower_limit, x1=1, y1=upper_limit,
-                  fillcolor="lightgreen", opacity=0.2, layer="below", line_width=0)
-    fig.add_hline(y=upper_limit, line_dash="dot", line_color="red")
-    fig.add_hline(y=mode_ct, line_dash="dash", line_color="blue")
-    fig.add_hline(y=lower_limit, line_dash="dot", line_color="red")
+                  fillcolor=PASTEL_COLORS['green'], opacity=0.2, layer="below", line_width=0)
+    
     fig.add_trace(go.Bar(
         x=df.index, y=df['ct_diff_sec'],
         marker_color=df['color'],
@@ -149,16 +147,6 @@ def plot_shot_bar_chart(df, lower_limit, upper_limit, mode_ct):
         title="Cycle Time per Shot vs. Daily Tolerance",
         xaxis_title="Shot Sequence", yaxis_title="Cycle Time (sec)"
     )
-    st.plotly_chart(fig, use_container_width=True)
-
-def plot_stability_trend(df):
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=df['hour'], y=df['stability_index'], mode="lines+markers", name="Stability Index (%)",
-        line=dict(color="blue", width=2),
-        marker=dict(color=["red" if v <= 50 else "orange" if v <= 70 else "green" for v in df['stability_index']], size=8)
-    ))
-    fig.update_layout(title="Hourly Stability Index Trend", yaxis=dict(title="Stability Index (%)", range=[0, 101]), xaxis_title="Hour of Day")
     st.plotly_chart(fig, use_container_width=True)
 
 # --- Main Application Logic ---
@@ -199,7 +187,7 @@ if not calculator_full.results:
 
 st.title(f"Run Rate Dashboard: {tool_id}")
 
-# --- SINGLE PAGE LAYOUT ---
+# --- Main Page Content ---
 df_processed = calculator_full.results["processed_df"]
 available_dates = df_processed["shot_time"].dt.date.unique()
 
@@ -215,30 +203,44 @@ else:
         calc_day = RunRateCalculator(df_day, tolerance)
         results_day = calc_day.results
         
-        # --- SECTION 1: Summary ---
         st.header(f"Daily Analysis for {selected_date.strftime('%d %b %Y')}")
         
+        # --- Mini Dashboard 1: Core Counts ---
         with st.container(border=True):
             col1, col2, col3 = st.columns(3)
             col1.metric("Total Shots", f"{results_day.get('total_shots', 0):,}")
             col2.metric("Normal Shots", f"{results_day.get('normal_shots', 0):,}")
             col3.metric("Stop Count", f"{results_day.get('stop_events', 0)}")
 
+        # --- Mini Dashboard 2: Gauges ---
+        with st.container(border=True):
             col1, col2 = st.columns(2)
             with col1:
                 st.plotly_chart(create_gauge(results_day.get('efficiency', 0) * 100, "Efficiency (%)"), use_container_width=True)
             with col2:
-                st.plotly_chart(create_gauge(results_day.get('stability_index', 0), "Stability Index (%)"), use_container_width=True)
-            
+                stability_steps = [
+                    {'range': [0, 50], 'color': PASTEL_COLORS['red']}, 
+                    {'range': [50, 70], 'color': PASTEL_COLORS['orange']}, 
+                    {'range': [70, 100], 'color': PASTEL_COLORS['green']}
+                ]
+                st.plotly_chart(create_gauge(results_day.get('stability_index', 0), "Stability Index (%)", steps=stability_steps), use_container_width=True)
+        
+        # --- Mini Dashboard 3: CT Parameters (Corrected Layout) ---
+        with st.container(border=True):
             col1, col2, col3 = st.columns(3)
-            col1.metric("Lower Limit (sec)", f"{results_day.get('lower_limit', 0):.2f}")
+            with col1:
+                styled_metric_box("Lower Limit (sec)", f"{results_day.get('lower_limit', 0):.2f}")
             with col2:
-                with st.container(border=True):
-                    st.metric("Mode CT (sec)", f"{results_day.get('mode_ct', 0):.2f}")
-            col3.metric("Upper Limit (sec)", f"{results_day.get('upper_limit', 0):.2f}")
+                styled_metric_box("Mode CT (sec)", f"{results_day.get('mode_ct', 0):.2f}", background_color="#e0f3ff")
+            with col3:
+                styled_metric_box("Upper Limit (sec)", f"{results_day.get('upper_limit', 0):.2f}")
+
 
         # --- SECTION 2: Main CT Graph ---
+        st.markdown("---")
         plot_shot_bar_chart(results_day['processed_df'], results_day['lower_limit'], results_day['upper_limit'], results_day['mode_ct'])
+        with st.expander("View Shot Data"):
+            st.dataframe(results_day['processed_df'])
         
         # --- SECTION 3: Graph Section ---
         st.markdown("---")
