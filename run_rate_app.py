@@ -131,13 +131,20 @@ class RunRateCalculator:
             # Only keep active bucket labels (avoid phantom greens)
             active_labels = [lbl for lbl in labels if lbl in run_durations["time_bucket"].dropna().unique()]
     
-            # Only keep active bucket labels in the correct order
-            active_labels = [lbl for lbl in labels if lbl in run_durations["time_bucket"].dropna().unique()]
-            
             return {
-                ...
+                "processed_df": df,
+                "mode_ct": mode_ct,
+                "lower_limit": lower_limit,
+                "upper_limit": upper_limit,
+                "total_shots": total_shots,
+                "efficiency": efficiency,
+                "stop_events": stop_events,
+                "normal_shots": normal_shots,
+                "mttr_min": mttr_min,
+                "mtbf_min": mtbf_min,
+                "stability_index": stability_index,
                 "run_durations": run_durations,
-                "bucket_labels": active_labels,   # ✅ no phantom greens
+                "bucket_labels": active_labels,   # FIXED
                 "bucket_color_map": bucket_color_map,
                 "hourly_summary": hourly_summary
             }
