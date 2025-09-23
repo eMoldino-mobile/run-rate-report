@@ -181,11 +181,11 @@ def plot_stability_trend(df):
     st.plotly_chart(fig, use_container_width=True)
     
 def styled_metric_box(label, value, background_color="#FFFFFF"):
-    """Creates a styled box for a single metric, ensuring vertical alignment."""
+    """Creates a styled box for a single metric that is readable in both light and dark mode."""
     st.markdown(f"""
     <div style="background-color: {background_color}; border: 1px solid #e1e1e1; border-radius: 5px; padding: 1rem; text-align: center;">
-        <div style="font-size: 0.9rem; color: #555;">{label}</div>
-        <div style="font-size: 1.75rem; font-weight: bold; margin-bottom: 0;">{value}</div>
+        <div style="font-size: 0.9rem; color: gray;">{label}</div>
+        <div style="font-size: 1.75rem; font-weight: bold; color: var(--text-color);">{value}</div>
     </div>
     """, unsafe_allow_html=True)
 
