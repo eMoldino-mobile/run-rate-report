@@ -129,7 +129,7 @@ class RunRateCalculator:
             hourly_summary = self._calculate_hourly_summary(df)
     
             # Only keep active bucket labels (avoid phantom greens)
-            active_labels = [lbl for lbl in labels if lbl in run_durations["time_bucket"].dropna().unique()]
+            active_labels = run_durations["time_bucket"].dropna().unique().tolist()
     
             return {
                 "processed_df": df,
