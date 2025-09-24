@@ -37,11 +37,35 @@ class RunRateCalculator:
         df = df.dropna(subset=["shot_time"]).sort_values("shot_time").reset_index(drop=True)
         if df.empty: return pd.DataFrame()
 
-        df["ct_diff_sec"] = df["shot_time"].diff().dt.total_seconds()
-
         if "ACTUAL CT" in df.columns:
-            ct_from_col = df["ACTUAL CT"].shift(1)
-            df["ct_diff_sec"] = np.where(ct_from_col == 999.9, df["ct_diff_sec"], ct_from_col)
+            # Calculate both potential sources of cycle time for each shot
+            time_diff_sec = df["shot_time"].diff().dt.total_seconds()
+            prev_actual_ct = df["ACTUAL CT"].shift(1)
+
+            # --- New Logic to handle timestamp rounding ---
+            # Define a small buffer in seconds. This prevents the timestamp, which might
+            # be slightly higher due to rounding, from incorrectly overriding a valid Actual CT.
+            rounding_buffer = 2.0 # seconds
+
+            # A true stop is flagged if:
+            # 1. The machine's CT reading is invalid (999.9).
+            # OR
+            # 2. The real-world time gap is significantly larger than the machine's
+            #    reported cycle time (i.e., it exceeds the CT by more than the buffer).
+            #    This catches long pauses between otherwise normal shots.
+            use_timestamp_diff = (prev_actual_ct == 999.9) | \
+                                 (time_diff_sec > (prev_actual_ct + rounding_buffer))
+
+            # If the conditions above are met, we use the real-world time difference.
+            # Otherwise, we trust the machine's more precise 'ACTUAL CT' value.
+            df["ct_diff_sec"] = np.where(
+                use_timestamp_diff,
+                time_diff_sec,
+                prev_actual_ct
+            )
+        else:
+            # If there's no ACTUAL CT, we can only rely on the timestamp difference.
+            df["ct_diff_sec"] = df["shot_time"].diff().dt.total_seconds()
 
         if not df.empty and pd.isna(df.loc[0, "ct_diff_sec"]):
                 df.loc[0, "ct_diff_sec"] = df.loc[0, "ACTUAL CT"] if "ACTUAL CT" in df.columns else 0
@@ -504,3 +528,5 @@ else:
             stoppage_alerts["Duration (min)"] = (stoppage_alerts["ct_diff_sec"] / 60)
             display_table = stoppage_alerts[['shot_time', 'Duration (min)', 'Shots Since Last Stop']].rename(columns={"shot_time": "Event Time"})
             st.dataframe(display_table.style.format({'Duration (min)': '{:.1f}'}), use_container_width=True)
+
+
