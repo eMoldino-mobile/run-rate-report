@@ -397,7 +397,11 @@ else:
                     xaxis=dict(range=[-0.5, 23.5], tickvals=list(range(24)))
                 )
         
-                st.plotly_chart(fig_hourly_bucket, use_container_width=True)
+                st.plotly_chart(
+                    fig_hourly_bucket,
+                    use_container_width=True,
+                    config={"displayModeBar": True, "scrollZoom": False}  # 👈 disables scroll hijacking
+                )
         
                 with st.expander("View Bucket Trend Data", expanded=False):
                     st.dataframe(bucket_hourly)
