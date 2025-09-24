@@ -48,16 +48,16 @@ class RunRateCalculator:
             rounding_buffer = 2.0 # seconds
 
             # A true stop is flagged if:
-            # 1. The machine's CT reading is invalid (999.9).
+            # 1. The tooling's CT reading is invalid (999.9).
             # OR
-            # 2. The real-world time gap is significantly larger than the machine's
+            # 2. The real-world time gap is significantly larger than the tooling's
             #    reported cycle time (i.e., it exceeds the CT by more than the buffer).
             #    This catches long pauses between otherwise normal shots.
             use_timestamp_diff = (prev_actual_ct == 999.9) | \
                                  (time_diff_sec > (prev_actual_ct + rounding_buffer))
 
             # If the conditions above are met, we use the real-world time difference.
-            # Otherwise, we trust the machine's more precise 'ACTUAL CT' value.
+            # Otherwise, we trust the tooling's more precise 'ACTUAL CT' value.
             df["ct_diff_sec"] = np.where(
                 use_timestamp_diff,
                 time_diff_sec,
@@ -442,18 +442,6 @@ else:
             col5.metric("Downtime", format_duration(down_time), f"{down_percent:.1f}% of Total", delta_color="inverse")
 
         with st.container(border=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                st.plotly_chart(create_gauge(results_day.get('efficiency', 0) * 100, "Efficiency (%)"), use_container_width=True)
-            with col2:
-                stability_steps = [
-                    {'range': [0, 50], 'color': PASTEL_COLORS['red']},
-                    {'range': [50, 70], 'color': PASTEL_COLORS['orange']},
-                    {'range': [70, 100], 'color': PASTEL_COLORS['green']}
-                ]
-                st.plotly_chart(create_gauge(results_day.get('stability_index', 0), "Stability Index (%)", steps=stability_steps), use_container_width=True)
-                
-        with st.container(border=True):
             col1, col2, col3 = st.columns(3)
             
             total_shots = results_day.get('total_shots', 0)
@@ -468,6 +456,18 @@ else:
             col1.metric("Total Shots", f"{total_shots:,}")
             col2.metric("Normal Shots", f"{normal_shots:,}", f"{normal_percent:.1f}% of Total")
             col3.metric("Stop Count", f"{stop_events_val}", f"{stopped_percent:.1f}% Stopped Shots", delta_color="inverse")
+
+        with st.container(border=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.plotly_chart(create_gauge(results_day.get('efficiency', 0) * 100, "Efficiency (%)"), use_container_width=True)
+            with col2:
+                stability_steps = [
+                    {'range': [0, 50], 'color': PASTEL_COLORS['red']},
+                    {'range': [50, 70], 'color': PASTEL_COLORS['orange']},
+                    {'range': [70, 100], 'color': PASTEL_COLORS['green']}
+                ]
+                st.plotly_chart(create_gauge(results_day.get('stability_index', 0), "Stability Index (%)", steps=stability_steps), use_container_width=True)
 
         with st.container(border=True):
             col1, col2, col3 = st.columns(3)
@@ -612,4 +612,5 @@ else:
             stoppage_alerts["Duration (min)"] = (stoppage_alerts["ct_diff_sec"] / 60)
             display_table = stoppage_alerts[['shot_time', 'Duration (min)', 'Shots Since Last Stop']].rename(columns={"shot_time": "Event Time"})
             st.dataframe(display_table.style.format({'Duration (min)': '{:.1f}'}), use_container_width=True)
+
 
