@@ -133,7 +133,7 @@ class RunRateCalculator:
             else (100.0 if stop_events == 0 else 0.0)
         )
     
-       # --- Run Duration Buckets ---
+        # --- Run Duration Buckets ---
         df["run_group"] = df["stop_event"].cumsum()
         run_durations = (
             df[df["stop_flag"] == 0]
