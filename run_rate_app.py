@@ -175,10 +175,18 @@ class RunRateCalculator:
         )
         upper_bound = int(np.ceil(max_minutes / 20.0) * 20)
         edges = list(range(0, upper_bound + 20, 20)) if upper_bound > 0 else [0, 20]
+        
+        # --- FIX: Handle runs longer than the max bucket ---
         labels = [f"{edges[i]}-{edges[i+1]}" for i in range(len(edges) - 1)]
+        if edges:
+            last_edge_start = edges[-2]
+            labels[-1] = f"{last_edge_start}+"
+            edges[-1] = np.inf
+
         if not run_durations.empty:
             run_durations["time_bucket"] = pd.cut(
-                run_durations["duration_min"], bins=edges, labels=labels, right=False
+                run_durations["duration_min"], bins=edges, labels=labels, right=False,
+                include_lowest=True
             )
 
         # --- Bucket Colors ---
@@ -188,7 +196,12 @@ class RunRateCalculator:
         bucket_color_map = {}
         red_idx, blue_idx, green_idx = 0, 0, 0
         for label in labels:
-            lower_bound = int(label.split("-")[0])
+            try:
+                lower_bound_str = label.split("-")[0].replace('+', '')
+                lower_bound = int(lower_bound_str)
+            except (ValueError, IndexError):
+                continue
+            
             if lower_bound < 60:
                 bucket_color_map[label] = reds[red_idx % len(reds)]
                 red_idx += 1
