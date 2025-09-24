@@ -268,10 +268,15 @@ def plot_shot_bar_chart(df, lower_limit, upper_limit, mode_ct):
         name='Cycle Time',
     ))
 
+    # --- New: Set a dynamic y-axis range to improve visualization ---
+    # This prevents very large stop times from flattening the rest of the chart.
+    y_axis_cap = min(max(mode_ct * 2, 50), 500)
+
     fig.update_layout(
         title="Cycle Time per Shot vs. Daily Tolerance",
         xaxis_title="Time",
         yaxis_title="Cycle Time (sec)",
+        yaxis=dict(range=[0, y_axis_cap]), # Apply the calculated y-axis cap
         bargap=0.05,
         xaxis=dict(
             tickformat="%H:%M",
@@ -528,5 +533,4 @@ else:
             stoppage_alerts["Duration (min)"] = (stoppage_alerts["ct_diff_sec"] / 60)
             display_table = stoppage_alerts[['shot_time', 'Duration (min)', 'Shots Since Last Stop']].rename(columns={"shot_time": "Event Time"})
             st.dataframe(display_table.style.format({'Duration (min)': '{:.1f}'}), use_container_width=True)
-
 
