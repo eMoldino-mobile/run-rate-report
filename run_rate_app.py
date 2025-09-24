@@ -379,16 +379,27 @@ else:
             run_times = run_durations_day.merge(run_start_times, on='run_group', how='left')
             run_times['hour'] = run_times['shot_time'].dt.hour
             bucket_hourly = run_times.groupby(['hour', 'time_bucket'], observed=False).size().reset_index(name='count')
+        
             if not bucket_hourly.empty:
                 fig_hourly_bucket = px.bar(
-                    bucket_hourly, x='hour', y='count', color='time_bucket', title='Hourly Distribution of Run Durations',
-                    barmode='stack', category_orders={"time_bucket": results_day["bucket_labels"]},
+                    bucket_hourly,
+                    x='hour', y='count', color='time_bucket',
+                    title='Hourly Distribution of Run Durations',
+                    barmode='stack',
+                    category_orders={"time_bucket": results_day["bucket_labels"]},
                     color_discrete_map=results_day["bucket_color_map"],
                     labels={'hour': 'Hour of Day', 'count': 'Number of Runs', 'time_bucket': 'Run Duration (min)'}
                 )
-                fig_hourly_bucket.update_xaxes(range=[-0.5, 23.5], tickvals=list(range(24)))
+                # ✅ Constrain height so it doesn’t break scrolling
+                fig_hourly_bucket.update_layout(
+                    height=400,
+                    margin=dict(l=40, r=40, t=80, b=40),
+                    xaxis=dict(range=[-0.5, 23.5], tickvals=list(range(24)))
+                )
+        
                 st.plotly_chart(fig_hourly_bucket, use_container_width=True)
-                with st.expander("View Bucket Trend Data"):
+        
+                with st.expander("View Bucket Trend Data", expanded=False):
                     st.dataframe(bucket_hourly)
 
         st.subheader("Hourly MTTR & MTBF Trend")
