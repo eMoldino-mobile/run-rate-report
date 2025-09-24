@@ -423,37 +423,33 @@ else:
         if not run_durations_day.empty:
             processed_day_df = results_day['processed_df']
         
-            # --- Get run start times
-            run_start_times = processed_day_df[['run_group', 'shot_time']].drop_duplicates(
-                subset=['run_group'], keep='first'
-            )
-            run_times = run_durations_day.merge(run_start_times, on='run_group', how='left')
+            # --- Get run END times (the stop event that closed the run)
+            run_end_times = processed_day_df.loc[processed_day_df['stop_event'], ['run_group', 'shot_time']]
+            run_times = run_durations_day.merge(run_end_times, on='run_group', how='left')
         
             # --- Drop phantom first run (before the first stop of the day)
             if processed_day_df['stop_event'].any():
                 first_stop_time = processed_day_df.loc[
                     processed_day_df['stop_event'], 'shot_time'
                 ].min()
-                # Exclude only the run that *started before* the first stop
-                run_times = run_times[~((run_times['shot_time'] < first_stop_time) & (run_times['run_group'] == run_times['run_group'].min()))]
+                run_times = run_times[run_times['shot_time'] >= first_stop_time]
         
             if not run_times.empty:
+                # ✅ Use stop time hour (not start) as the anchor
                 run_times['hour'] = run_times['shot_time'].dt.hour
-                bucket_hourly = (
-                    run_times.groupby(['hour', 'time_bucket'], observed=False)
-                    .size()
-                    .reset_index(name='count')
-                )
+        
+                # One bucket per stop hour
+                bucket_hourly = run_times[['hour', 'time_bucket']].value_counts().reset_index(name='count')
         
                 if not bucket_hourly.empty:
                     fig_hourly_bucket = px.bar(
                         bucket_hourly,
                         x='hour', y='count', color='time_bucket',
-                        title='Hourly Distribution of Run Durations',
+                        title='Hourly Distribution of Run Durations (anchored to stop hour)',
                         barmode='stack',
                         category_orders={"time_bucket": results_day["bucket_labels"]},
                         color_discrete_map=results_day["bucket_color_map"],
-                        labels={'hour': 'Hour of Day', 'count': 'Number of Runs', 'time_bucket': 'Run Duration (min)'}
+                        labels={'hour': 'Hour of Stop', 'count': 'Number of Runs', 'time_bucket': 'Run Duration (min)'}
                     )
                     fig_hourly_bucket.update_layout(
                         height=400,
