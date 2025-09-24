@@ -133,7 +133,7 @@ class RunRateCalculator:
             else (100.0 if stop_events == 0 else 0.0)
         )
     
-        # --- Run Duration Buckets ---
+       # --- Run Duration Buckets ---
         df["run_group"] = df["stop_event"].cumsum()
         run_durations = (
             df[df["stop_flag"] == 0]
@@ -142,11 +142,15 @@ class RunRateCalculator:
             .div(60)
             .reset_index(name="duration_min")
         )
-    
-        # ❌ Drop pre-first-stop run (phantom bucket)
+        
         if df["stop_event"].any():
+            # Drop phantom run before the first stop
             first_stop_group = df.loc[df["stop_event"], "run_group"].min()
             run_durations = run_durations[run_durations["run_group"] >= first_stop_group]
+        
+            # Drop trailing run if it never closed with a stop
+            last_stop_group = df.loc[df["stop_event"], "run_group"].max()
+            run_durations = run_durations[run_durations["run_group"] <= last_stop_group]
         else:
             run_durations = pd.DataFrame(columns=["run_group", "duration_min"])
     
