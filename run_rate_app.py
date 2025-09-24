@@ -429,20 +429,44 @@ else:
         st.markdown("---")
         st.header("Hourly Analysis")
 
+        # --- FIX: Centralize the logic for identifying complete runs ---
+        run_durations_day = results_day["run_durations"]
+        processed_day_df = results_day['processed_df']
+
+        # Associate runs with their end times (the time of the stop event)
+        stop_events_df = processed_day_df.loc[processed_day_df['stop_event'], ['run_group', 'shot_time']].copy()
+        stop_events_df.rename(columns={'shot_time': 'run_end_time'}, inplace=True)
+        # A stop in run_group 'N' terminates the previous run, which is 'N-1'
+        stop_events_df['terminated_run_group'] = stop_events_df['run_group'] - 1
+
+        # Merge to find which runs have a defined end.
+        run_times = pd.merge(
+            run_durations_day,
+            stop_events_df[['terminated_run_group', 'run_end_time']],
+            left_on='run_group',
+            right_on='terminated_run_group',
+            how='left'
+        )
+
+        # A 'complete run' is one that was terminated by a stop.
+        complete_runs = run_times.dropna(subset=['run_end_time']).copy()
+        # An 'incomplete run' is the trailing run at the end of the day.
+        incomplete_run = run_times[run_times['run_end_time'].isna()]
+
+
         col1, col2 = st.columns(2)
         with col1:
-            run_durations_day = results_day["run_durations"]
-        
-            if not run_durations_day.empty and "time_bucket" in run_durations_day.columns:
+            # --- FIX: Time Bucket Analysis now only shows complete runs ---
+            if not complete_runs.empty and "time_bucket" in complete_runs.columns:
                 bucket_counts = (
-                    run_durations_day["time_bucket"]
+                    complete_runs["time_bucket"]
                     .value_counts()
                     .reindex(results_day["bucket_labels"], fill_value=0)
                 )
         
                 fig_bucket = px.bar(
                     bucket_counts,
-                    title="Time Bucket Analysis",
+                    title="Time Bucket Analysis (Completed Runs)",
                     labels={"index": "Run Duration (min)", "value": "Occurrences"},
                     text_auto=True,
                     color=bucket_counts.index,
@@ -450,74 +474,58 @@ else:
                 ).update_layout(legend_title_text='Run Duration')
         
                 st.plotly_chart(fig_bucket, use_container_width=True)
-        
-                with st.expander("View Bucket Data"):
-                    st.dataframe(run_durations_day)
+                
+                # Add a notification if a trailing run was excluded
+                if not incomplete_run.empty:
+                    duration = incomplete_run['duration_min'].iloc[0]
+                    st.info(f"ℹ️ An incomplete trailing run of {duration:.1f} min was excluded from this chart.")
+
+                with st.expander("View Complete Run Data"):
+                    st.dataframe(complete_runs)
             else:
-                st.info("No valid run durations for this day.")
+                st.info("No complete run durations were recorded for this day.")
         with col2:
             plot_stability_trend(results_day['hourly_summary'])
             with st.expander("View Stability Data"):
                 st.dataframe(results_day['hourly_summary'])
 
         st.subheader("Hourly Bucket Trend")
-        run_durations_day = results_day['run_durations']
-        if not run_durations_day.empty:
-            processed_day_df = results_day['processed_df']
-        
-            # --- FIX: New logic to correctly link run durations to their stop times ---
-            # A stop event terminates the PREVIOUS run group. We need to associate them.
-            stop_events_df = processed_day_df.loc[processed_day_df['stop_event'], ['run_group', 'shot_time']].copy()
-            stop_events_df.rename(columns={'shot_time': 'run_end_time'}, inplace=True)
-            # The run_group in stop_events_df (e.g., 1) is for the run AFTER the stop.
-            # The run that was terminated is run_group - 1 (e.g., 0).
-            stop_events_df['terminated_run_group'] = stop_events_df['run_group'] - 1
-
-            # Merge the durations with their corresponding end times.
-            run_times = pd.merge(
-                run_durations_day,
-                stop_events_df[['terminated_run_group', 'run_end_time']],
-                left_on='run_group',
-                right_on='terminated_run_group',
-                how='left'
+        # --- FIX: Hourly Trend also uses the same `complete_runs` dataframe ---
+        if not complete_runs.empty:
+            complete_runs['hour'] = complete_runs['run_end_time'].dt.hour
+            
+            # Create a pivot table to explicitly count occurrences per hour
+            pivot_df = pd.crosstab(
+                index=complete_runs['hour'],
+                columns=complete_runs['time_bucket'].astype('category').cat.set_categories(results_day["bucket_labels"])
             )
+            
+            # Ensure all hours from 0-23 are present for a consistent x-axis
+            all_hours_index = pd.Index(range(24), name='hour')
+            pivot_df = pivot_df.reindex(all_hours_index, fill_value=0)
 
-            # Drop runs that don't have an end time (i.e., the last trailing run)
-            run_times.dropna(subset=['run_end_time'], inplace=True)
+            # Plot the pivoted data
+            fig_hourly_bucket = px.bar(
+                pivot_df,
+                x=pivot_df.index,
+                y=pivot_df.columns,
+                title='Hourly Distribution of Run Durations (anchored to stop hour)',
+                barmode='stack',
+                color_discrete_map=results_day["bucket_color_map"],
+                labels={'hour': 'Hour of Stop', 'value': 'Number of Runs', 'variable': 'Run Duration (min)'}
+            )
+            fig_hourly_bucket.update_layout(
+                height=400,
+                margin=dict(l=40, r=40, t=80, b=40),
+                xaxis=dict(range=[-0.5, 23.5], tickvals=list(range(24)))
+            )
+            st.plotly_chart(fig_hourly_bucket, use_container_width=True)
+    
+            with st.expander("View Bucket Trend Data", expanded=False):
+                st.dataframe(pivot_df[pivot_df.sum(axis=1) > 0]) # Show only hours with stops
+        else:
+            st.info("No complete runs to display in the hourly trend.")
 
-            if not run_times.empty:
-                # The 'shot_time' column is now 'run_end_time'
-                run_times['hour'] = run_times['run_end_time'].dt.hour
-                
-                # Create a pivot table to explicitly count occurrences per hour
-                pivot_df = pd.crosstab(
-                    index=run_times['hour'],
-                    columns=run_times['time_bucket'].astype('category').cat.set_categories(results_day["bucket_labels"])
-                )
-                
-                # Ensure all hours from 0-23 are present for a consistent x-axis
-                all_hours_index = pd.Index(range(24), name='hour')
-                pivot_df = pivot_df.reindex(all_hours_index, fill_value=0)
-
-                # Plot the pivoted data
-                fig_hourly_bucket = px.bar(
-                    pivot_df,
-                    x=pivot_df.index,
-                    y=pivot_df.columns,
-                    title='Hourly Distribution of Run Durations (anchored to stop hour)',
-                    barmode='stack',
-                    color_discrete_map=results_day["bucket_color_map"],
-                    labels={'hour': 'Hour of Stop', 'value': 'Number of Runs', 'variable': 'Run Duration (min)'}
-                )
-                fig_hourly_bucket.update_layout(
-                    height=400,
-                    margin=dict(l=40, r=40, t=80, b=40),
-                    xaxis=dict(range=[-0.5, 23.5], tickvals=list(range(24)))
-                )
-                st.plotly_chart(fig_hourly_bucket, use_container_width=True)
-        
-                with st.expander("View Bucket Trend Data", expanded=False):
-                    st.dataframe(pivot_df[pivot_df.sum(axis=1) > 0]) # Show only hours with stops
 
         st.subheader("Hourly MTTR & MTBF Trend")
         hourly_summary = results_day['hourly_summary']
