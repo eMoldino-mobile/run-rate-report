@@ -178,7 +178,7 @@ class RunRateCalculator:
         
         # --- FIX: Handle runs longer than the max bucket ---
         labels = [f"{edges[i]}-{edges[i+1]}" for i in range(len(edges) - 1)]
-        if edges:
+        if edges and len(edges) > 1:
             last_edge_start = edges[-2]
             labels[-1] = f"{last_edge_start}+"
             edges[-1] = np.inf
@@ -231,6 +231,9 @@ class RunRateCalculator:
             "bucket_labels": labels,
             "bucket_color_map": bucket_color_map,
             "hourly_summary": hourly_summary,
+            "total_runtime_sec": total_runtime_sec,
+            "production_time_sec": production_time_sec,
+            "downtime_sec": downtime_sec,
         }
 # --- UI Helper and Plotting Functions ---
 
@@ -316,6 +319,16 @@ def plot_stability_trend(df, title="Hourly Stability Index Trend"):
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     st.plotly_chart(fig, use_container_width=True)
+
+def format_duration(seconds):
+    """Converts seconds into a human-readable Hh Mm format."""
+    if pd.isna(seconds) or seconds < 0:
+        return "N/A"
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    if hours > 0:
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m"
 
 # --- Main Application Logic ---
 st.sidebar.title("Run Rate Report Generator ⚙️")
@@ -408,6 +421,25 @@ else:
 
         # --- SECTION 1: Summary ---
         st.header(f"Daily Analysis for {selected_date.strftime('%d %b %Y')}")
+
+        # --- New Downtime Summary ---
+        with st.container(border=True):
+            col1, col2, col3, col4, col5 = st.columns(5)
+
+            mttr = results_day.get('mttr_min', 0)
+            mtbf = results_day.get('mtbf_min', 0)
+            total_duration = results_day.get('total_runtime_sec', 0)
+            prod_time = results_day.get('production_time_sec', 0)
+            down_time = results_day.get('downtime_sec', 0)
+
+            prod_percent = (prod_time / total_duration * 100) if total_duration > 0 else 0
+            down_percent = (down_time / total_duration * 100) if total_duration > 0 else 0
+
+            col1.metric("MTTR", f"{mttr:.1f} min")
+            col2.metric("MTBF", f"{mtbf:.1f} min")
+            col3.metric("Total Run Duration", format_duration(total_duration))
+            col4.metric("Production Time", format_duration(prod_time), f"{prod_percent:.1f}% of Total")
+            col5.metric("Downtime", format_duration(down_time), f"{down_percent:.1f}% of Total", delta_color="inverse")
 
         with st.container(border=True):
             col1, col2, col3 = st.columns(3)
