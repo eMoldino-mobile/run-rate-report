@@ -505,7 +505,6 @@ if analysis_level == "Daily":
                 c2.metric("Normal Shots", f"{normal_shots:,}", f"{normal_percent:.1f}%")
                 c3.metric("Stop Count", f"{results.get('stop_events', 0)}", f"{stopped_percent:.1f}% Stopped Shots", delta_color="inverse")
             
-            # --- FIX: Restore Mode CT band ---
             with st.container(border=True):
                 col1, col2, col3 = st.columns(3)
                 col1.metric("Lower Limit (sec)", f"{results.get('lower_limit', 0):.2f}")
@@ -515,12 +514,12 @@ if analysis_level == "Daily":
                 col3.metric("Upper Limit (sec)", f"{results.get('upper_limit', 0):.2f}")
 
             plot_shot_bar_chart(results['processed_df'], results['lower_limit'], results['upper_limit'], results['mode_ct'])
-            
-            # --- FIX: Restore full hourly analysis for Daily View ---
+            with st.expander("View Shot Data Table", expanded=False):
+                st.dataframe(results['processed_df'][['shot_time', 'ACTUAL CT', 'ct_diff_sec', 'stop_flag', 'stop_event']])
+
             st.markdown("---")
             st.header("Hourly Analysis")
 
-            # --- Centralize the logic for identifying complete runs ---
             run_durations_day = results.get("run_durations", pd.DataFrame())
             processed_day_df = results.get('processed_df', pd.DataFrame())
             stop_events_df = processed_day_df.loc[processed_day_df['stop_event']].copy()
@@ -546,6 +545,9 @@ if analysis_level == "Daily":
                         color=bucket_counts.index, color_discrete_map=results["bucket_color_map"]
                     ).update_layout(legend_title_text='Run Duration')
                     st.plotly_chart(fig_bucket, use_container_width=True)
+                    with st.expander("View Bucket Data", expanded=False):
+                        st.dataframe(complete_runs[['run_group', 'duration_min', 'time_bucket', 'run_end_time']])
+
                     if not incomplete_run.empty:
                         duration = incomplete_run['duration_min'].iloc[0]
                         st.info(f"ℹ️ An incomplete trailing run of {duration:.1f} min was excluded.")
@@ -553,6 +555,9 @@ if analysis_level == "Daily":
                     st.info("No complete run durations were recorded for this day.")
             with col2:
                 plot_trend_chart(results['hourly_summary'], 'hour', 'stability_index', "Hourly Stability Trend", "Hour of Day", "Stability (%)", is_stability=True)
+                with st.expander("View Stability Data", expanded=False):
+                    st.dataframe(results['hourly_summary'])
+
 
             st.subheader("Hourly Bucket Trend")
             if not complete_runs.empty:
@@ -570,6 +575,8 @@ if analysis_level == "Daily":
                     labels={'hour': 'Hour of Stop', 'value': 'Number of Runs', 'variable': 'Run Duration (min)'}
                 )
                 st.plotly_chart(fig_hourly_bucket, use_container_width=True)
+                with st.expander("View Bucket Trend Data", expanded=False):
+                    st.dataframe(pivot_df)
             else:
                 st.info("No complete runs to display in the hourly trend.")
 
@@ -582,6 +589,8 @@ if analysis_level == "Daily":
                 fig_mt.update_layout(title="Hourly MTTR & MTBF Trend", yaxis=dict(title='MTTR (min)'), yaxis2=dict(title='MTBF (min)', overlaying='y', side='right'),
                                      legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                 st.plotly_chart(fig_mt, use_container_width=True)
+                with st.expander("View MTTR/MTBF Data", expanded=False):
+                    st.dataframe(hourly_summary)
             else:
                 st.info("No stops on this day to generate MTTR/MTBF trend.")
 
@@ -601,7 +610,6 @@ elif analysis_level == "Weekly":
     if not available_weeks:
         st.warning("No week data available to analyze.")
     else:
-        # Get the year from the first entry for display purposes
         year_for_display = df_processed['shot_time'].iloc[0].year
         selected_week = st.selectbox(f"Select Week (Year {year_for_display})", options=available_weeks, index=len(available_weeks)-1)
         df_week = df_processed[df_processed["week"] == selected_week].copy()
@@ -609,18 +617,14 @@ elif analysis_level == "Weekly":
         if df_week.empty:
             st.warning(f"No data for Week {selected_week}.")
         else:
-            # --- 1. Calculate metrics for the ENTIRE week ---
             calc_week = RunRateCalculator(df_week.copy(), tolerance)
             results_week = calc_week.results
-            
-            # --- 2. Calculate daily summaries for trend charts ---
             daily_summary_df = calculate_daily_summaries_for_week(df_week, tolerance)
 
-            # --- RENDER WEEKLY PAGE ---
             st.subheader(f"Weekly Summary for Week {selected_week}")
             
             with st.container(border=True):
-                # Weekly summary metrics
+                # ... weekly summaries ...
                 col1, col2, col3, col4, col5 = st.columns(5)
                 total_duration = results_week.get('total_runtime_sec', 0)
                 prod_time = results_week.get('production_time_sec', 0)
@@ -634,14 +638,14 @@ elif analysis_level == "Weekly":
                 col5.metric("Downtime", format_duration(down_time), f"{down_percent:.1f}%", delta_color="inverse")
 
             with st.container(border=True):
-                # Gauges
+                # ... gauges ...
                 c1, c2 = st.columns(2)
                 c1.plotly_chart(create_gauge(results_week.get('efficiency', 0) * 100, "Efficiency (%)"), use_container_width=True)
                 stability_steps = [{'range': [0, 50], 'color': PASTEL_COLORS['red']}, {'range': [50, 70], 'color': PASTEL_COLORS['orange']},{'range': [70, 100], 'color': PASTEL_COLORS['green']}]
                 c2.plotly_chart(create_gauge(results_week.get('stability_index', 0), "Stability Index (%)", steps=stability_steps), use_container_width=True)
 
             with st.container(border=True):
-                # Shots
+                # ... shots ...
                 c1,c2,c3 = st.columns(3)
                 total_shots = results_week.get('total_shots', 0)
                 normal_shots = results_week.get('normal_shots', 0)
@@ -652,8 +656,8 @@ elif analysis_level == "Weekly":
                 c2.metric("Normal Shots", f"{normal_shots:,}", f"{normal_percent:.1f}%")
                 c3.metric("Stop Count", f"{results_week.get('stop_events', 0)}", f"{stopped_percent:.1f}% Stopped Shots", delta_color="inverse")
 
-            # --- FIX: Restore Mode CT band ---
             with st.container(border=True):
+                # ... mode ct ...
                 col1, col2, col3 = st.columns(3)
                 col1.metric("Lower Limit (sec)", f"{results_week.get('lower_limit', 0):.2f}")
                 with col2:
@@ -662,11 +666,12 @@ elif analysis_level == "Weekly":
                 col3.metric("Upper Limit (sec)", f"{results_week.get('upper_limit', 0):.2f}")
 
             plot_shot_bar_chart(results_week['processed_df'], results_week['lower_limit'], results_week['upper_limit'], results_week['mode_ct'], time_agg='daily')
+            with st.expander("View Shot Data Table", expanded=False):
+                st.dataframe(results_week['processed_df'][['shot_time', 'ACTUAL CT', 'ct_diff_sec', 'stop_flag', 'stop_event']])
 
             st.markdown("---")
             st.header("Daily Trends for Week")
 
-            # --- NEW LAYOUT for Weekly View ---
             run_durations_week = results_week.get("run_durations", pd.DataFrame())
             processed_week_df = results_week.get('processed_df', pd.DataFrame())
             stop_events_df = processed_week_df.loc[processed_week_df['stop_event']].copy()
@@ -689,6 +694,8 @@ elif analysis_level == "Weekly":
                         color=bucket_counts.index, color_discrete_map=results_week["bucket_color_map"]
                     ).update_layout(legend_title_text='Run Duration')
                     st.plotly_chart(fig_bucket, use_container_width=True)
+                    with st.expander("View Bucket Data", expanded=False):
+                        st.dataframe(complete_runs[['run_group', 'duration_min', 'time_bucket', 'run_end_time']])
                 else:
                     st.info("No complete runs to analyze for bucket distribution.")
 
@@ -696,6 +703,8 @@ elif analysis_level == "Weekly":
                 st.subheader("Daily Stability Trend")
                 if not daily_summary_df.empty:
                     plot_trend_chart(daily_summary_df, 'date', 'stability_index', "Daily Stability Trend", "Date", "Stability Index (%)", is_stability=True)
+                    with st.expander("View Stability Data", expanded=False):
+                        st.dataframe(daily_summary_df)
                 else:
                     st.info("No daily data to plot trends for this week.")
 
@@ -715,6 +724,8 @@ elif analysis_level == "Weekly":
                     labels={'date': 'Date', 'value': 'Number of Runs', 'variable': 'Run Duration (min)'}
                 )
                 st.plotly_chart(fig_daily_bucket, use_container_width=True)
+                with st.expander("View Bucket Trend Data", expanded=False):
+                    st.dataframe(pivot_df)
 
             st.subheader("Daily MTTR & MTBF Trend")
             if not daily_summary_df.empty and daily_summary_df['stops'].sum() > 0:
@@ -724,6 +735,8 @@ elif analysis_level == "Weekly":
                 fig_mt.update_layout(title="Daily MTTR & MTBF Trend", yaxis=dict(title='MTTR (min)'), yaxis2=dict(title='MTBF (min)', overlaying='y', side='right'),
                                         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                 st.plotly_chart(fig_mt, use_container_width=True)
+                with st.expander("View MTTR/MTBF Data", expanded=False):
+                    st.dataframe(daily_summary_df)
             else:
                 st.info("No stops recorded this week to generate MTTR/MTBF trend.")
             
