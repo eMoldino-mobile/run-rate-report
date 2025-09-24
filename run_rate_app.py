@@ -504,7 +504,16 @@ if analysis_level == "Daily":
                 c1.metric("Total Shots", f"{total_shots:,}")
                 c2.metric("Normal Shots", f"{normal_shots:,}", f"{normal_percent:.1f}%")
                 c3.metric("Stop Count", f"{results.get('stop_events', 0)}", f"{stopped_percent:.1f}% Stopped Shots", delta_color="inverse")
-                
+            
+            # --- FIX: Restore Mode CT band ---
+            with st.container(border=True):
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Lower Limit (sec)", f"{results.get('lower_limit', 0):.2f}")
+                with col2:
+                    with st.container(border=True):
+                        st.metric("Mode CT (sec)", f"{results.get('mode_ct', 0):.2f}")
+                col3.metric("Upper Limit (sec)", f"{results.get('upper_limit', 0):.2f}")
+
             plot_shot_bar_chart(results['processed_df'], results['lower_limit'], results['upper_limit'], results['mode_ct'])
             
             # --- FIX: Restore full hourly analysis for Daily View ---
@@ -642,6 +651,15 @@ elif analysis_level == "Weekly":
                 c1.metric("Total Shots", f"{total_shots:,}")
                 c2.metric("Normal Shots", f"{normal_shots:,}", f"{normal_percent:.1f}%")
                 c3.metric("Stop Count", f"{results_week.get('stop_events', 0)}", f"{stopped_percent:.1f}% Stopped Shots", delta_color="inverse")
+
+            # --- FIX: Restore Mode CT band ---
+            with st.container(border=True):
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Lower Limit (sec)", f"{results_week.get('lower_limit', 0):.2f}")
+                with col2:
+                    with st.container(border=True):
+                        st.metric("Mode CT (sec)", f"{results_week.get('mode_ct', 0):.2f}")
+                col3.metric("Upper Limit (sec)", f"{results_week.get('upper_limit', 0):.2f}")
 
             plot_shot_bar_chart(results_week['processed_df'], results_week['lower_limit'], results_week['upper_limit'], results_week['mode_ct'], time_agg='daily')
 
