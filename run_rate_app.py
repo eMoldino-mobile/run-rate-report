@@ -50,34 +50,34 @@ class RunRateCalculator:
     def _calculate_hourly_summary(self, df: pd.DataFrame) -> pd.DataFrame:
         if df.empty or 'stop_event' not in df.columns:
             return pd.DataFrame()
-    
+
         df['hour'] = df['shot_time'].dt.hour
         df['downtime_min_event'] = np.where(df['stop_event'], df['ct_diff_sec'] / 60, np.nan)
-    
+
         hourly_groups = df.groupby('hour')
         stops = hourly_groups['stop_event'].sum()
         total_downtime = hourly_groups['downtime_min_event'].sum()
         uptime_min = df[df['stop_flag'] == 0].groupby('hour')['ct_diff_sec'].sum() / 60
-    
+
         hourly_summary = pd.DataFrame({
             'stops': stops,
             'total_downtime_min': total_downtime
         })
         hourly_summary = hourly_summary.join(uptime_min.rename('uptime_min')).fillna(0).reset_index()
-    
+
         # --- MTTR & MTBF ---
         hourly_summary['mttr_min'] = hourly_summary['total_downtime_min'] / hourly_summary['stops'].replace(0, np.nan)
         hourly_summary['mtbf_min'] = hourly_summary['uptime_min'] / hourly_summary['stops'].replace(0, np.nan)
         hourly_summary['mtbf_min'] = hourly_summary['mtbf_min'].fillna(hourly_summary['uptime_min'])
-    
-        # ✅ New Stability Index (Downtime-weighted, consistent with daily)
+
+        # --- Stability Index ---
         total_runtime = hourly_summary['uptime_min'] + hourly_summary['total_downtime_min']
         hourly_summary['stability_index'] = np.where(
             total_runtime > 0,
             (hourly_summary['uptime_min'] / total_runtime) * 100,
             np.where(hourly_summary['stops'] == 0, 100.0, 0.0)
         )
-    
+
         return hourly_summary
 
 
@@ -85,12 +85,12 @@ class RunRateCalculator:
         df = self._prepare_data()
         if df.empty or "ACTUAL CT" not in df.columns:
             return {}
-    
+
         # --- Mode CT and Tolerance Limits ---
         mode_ct = df["ACTUAL CT"].mode().iloc[0] if not df["ACTUAL CT"].mode().empty else 0
         lower_limit = mode_ct * (1 - self.tolerance)
         upper_limit = mode_ct * (1 + self.tolerance)
-    
+
         # --- Stop Detection ---
         stop_condition = (
             ((df["ct_diff_sec"] < lower_limit) | (df["ct_diff_sec"] > upper_limit))
@@ -101,17 +101,17 @@ class RunRateCalculator:
         df["stop_event"] = (df["stop_flag"] == 1) & (
             df["stop_flag"].shift(1, fill_value=0) == 0
         )
-    
+
         # --- Basic Counts ---
         total_shots = len(df)
         stop_events = df["stop_event"].sum()
         normal_shots = total_shots - df["stop_flag"].sum()
         efficiency = normal_shots / total_shots if total_shots > 0 else 0
-    
+
         # --- MTTR & MTBF ---
         downtime_per_event_sec = df.loc[df["stop_event"], "ct_diff_sec"]
         mttr_min = (downtime_per_event_sec.mean() / 60) if stop_events > 0 else 0
-    
+
         total_runtime_sec = (
             (df["shot_time"].max() - df["shot_time"].min()).total_seconds()
             if total_shots > 1
@@ -119,20 +119,20 @@ class RunRateCalculator:
         )
         downtime_sec = df.loc[df["stop_flag"] == 1, "ct_diff_sec"].sum()
         production_time_sec = total_runtime_sec - downtime_sec
-    
+
         mtbf_min = (
             (production_time_sec / 60 / stop_events)
             if stop_events > 0
             else (production_time_sec / 60)
         )
-    
-        # ✅ Downtime-weighted Stability Index
+
+        # --- Stability Index ---
         stability_index = (
             (production_time_sec / total_runtime_sec * 100)
             if total_runtime_sec > 0
             else (100.0 if stop_events == 0 else 0.0)
         )
-    
+
         # --- Run Duration Buckets ---
         df["run_group"] = df["stop_event"].cumsum()
         run_durations = (
@@ -144,16 +144,14 @@ class RunRateCalculator:
         )
         
         if df["stop_event"].any():
-            # Drop phantom run before the first stop
             first_stop_group = df.loc[df["stop_event"], "run_group"].min()
             run_durations = run_durations[run_durations["run_group"] >= first_stop_group]
-        
-            # Drop trailing run if it never closed with a stop
+            
             last_stop_group = df.loc[df["stop_event"], "run_group"].max()
             run_durations = run_durations[run_durations["run_group"] <= last_stop_group]
         else:
             run_durations = pd.DataFrame(columns=["run_group", "duration_min"])
-    
+
         # --- Bucket Binning ---
         max_minutes = (
             min(run_durations["duration_min"].max(), 240)
@@ -167,7 +165,7 @@ class RunRateCalculator:
             run_durations["time_bucket"] = pd.cut(
                 run_durations["duration_min"], bins=edges, labels=labels, right=False
             )
-    
+
         # --- Bucket Colors ---
         reds = px.colors.sequential.Reds[4:8]
         blues = px.colors.sequential.Blues[3:9]
@@ -185,10 +183,10 @@ class RunRateCalculator:
             else:
                 bucket_color_map[label] = greens[green_idx % len(greens)]
                 green_idx += 1
-    
+        
         # --- Hourly Summary ---
         hourly_summary = self._calculate_hourly_summary(df)
-    
+        
         return {
             "processed_df": df,
             "mode_ct": mode_ct,
@@ -226,14 +224,11 @@ def create_gauge(value, title, steps=None):
     return fig
 
 def plot_shot_bar_chart(df, lower_limit, upper_limit, mode_ct):
-    # Add color coding for stops
     df = df.copy()
     df['color'] = np.where(df['stop_flag'] == 1, PASTEL_COLORS['red'], '#3498DB')
 
-    # Plot bars with x = shot_time
     fig = go.Figure()
 
-    # Add green tolerance band
     fig.add_shape(
         type="rect", xref="x", yref="y",
         x0=df['shot_time'].min(), y0=lower_limit,
@@ -242,9 +237,8 @@ def plot_shot_bar_chart(df, lower_limit, upper_limit, mode_ct):
         layer="below", line_width=0
     )
 
-    # Cycle time bars
     fig.add_trace(go.Bar(
-        x=df['shot_time'],  # <-- time on X axis
+        x=df['shot_time'],
         y=df['ct_diff_sec'],
         marker_color=df['color'],
         name='Cycle Time',
@@ -256,7 +250,7 @@ def plot_shot_bar_chart(df, lower_limit, upper_limit, mode_ct):
         yaxis_title="Cycle Time (sec)",
         bargap=0.05,
         xaxis=dict(
-            tickformat="%H:%M",  # format timestamps as hours:minutes
+            tickformat="%H:%M",
             showgrid=True
         )
     )
@@ -337,33 +331,33 @@ else:
         with st.expander("ℹ️ About This Dashboard", expanded=False):
             st.markdown("""
             ### Run Rate Analysis
-        
+            
             - **Real-time Capture:** Tracks the live run of the tooling in the press.  
             - **MTTR & MTBF:** Identifies stoppages and inefficiencies during a run, or aggregated over time.  
             - **Bucket Analysis:** Groups run durations into intervals to reveal patterns of short vs. long runs.  
             - **Stoppage Analysis:** Calculates MTTR and MTBF from stoppages, analyzing both duration and frequency.  
             - **Runtime Breakdown:** Separates total run time vs. downtime.  
             - **Cycle Insights:** Captures efficiency, stop counts, and cycle deviations at the shot level.  
-        
+            
             ---
-        
+            
             ### Calculation Methods
-        
+            
             - **Efficiency (%)** = Normal Shots ÷ Total Shots × 100  
             - **MTTR (min)** = Average downtime per stop event (downtime ÷ stop events)  
             - **MTBF (min)** = Average uptime between failures (uptime ÷ stop events)  
             - **Stability Index (%)** = Uptime ÷ (Uptime + Downtime) × 100  
             - **Bucket Analysis** = Groups each continuous run duration into 20-minute intervals (e.g., 0–20, 20–40, etc.)  
-        
+            
             ---
-        
+            
             ### Tolerance Slider
-        
+            
             The tolerance slider defines the **acceptable cycle time range** around the mode CT:  
-        
+            
             - **Lower Limit** = Mode CT × (1 − Tolerance)  
             - **Upper Limit** = Mode CT × (1 + Tolerance)  
-        
+            
             Any cycle time outside this range (but below 8 hours) is flagged as a **stop event**.  
             A smaller tolerance makes the dashboard more sensitive to deviations; a larger tolerance makes it less sensitive.  
             """)
@@ -420,7 +414,7 @@ else:
                     title="Time Bucket Analysis",
                     labels={"index": "Run Duration (min)", "value": "Occurrences"},
                     text_auto=True,
-                    color=bucket_counts.index,  # use the bucket labels as colors
+                    color=bucket_counts.index,
                     color_discrete_map=results_day["bucket_color_map"]
                 ).update_layout(legend_title_text='Run Duration')
         
@@ -444,41 +438,46 @@ else:
             run_end_times = processed_day_df.loc[processed_day_df['stop_event'], ['run_group', 'shot_time']]
             run_times = run_durations_day.merge(run_end_times, on='run_group', how='left')
         
-            # --- Drop phantom first run (before the first stop of the day)
+            # --- Drop phantom first run & trailing run
             if processed_day_df['stop_event'].any():
                 first_stop_time = processed_day_df.loc[processed_day_df['stop_event'], 'shot_time'].min()
                 run_times = run_times[run_times['shot_time'] >= first_stop_time]
-        
-            # --- Exclude runs without a stop_time (trailing run at end of day)
+            
             run_times = run_times.dropna(subset=['shot_time'])
         
             if not run_times.empty:
-                # Anchor bucket to the HOUR of the stop
                 run_times['hour'] = run_times['shot_time'].dt.hour
+                
+                # --- FIX: Create a pivot table to explicitly count occurrences per hour ---
+                # This treats each hour as a discrete category, preventing "fat" bars.
+                pivot_df = pd.crosstab(
+                    index=run_times['hour'],
+                    columns=run_times['time_bucket'].astype('category').cat.set_categories(results_day["bucket_labels"])
+                )
+                
+                # Ensure all hours from 0-23 are present for a consistent x-axis
+                all_hours_index = pd.Index(range(24), name='hour')
+                pivot_df = pivot_df.reindex(all_hours_index, fill_value=0)
+
+                # Plot the pivoted data
+                fig_hourly_bucket = px.bar(
+                    pivot_df,
+                    x=pivot_df.index,
+                    y=pivot_df.columns,
+                    title='Hourly Distribution of Run Durations (anchored to stop hour)',
+                    barmode='stack',
+                    color_discrete_map=results_day["bucket_color_map"],
+                    labels={'hour': 'Hour of Stop', 'value': 'Number of Runs', 'variable': 'Run Duration (min)'}
+                )
+                fig_hourly_bucket.update_layout(
+                    height=400,
+                    margin=dict(l=40, r=40, t=80, b=40),
+                    xaxis=dict(range=[-0.5, 23.5], tickvals=list(range(24)))
+                )
+                st.plotly_chart(fig_hourly_bucket, use_container_width=True)
         
-                # ✅ Each run contributes exactly one record: (stop hour, bucket)
-                bucket_hourly = run_times[['hour', 'time_bucket']].copy()
-                bucket_hourly['count'] = 1
-        
-                if not bucket_hourly.empty:
-                    fig_hourly_bucket = px.bar(
-                        bucket_hourly,
-                        x='hour', y='count', color='time_bucket',
-                        title='Hourly Distribution of Run Durations (anchored to stop hour)',
-                        barmode='stack',
-                        category_orders={"time_bucket": results_day["bucket_labels"]},
-                        color_discrete_map=results_day["bucket_color_map"],
-                        labels={'hour': 'Hour of Stop', 'count': 'Number of Runs', 'time_bucket': 'Run Duration (min)'}
-                    )
-                    fig_hourly_bucket.update_layout(
-                        height=400,
-                        margin=dict(l=40, r=40, t=80, b=40),
-                        xaxis=dict(range=[-0.5, 23.5], tickvals=list(range(24)))
-                    )
-                    st.plotly_chart(fig_hourly_bucket, use_container_width=True)
-        
-                    with st.expander("View Bucket Trend Data", expanded=False):
-                        st.dataframe(bucket_hourly)
+                with st.expander("View Bucket Trend Data", expanded=False):
+                    st.dataframe(pivot_df[pivot_df.sum(axis=1) > 0]) # Show only hours with stops
 
         st.subheader("Hourly MTTR & MTBF Trend")
         hourly_summary = results_day['hourly_summary']
@@ -494,12 +493,6 @@ else:
         else:
             st.info("No stops on this day to generate MTTR/MTBF trend.")
 
-        st.subheader("Hourly Stability Index Trend (Full Width)")
-        plot_stability_trend(results_day['hourly_summary'], title="Hourly Stability Index Trend (Full Width)")
-        with st.expander("View Stability Data"):
-            st.dataframe(results_day['hourly_summary'])
-
-        st.markdown("---")
         st.subheader("🚨 Stoppage Alerts")
         stoppage_alerts = results_day['processed_df'][results_day['processed_df']['stop_event']].copy()
         if stoppage_alerts.empty:
