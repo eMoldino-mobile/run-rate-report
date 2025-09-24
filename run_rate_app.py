@@ -237,12 +237,12 @@ def format_duration(seconds):
     if minutes > 0 or not parts: parts.append(f"{minutes}m")
     return " ".join(parts) if parts else "0m"
     
-def calculate_daily_summaries_for_week(df_week, tolerance):
+def calculate_daily_summaries_for_week(df_week, tolerance, analysis_mode):
     daily_results_list = []
     for date in sorted(df_week['date'].unique()):
         df_day = df_week[df_week['date'] == date]
         if not df_day.empty:
-            calc = RunRateCalculator(df_day.copy(), tolerance, analysis_mode='aggregate')
+            calc = RunRateCalculator(df_day.copy(), tolerance, analysis_mode=analysis_mode)
             res = calc.results
             summary = {'date': date, 'stability_index': res.get('stability_index', np.nan),
                        'mttr_min': res.get('mttr_min', np.nan), 'mtbf_min': res.get('mtbf_min', np.nan),
@@ -250,12 +250,12 @@ def calculate_daily_summaries_for_week(df_week, tolerance):
             daily_results_list.append(summary)
     return pd.DataFrame(daily_results_list) if daily_results_list else pd.DataFrame()
 
-def calculate_weekly_summaries_for_month(df_month, tolerance):
+def calculate_weekly_summaries_for_month(df_month, tolerance, analysis_mode):
     weekly_results_list = []
     for week in sorted(df_month['week'].unique()):
         df_week = df_month[df_month['week'] == week]
         if not df_week.empty:
-            calc = RunRateCalculator(df_week.copy(), tolerance, analysis_mode='aggregate')
+            calc = RunRateCalculator(df_week.copy(), tolerance, analysis_mode=analysis_mode)
             res = calc.results
             summary = {'week': week, 'stability_index': res.get('stability_index', np.nan),
                        'mttr_min': res.get('mttr_min', np.nan), 'mtbf_min': res.get('mtbf_min', np.nan),
@@ -369,13 +369,22 @@ elif "Weekly" in analysis_level:
     available_weeks = sorted(df_processed["week"].unique())
     year = df_processed['shot_time'].iloc[0].year
     selected_week = st.selectbox(f"Select Week (Year {year})", options=available_weeks, index=len(available_weeks)-1)
-    df_view = df_processed[df_processed["week"] == selected_week]
+    # --- FIX: In "by Run" mode, we need to get all runs that TOUCH the selected week ---
+    if mode == 'by_run':
+        runs_in_week = df_processed[df_processed['week'] == selected_week]['run_label'].unique()
+        df_view = df_processed[df_processed['run_label'].isin(runs_in_week)]
+    else:
+        df_view = df_processed[df_processed["week"] == selected_week]
     sub_header = f"Summary for Week {selected_week}"
 elif "Monthly" in analysis_level:
     st.header(f"Monthly Analysis {'(by Production Run)' if mode == 'by_run' else ''}")
     available_months = sorted(df_processed["month"].unique())
     selected_month = st.selectbox(f"Select Month", options=available_months, index=len(available_months)-1, format_func=lambda p: p.strftime('%B %Y'))
-    df_view = df_processed[df_processed["month"] == selected_month]
+    if mode == 'by_run':
+        runs_in_month = df_processed[df_processed['month'] == selected_month]['run_label'].unique()
+        df_view = df_processed[df_processed['run_label'].isin(runs_in_month)]
+    else:
+        df_view = df_processed[df_processed["month"] == selected_month]
     sub_header = f"Summary for {selected_month.strftime('%B %Y')}"
 
 # --- Main calculation and rendering block ---
@@ -424,7 +433,7 @@ else:
 
     # --- Breakdown Tables for Weekly/Monthly Views ---
     if analysis_level == "Weekly":
-        daily_summary_df = calculate_daily_summaries_for_week(df_view, tolerance, mode)
+        daily_summary_df = calculate_daily_summaries_for_week(df_view, tolerance)
         with st.expander("View Daily Breakdown Table", expanded=False):
             if not daily_summary_df.empty:
                 d_df = daily_summary_df.copy()
@@ -432,7 +441,7 @@ else:
                 d_df.rename(columns={'date': 'Day', 'stability_index': 'Stability (%)', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'stops': 'Stops'}, inplace=True)
                 st.dataframe(d_df.style.format({'Stability (%)': '{:.1f}', 'MTTR (min)': '{:.1f}', 'MTBF (min)': '{:.1f}'}), use_container_width=True)
     elif analysis_level == "Monthly":
-        weekly_summary_df = calculate_weekly_summaries_for_month(df_view, tolerance, mode)
+        weekly_summary_df = calculate_weekly_summaries_for_month(df_view, tolerance)
         with st.expander("View Weekly Breakdown Table", expanded=False):
             if not weekly_summary_df.empty:
                 d_df = weekly_summary_df.copy()
@@ -501,7 +510,7 @@ else:
     elif analysis_level in ["Weekly", "Monthly"]:
         trend_level = "Daily" if "Weekly" in analysis_level else "Weekly"
         st.header(f"{trend_level} Trends for {analysis_level.split(' ')[0]}")
-        summary_df = calculate_daily_summaries_for_week(df_view, tolerance, mode) if "Weekly" in analysis_level else calculate_weekly_summaries_for_month(df_view, tolerance, mode)
+        summary_df = calculate_daily_summaries_for_week(df_view, tolerance) if "Weekly" in analysis_level else calculate_weekly_summaries_for_month(df_view, tolerance)
         run_durations = results.get("run_durations", pd.DataFrame())
         processed_df = results.get('processed_df', pd.DataFrame())
         stop_events_df = processed_df.loc[processed_df['stop_event']].copy()
