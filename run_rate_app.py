@@ -666,30 +666,9 @@ elif analysis_level == "Weekly":
             st.markdown("---")
             st.header("Daily Trends for Week")
 
-            if not daily_summary_df.empty:
-                plot_trend_chart(daily_summary_df, 'date', 'stability_index', "Daily Stability Trend", "Date", "Stability Index (%)", is_stability=True)
-                
-                # Daily MTTR/MTBF Trend
-                if daily_summary_df['stops'].sum() > 0:
-                    fig_mt = go.Figure()
-                    fig_mt.add_trace(go.Scatter(x=daily_summary_df['date'], y=daily_summary_df['mttr_min'], name='MTTR (min)', mode='lines+markers', line=dict(color='red', width=4)))
-                    fig_mt.add_trace(go.Scatter(x=daily_summary_df['date'], y=daily_summary_df['mtbf_min'], name='MTBF (min)', mode='lines+markers', line=dict(color='green', width=4), yaxis='y2'))
-                    fig_mt.update_layout(title="Daily MTTR & MTBF Trend", yaxis=dict(title='MTTR (min)'), yaxis2=dict(title='MTBF (min)', overlaying='y', side='right'),
-                                         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
-                    st.plotly_chart(fig_mt, use_container_width=True)
-                else:
-                    st.info("No stops recorded this week to generate MTTR/MTBF trend.")
-
-            else:
-                st.info("No daily data to plot trends for this week.")
-            
-            # --- FIX: Implement Weekly Bucket Analysis Section ---
-            st.header("Bucket Analysis for Week")
-            
-            # This logic is now inside the weekly view to get complete runs for the week
+            # --- NEW LAYOUT for Weekly View ---
             run_durations_week = results_week.get("run_durations", pd.DataFrame())
             processed_week_df = results_week.get('processed_df', pd.DataFrame())
-
             stop_events_df = processed_week_df.loc[processed_week_df['stop_event']].copy()
             complete_runs = pd.DataFrame()
             
@@ -698,9 +677,10 @@ elif analysis_level == "Weekly":
                 end_time_map = stop_events_df.set_index('terminated_run_group')['shot_time']
                 run_durations_week['run_end_time'] = run_durations_week['run_group'].map(end_time_map)
                 complete_runs = run_durations_week.dropna(subset=['run_end_time']).copy()
-            
+
             c1, c2 = st.columns(2)
-            with c1: # Total Bucket Analysis
+            with c1:
+                st.subheader("Total Bucket Analysis")
                 if not complete_runs.empty and "time_bucket" in complete_runs.columns:
                     bucket_counts = complete_runs["time_bucket"].value_counts().reindex(results_week["bucket_labels"], fill_value=0)
                     fig_bucket = px.bar(
@@ -712,25 +692,41 @@ elif analysis_level == "Weekly":
                 else:
                     st.info("No complete runs to analyze for bucket distribution.")
 
-            with c2: # Daily Bucket Trend
-                if not complete_runs.empty and not daily_summary_df.empty:
-                    complete_runs['date'] = complete_runs['run_end_time'].dt.date
-                    pivot_df = pd.crosstab(
-                        index=complete_runs['date'],
-                        columns=complete_runs['time_bucket'].astype('category').cat.set_categories(results_week["bucket_labels"])
-                    )
-                    # Ensure all days of the week are present for a consistent x-axis
-                    all_days_in_week = pd.to_datetime(daily_summary_df['date']).dt.date
-                    pivot_df = pivot_df.reindex(all_days_in_week, fill_value=0)
+            with c2:
+                st.subheader("Daily Stability Trend")
+                if not daily_summary_df.empty:
+                    plot_trend_chart(daily_summary_df, 'date', 'stability_index', "Daily Stability Trend", "Date", "Stability Index (%)", is_stability=True)
+                else:
+                    st.info("No daily data to plot trends for this week.")
 
-                    fig_daily_bucket = px.bar(
-                        pivot_df, x=pivot_df.index, y=pivot_df.columns,
-                        title='Daily Distribution of Run Durations', barmode='stack',
-                        color_discrete_map=results_week["bucket_color_map"],
-                        labels={'date': 'Date', 'value': 'Number of Runs', 'variable': 'Run Duration (min)'}
-                    )
-                    st.plotly_chart(fig_daily_bucket, use_container_width=True)
+            st.subheader("Daily Bucket Trend")
+            if not complete_runs.empty and not daily_summary_df.empty:
+                complete_runs['date'] = complete_runs['run_end_time'].dt.date
+                pivot_df = pd.crosstab(
+                    index=complete_runs['date'],
+                    columns=complete_runs['time_bucket'].astype('category').cat.set_categories(results_week["bucket_labels"])
+                )
+                all_days_in_week = pd.to_datetime(daily_summary_df['date']).dt.date
+                pivot_df = pivot_df.reindex(all_days_in_week, fill_value=0)
+                fig_daily_bucket = px.bar(
+                    pivot_df, x=pivot_df.index, y=pivot_df.columns,
+                    title='Daily Distribution of Run Durations', barmode='stack',
+                    color_discrete_map=results_week["bucket_color_map"],
+                    labels={'date': 'Date', 'value': 'Number of Runs', 'variable': 'Run Duration (min)'}
+                )
+                st.plotly_chart(fig_daily_bucket, use_container_width=True)
 
+            st.subheader("Daily MTTR & MTBF Trend")
+            if not daily_summary_df.empty and daily_summary_df['stops'].sum() > 0:
+                fig_mt = go.Figure()
+                fig_mt.add_trace(go.Scatter(x=daily_summary_df['date'], y=daily_summary_df['mttr_min'], name='MTTR (min)', mode='lines+markers', line=dict(color='red', width=4)))
+                fig_mt.add_trace(go.Scatter(x=daily_summary_df['date'], y=daily_summary_df['mtbf_min'], name='MTBF (min)', mode='lines+markers', line=dict(color='green', width=4), yaxis='y2'))
+                fig_mt.update_layout(title="Daily MTTR & MTBF Trend", yaxis=dict(title='MTTR (min)'), yaxis2=dict(title='MTBF (min)', overlaying='y', side='right'),
+                                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                st.plotly_chart(fig_mt, use_container_width=True)
+            else:
+                st.info("No stops recorded this week to generate MTTR/MTBF trend.")
+            
             st.subheader("🚨 Stoppage Alerts for the Week")
             stoppage_alerts = results_week['processed_df'][results_week['processed_df']['stop_event']].copy()
             if stoppage_alerts.empty:
