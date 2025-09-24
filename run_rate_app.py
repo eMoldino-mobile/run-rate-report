@@ -692,6 +692,28 @@ elif analysis_level == "Weekly":
                     with st.container(border=True):
                         st.metric("Mode CT (sec)", f"{results_week.get('mode_ct', 0):.2f}")
                 col3.metric("Upper Limit (sec)", f"{results_week.get('upper_limit', 0):.2f}")
+            
+            with st.expander("View Daily Breakdown Table", expanded=False):
+                if not daily_summary_df.empty:
+                    display_df = daily_summary_df.copy()
+                    display_df['date'] = pd.to_datetime(display_df['date']).dt.strftime('%A, %b %d')
+                    display_df.rename(columns={
+                        'date': 'Day',
+                        'stability_index': 'Stability (%)',
+                        'mttr_min': 'MTTR (min)',
+                        'mtbf_min': 'MTBF (min)',
+                        'stops': 'Stops'
+                    }, inplace=True)
+                    st.dataframe(
+                        display_df.style.format({
+                            'Stability (%)': '{:.1f}',
+                            'MTTR (min)': '{:.1f}',
+                            'MTBF (min)': '{:.1f}'
+                        }),
+                        use_container_width=True
+                    )
+                else:
+                    st.info("No daily data to display.")
 
             plot_shot_bar_chart(results_week['processed_df'], results_week['lower_limit'], results_week['upper_limit'], results_week['mode_ct'], time_agg='daily')
             with st.expander("View Shot Data Table", expanded=False):
@@ -836,6 +858,27 @@ elif analysis_level == "Monthly":
                     with st.container(border=True):
                         st.metric("Mode CT (sec)", f"{results_month.get('mode_ct', 0):.2f}")
                 col3.metric("Upper Limit (sec)", f"{results_month.get('upper_limit', 0):.2f}")
+            
+            with st.expander("View Weekly Breakdown Table", expanded=False):
+                if not weekly_summary_df.empty:
+                    display_df = weekly_summary_df.copy()
+                    display_df.rename(columns={
+                        'week': 'Week',
+                        'stability_index': 'Stability (%)',
+                        'mttr_min': 'MTTR (min)',
+                        'mtbf_min': 'MTBF (min)',
+                        'stops': 'Stops'
+                    }, inplace=True)
+                    st.dataframe(
+                        display_df.style.format({
+                            'Stability (%)': '{:.1f}',
+                            'MTTR (min)': '{:.1f}',
+                            'MTBF (min)': '{:.1f}'
+                        }),
+                        use_container_width=True
+                    )
+                else:
+                    st.info("No weekly data to display.")
 
             plot_shot_bar_chart(results_month['processed_df'], results_month['lower_limit'], results_month['upper_limit'], results_month['mode_ct'], time_agg='daily')
             with st.expander("View Shot Data Table", expanded=False):
