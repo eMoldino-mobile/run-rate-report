@@ -326,7 +326,7 @@ else:
             st.markdown("""
             ### Run Rate Analysis
         
-            - **Real-time Capture:** Tracks the live run of the tool in the press.  
+            - **Real-time Capture:** Tracks the live run of the tooling in the press.  
             - **MTTR & MTBF:** Identifies stoppages and inefficiencies during a run, or aggregated over time.  
             - **Bucket Analysis:** Groups run durations into intervals to reveal patterns of short vs. long runs.  
             - **Stoppage Analysis:** Calculates MTTR and MTBF from stoppages, analyzing both duration and frequency.  
@@ -342,6 +342,18 @@ else:
             - **MTBF (min)** = Average uptime between failures (uptime ÷ stop events)  
             - **Stability Index (%)** = Uptime ÷ (Uptime + Downtime) × 100  
             - **Bucket Analysis** = Groups each continuous run duration into 20-minute intervals (e.g., 0–20, 20–40, etc.)  
+        
+            ---
+        
+            ### Tolerance Slider
+        
+            The tolerance slider defines the **acceptable cycle time range** around the mode CT:  
+        
+            - **Lower Limit** = Mode CT × (1 − Tolerance)  
+            - **Upper Limit** = Mode CT × (1 + Tolerance)  
+        
+            Any cycle time outside this range (but below 8 hours) is flagged as a **stop event**.  
+            A smaller tolerance makes the dashboard more sensitive to deviations; a larger tolerance makes it less sensitive.  
             """)
 
         # --- SECTION 1: Summary ---
