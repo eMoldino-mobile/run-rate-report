@@ -408,12 +408,31 @@ else:
 
         st.subheader("Hourly Bucket Trend")
         run_durations_day = results_day['run_durations']
+        
         if not run_durations_day.empty:
             processed_day_df = results_day['processed_df']
-            run_start_times = processed_day_df[['run_group', 'shot_time']].drop_duplicates(subset=['run_group'], keep='first')
+        
+            # Get start times for each run group
+            run_start_times = (
+                processed_day_df[['run_group', 'shot_time']]
+                .drop_duplicates(subset=['run_group'], keep='first')
+            )
+        
+            # Merge run durations with their start times
             run_times = run_durations_day.merge(run_start_times, on='run_group', how='left')
             run_times['hour'] = run_times['shot_time'].dt.hour
-            bucket_hourly = run_times.groupby(['hour', 'time_bucket'], observed=False).size().reset_index(name='count')
+        
+            # ✅ Remove phantom group (baseline runs with no real stop)
+            if not run_times.empty:
+                valid_groups = processed_day_df.groupby("run_group").size()
+                run_times = run_times[run_times["run_group"].isin(valid_groups[valid_groups > 1].index)]
+        
+            # Aggregate into hourly buckets
+            bucket_hourly = (
+                run_times.groupby(['hour', 'time_bucket'], observed=False)
+                .size()
+                .reset_index(name='count')
+            )
         
             if not bucket_hourly.empty:
                 fig_hourly_bucket = px.bar(
@@ -423,9 +442,14 @@ else:
                     barmode='stack',
                     category_orders={"time_bucket": results_day["bucket_labels"]},
                     color_discrete_map=results_day["bucket_color_map"],
-                    labels={'hour': 'Hour of Day', 'count': 'Number of Runs', 'time_bucket': 'Run Duration (min)'}
+                    labels={
+                        'hour': 'Hour of Day',
+                        'count': 'Number of Runs',
+                        'time_bucket': 'Run Duration (min)'
+                    }
                 )
-                # ✅ Constrain height so it doesn’t break scrolling
+        
+                # Keep chart tidy and scroll-safe
                 fig_hourly_bucket.update_layout(
                     height=400,
                     margin=dict(l=40, r=40, t=80, b=40),
@@ -435,7 +459,7 @@ else:
                 st.plotly_chart(
                     fig_hourly_bucket,
                     use_container_width=True,
-                    config={"displayModeBar": True, "scrollZoom": False}  # 👈 disables scroll hijacking
+                    config={"displayModeBar": True, "scrollZoom": False}
                 )
         
                 with st.expander("View Bucket Trend Data", expanded=False):
