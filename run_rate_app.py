@@ -341,23 +341,7 @@ else:
                     {'range': [70, 100], 'color': PASTEL_COLORS['green']}
                 ]
                 st.plotly_chart(create_gauge(results_day.get('stability_index', 0), "Stability Index (%)", steps=stability_steps), use_container_width=True)
-                
-                st.markdown("""
-                ### 🧾 Stability Index – What It Means
-                - **Definition**: The Stability Index shows the share of time the machine/tool spent producing vs. in stoppage.  
-                - **Formula**:  
-                  \n\\[
-                  \text{Stability Index} = \frac{\text{Production Time}}{\text{Total Runtime}} \times 100
-                  \\]  
-                - **Interpretation**:  
-                  - **100%** → No downtime at all.  
-                  - **70–90%** → Mostly stable, but some downtime.  
-                  - **<50%** → Significant instability (frequent or long stops).  
-                - **Difference from Efficiency**:  
-                  - Efficiency = Good shots ÷ Total shots.  
-                  - Stability = Production time ÷ Total runtime.  
-                  - A line can be efficient but unstable if it produces good shots but frequently stops.
-                """)
+
         with st.container(border=True):
             col1, col2, col3 = st.columns(3)
             col1.metric("Lower Limit (sec)", f"{results_day.get('lower_limit', 0):.2f}")
