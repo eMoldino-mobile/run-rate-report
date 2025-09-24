@@ -406,13 +406,30 @@ else:
 
         col1, col2 = st.columns(2)
         with col1:
-            st.plotly_chart(px.bar(
-                results_day["run_durations"]["time_bucket"].value_counts().reindex(results_day["bucket_labels"], fill_value=0),
-                title="Time Bucket Analysis", labels={"index": "Run Duration (min)", "value": "Occurrences"},
-                text_auto=True, color=results_day["bucket_labels"], color_discrete_map=results_day["bucket_color_map"]
-            ).update_layout(legend_title_text='Run Duration'), use_container_width=True)
-            with st.expander("View Bucket Data"):
-                st.dataframe(results_day["run_durations"])
+            run_durations_day = results_day["run_durations"]
+        
+            if not run_durations_day.empty and "time_bucket" in run_durations_day.columns:
+                bucket_counts = (
+                    run_durations_day["time_bucket"]
+                    .value_counts()
+                    .reindex(results_day["bucket_labels"], fill_value=0)
+                )
+        
+                fig_bucket = px.bar(
+                    bucket_counts,
+                    title="Time Bucket Analysis",
+                    labels={"index": "Run Duration (min)", "value": "Occurrences"},
+                    text_auto=True,
+                    color=bucket_counts.index,  # use the bucket labels as colors
+                    color_discrete_map=results_day["bucket_color_map"]
+                ).update_layout(legend_title_text='Run Duration')
+        
+                st.plotly_chart(fig_bucket, use_container_width=True)
+        
+                with st.expander("View Bucket Data"):
+                    st.dataframe(run_durations_day)
+            else:
+                st.info("No valid run durations for this day.")
         with col2:
             plot_stability_trend(results_day['hourly_summary'])
             with st.expander("View Stability Data"):
