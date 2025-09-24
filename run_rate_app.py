@@ -510,7 +510,7 @@ else:
     elif analysis_level in ["Weekly", "Monthly"]:
         trend_level = "Daily" if "Weekly" in analysis_level else "Weekly"
         st.header(f"{trend_level} Trends for {analysis_level.split(' ')[0]}")
-        summary_df = calculate_daily_summaries_for_week(df_view, tolerance, 'aggregate') if "Weekly" in analysis_level else calculate_weekly_summaries_for_month(df_view, tolerance, 'aggregate')
+        summary_df = calculate_daily_summaries_for_week(df_view, tolerance, mode) if "Weekly" in analysis_level else calculate_weekly_summaries_for_month(df_view, tolerance, mode)
         run_durations = results.get("run_durations", pd.DataFrame())
         processed_df = results.get('processed_df', pd.DataFrame())
         stop_events_df = processed_df.loc[processed_df['stop_event']].copy()
