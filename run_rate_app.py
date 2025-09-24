@@ -411,18 +411,24 @@ else:
         if not run_durations_day.empty:
             processed_day_df = results_day['processed_df']
         
-            # Get first shot time per run group
+            # --- Get run start times
             run_start_times = processed_day_df[['run_group', 'shot_time']].drop_duplicates(
                 subset=['run_group'], keep='first'
             )
             run_times = run_durations_day.merge(run_start_times, on='run_group', how='left')
+        
+            # --- Remove phantom group if it's just pre-stop baseline
+            if not processed_day_df["stop_event"].iloc[0]:  # day starts with uptime
+                first_group = run_times["run_group"].min()
+                valid_groups = processed_day_df.groupby("run_group").size()
+                run_times = run_times[
+                    run_times["run_group"].isin(valid_groups[valid_groups > 1].index)
+                ]
+        
+            # --- Assign hour
             run_times['hour'] = run_times['shot_time'].dt.hour
         
-            # ✅ Remove phantom groups (carryover with only 1 shot)
-            valid_groups = processed_day_df.groupby("run_group").size()
-            run_times = run_times[run_times["run_group"].isin(valid_groups[valid_groups > 1].index)]
-        
-            # Now group into hourly buckets
+            # --- Build hourly buckets
             bucket_hourly = (
                 run_times.groupby(['hour', 'time_bucket'], observed=False)
                 .size()
@@ -437,19 +443,18 @@ else:
                     barmode='stack',
                     category_orders={"time_bucket": results_day["bucket_labels"]},
                     color_discrete_map=results_day["bucket_color_map"],
-                    labels={'hour': 'Hour of Day', 'count': 'Number of Runs', 'time_bucket': 'Run Duration (min)'}
+                    labels={
+                        'hour': 'Hour of Day',
+                        'count': 'Number of Runs',
+                        'time_bucket': 'Run Duration (min)'
+                    }
                 )
                 fig_hourly_bucket.update_layout(
                     height=400,
                     margin=dict(l=40, r=40, t=80, b=40),
                     xaxis=dict(range=[-0.5, 23.5], tickvals=list(range(24)))
                 )
-        
-                st.plotly_chart(
-                    fig_hourly_bucket,
-                    use_container_width=True,
-                    config={"displayModeBar": True, "scrollZoom": False}
-                )
+                st.plotly_chart(fig_hourly_bucket, use_container_width=True)
         
                 with st.expander("View Bucket Trend Data", expanded=False):
                     st.dataframe(bucket_hourly)
