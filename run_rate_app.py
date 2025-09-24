@@ -166,15 +166,6 @@ class RunRateCalculator:
             .div(60)
             .reset_index(name="duration_min")
         )
-        
-        if df["stop_event"].any():
-            first_stop_group = df.loc[df["stop_event"], "run_group"].min()
-            run_durations = run_durations[run_durations["run_group"] >= first_stop_group]
-            
-            last_stop_group = df.loc[df["stop_event"], "run_group"].max()
-            run_durations = run_durations[run_durations["run_group"] <= last_stop_group]
-        else:
-            run_durations = pd.DataFrame(columns=["run_group", "duration_min"])
 
         # --- Bucket Binning ---
         max_minutes = (
@@ -251,18 +242,29 @@ def plot_shot_bar_chart(df, lower_limit, upper_limit, mode_ct):
     df = df.copy()
     df['color'] = np.where(df['stop_flag'] == 1, PASTEL_COLORS['red'], '#3498DB')
 
+    # --- FIX: Shift stop bar's x-position to the start of the stop ---
+    # The ct_diff_sec for a stop is on the row AFTER the stop.
+    # We create a 'plot_time' to associate the stop duration with the timestamp
+    # of the last shot BEFORE the stop, which is more intuitive.
+    df['plot_time'] = df['shot_time']
+    stop_indices = df[df['stop_flag'] == 1].index
+    if not stop_indices.empty:
+        # Get the timestamp from the previous row for each stop
+        df.loc[stop_indices, 'plot_time'] = df['shot_time'].shift(1).loc[stop_indices]
+
+
     fig = go.Figure()
 
     fig.add_shape(
         type="rect", xref="x", yref="y",
-        x0=df['shot_time'].min(), y0=lower_limit,
-        x1=df['shot_time'].max(), y1=upper_limit,
+        x0=df['plot_time'].min(), y0=lower_limit,
+        x1=df['plot_time'].max(), y1=upper_limit,
         fillcolor=PASTEL_COLORS['green'], opacity=0.2,
         layer="below", line_width=0
     )
 
     fig.add_trace(go.Bar(
-        x=df['shot_time'],
+        x=df['plot_time'],
         y=df['ct_diff_sec'],
         marker_color=df['color'],
         name='Cycle Time',
@@ -353,7 +355,7 @@ else:
     if df_day.empty:
         st.warning(f"No data for {selected_date.strftime('%d %b %Y')}.")
     else:
-        calc_day = RunRateCalculator(df_day, tolerance)
+        calc_day = RunRateCalculator(df_day.copy(), tolerance)
         results_day = calc_day.results
         
         # --- Explainer Section ---
@@ -463,22 +465,31 @@ else:
         if not run_durations_day.empty:
             processed_day_df = results_day['processed_df']
         
-            # --- Get run END times (anchored to stop events)
-            run_end_times = processed_day_df.loc[processed_day_df['stop_event'], ['run_group', 'shot_time']]
-            run_times = run_durations_day.merge(run_end_times, on='run_group', how='left')
-        
-            # --- Drop phantom first run & trailing run
-            if processed_day_df['stop_event'].any():
-                first_stop_time = processed_day_df.loc[processed_day_df['stop_event'], 'shot_time'].min()
-                run_times = run_times[run_times['shot_time'] >= first_stop_time]
-            
-            run_times = run_times.dropna(subset=['shot_time'])
-        
+            # --- FIX: New logic to correctly link run durations to their stop times ---
+            # A stop event terminates the PREVIOUS run group. We need to associate them.
+            stop_events_df = processed_day_df.loc[processed_day_df['stop_event'], ['run_group', 'shot_time']].copy()
+            stop_events_df.rename(columns={'shot_time': 'run_end_time'}, inplace=True)
+            # The run_group in stop_events_df (e.g., 1) is for the run AFTER the stop.
+            # The run that was terminated is run_group - 1 (e.g., 0).
+            stop_events_df['terminated_run_group'] = stop_events_df['run_group'] - 1
+
+            # Merge the durations with their corresponding end times.
+            run_times = pd.merge(
+                run_durations_day,
+                stop_events_df[['terminated_run_group', 'run_end_time']],
+                left_on='run_group',
+                right_on='terminated_run_group',
+                how='left'
+            )
+
+            # Drop runs that don't have an end time (i.e., the last trailing run)
+            run_times.dropna(subset=['run_end_time'], inplace=True)
+
             if not run_times.empty:
-                run_times['hour'] = run_times['shot_time'].dt.hour
+                # The 'shot_time' column is now 'run_end_time'
+                run_times['hour'] = run_times['run_end_time'].dt.hour
                 
-                # --- FIX: Create a pivot table to explicitly count occurrences per hour ---
-                # This treats each hour as a discrete category, preventing "fat" bars.
+                # Create a pivot table to explicitly count occurrences per hour
                 pivot_df = pd.crosstab(
                     index=run_times['hour'],
                     columns=run_times['time_bucket'].astype('category').cat.set_categories(results_day["bucket_labels"])
