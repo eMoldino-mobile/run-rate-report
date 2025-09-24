@@ -237,12 +237,12 @@ def format_duration(seconds):
     if minutes > 0 or not parts: parts.append(f"{minutes}m")
     return " ".join(parts) if parts else "0m"
     
-def calculate_daily_summaries_for_week(df_week, tolerance):
+def calculate_daily_summaries_for_week(df_week, tolerance, analysis_mode):
     daily_results_list = []
     for date in sorted(df_week['date'].unique()):
         df_day = df_week[df_week['date'] == date]
         if not df_day.empty:
-            calc = RunRateCalculator(df_day.copy(), tolerance, analysis_mode='aggregate')
+            calc = RunRateCalculator(df_day.copy(), tolerance, analysis_mode=analysis_mode)
             res = calc.results
             summary = {'date': date, 'stability_index': res.get('stability_index', np.nan),
                        'mttr_min': res.get('mttr_min', np.nan), 'mtbf_min': res.get('mtbf_min', np.nan),
@@ -250,12 +250,12 @@ def calculate_daily_summaries_for_week(df_week, tolerance):
             daily_results_list.append(summary)
     return pd.DataFrame(daily_results_list) if daily_results_list else pd.DataFrame()
 
-def calculate_weekly_summaries_for_month(df_month, tolerance):
+def calculate_weekly_summaries_for_month(df_month, tolerance, analysis_mode):
     weekly_results_list = []
     for week in sorted(df_month['week'].unique()):
         df_week = df_month[df_month['week'] == week]
         if not df_week.empty:
-            calc = RunRateCalculator(df_week.copy(), tolerance, analysis_mode='aggregate')
+            calc = RunRateCalculator(df_week.copy(), tolerance, analysis_mode=analysis_mode)
             res = calc.results
             summary = {'week': week, 'stability_index': res.get('stability_index', np.nan),
                        'mttr_min': res.get('mttr_min', np.nan), 'mtbf_min': res.get('mtbf_min', np.nan),
@@ -510,7 +510,7 @@ else:
     elif analysis_level in ["Weekly", "Monthly"]:
         trend_level = "Daily" if "Weekly" in analysis_level else "Weekly"
         st.header(f"{trend_level} Trends for {analysis_level.split(' ')[0]}")
-        summary_df = calculate_daily_summaries_for_week(df_view, tolerance, mode) if "Weekly" in analysis_level else calculate_weekly_summaries_for_month(df_view, tolerance, mode)
+        summary_df = calculate_daily_summaries_for_week(df_view, tolerance, 'aggregate') if "Weekly" in analysis_level else calculate_weekly_summaries_for_month(df_view, tolerance, 'aggregate')
         run_durations = results.get("run_durations", pd.DataFrame())
         processed_df = results.get('processed_df', pd.DataFrame())
         stop_events_df = processed_df.loc[processed_df['stop_event']].copy()
