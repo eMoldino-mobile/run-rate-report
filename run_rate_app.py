@@ -417,14 +417,13 @@ else:
             )
             run_times = run_durations_day.merge(run_start_times, on='run_group', how='left')
         
-            # --- Remove phantom group if it's only the pre-stop baseline
-            if not processed_day_df["stop_event"].any():
-                # No stops at all -> no buckets should show
-                run_times = pd.DataFrame()
-            else:
-                first_stop_time = processed_day_df.loc[processed_day_df["stop_event"], "shot_time"].min()
-                # Keep only run groups that START AFTER the first stop
-                run_times = run_times[run_times["shot_time"] >= first_stop_time]
+            # --- Drop phantom first run (before the first stop of the day)
+            if processed_day_df['stop_event'].any():
+                first_stop_time = processed_day_df.loc[
+                    processed_day_df['stop_event'], 'shot_time'
+                ].min()
+                # Exclude only the run that *started before* the first stop
+                run_times = run_times[~((run_times['shot_time'] < first_stop_time) & (run_times['run_group'] == run_times['run_group'].min()))]
         
             if not run_times.empty:
                 run_times['hour'] = run_times['shot_time'].dt.hour
