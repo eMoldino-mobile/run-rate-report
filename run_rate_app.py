@@ -148,7 +148,7 @@ class RunRateCalculator:
                 first_stop_group = df.loc[df["stop_event"], "run_group"].min()
                 run_durations = run_durations[run_durations["run_group"] >= first_stop_group]
             else:
-                run_durations = pd.DataFrame(columns=run_durations.columns)
+                run_durations = pd.DataFrame(columns=["run_group", "duration_min"])
         
             # --- Bucket Binning ---
             max_minutes = (
