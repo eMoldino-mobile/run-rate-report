@@ -507,8 +507,83 @@ if analysis_level == "Daily":
                 
             plot_shot_bar_chart(results['processed_df'], results['lower_limit'], results['upper_limit'], results['mode_ct'])
             
-            # Daily charts remain largely the same, using hourly aggregation
-            # ... (Full daily chart section omitted for brevity but would be here)
+            # --- FIX: Restore full hourly analysis for Daily View ---
+            st.markdown("---")
+            st.header("Hourly Analysis")
+
+            # --- Centralize the logic for identifying complete runs ---
+            run_durations_day = results.get("run_durations", pd.DataFrame())
+            processed_day_df = results.get('processed_df', pd.DataFrame())
+            stop_events_df = processed_day_df.loc[processed_day_df['stop_event']].copy()
+            complete_runs = pd.DataFrame()
+            incomplete_run = pd.DataFrame()
+
+            if not stop_events_df.empty:
+                stop_events_df['terminated_run_group'] = stop_events_df['run_group'] - 1
+                end_time_map = stop_events_df.set_index('terminated_run_group')['shot_time']
+                run_durations_day['run_end_time'] = run_durations_day['run_group'].map(end_time_map)
+                complete_runs = run_durations_day.dropna(subset=['run_end_time']).copy()
+                incomplete_run = run_durations_day[run_durations_day['run_end_time'].isna()]
+            else:
+                incomplete_run = run_durations_day
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if not complete_runs.empty and "time_bucket" in complete_runs.columns:
+                    bucket_counts = complete_runs["time_bucket"].value_counts().reindex(results["bucket_labels"], fill_value=0)
+                    fig_bucket = px.bar(
+                        bucket_counts, title="Time Bucket Analysis (Completed Runs)",
+                        labels={"index": "Run Duration (min)", "value": "Occurrences"}, text_auto=True,
+                        color=bucket_counts.index, color_discrete_map=results["bucket_color_map"]
+                    ).update_layout(legend_title_text='Run Duration')
+                    st.plotly_chart(fig_bucket, use_container_width=True)
+                    if not incomplete_run.empty:
+                        duration = incomplete_run['duration_min'].iloc[0]
+                        st.info(f"ℹ️ An incomplete trailing run of {duration:.1f} min was excluded.")
+                else:
+                    st.info("No complete run durations were recorded for this day.")
+            with col2:
+                plot_trend_chart(results['hourly_summary'], 'hour', 'stability_index', "Hourly Stability Trend", "Hour of Day", "Stability (%)", is_stability=True)
+
+            st.subheader("Hourly Bucket Trend")
+            if not complete_runs.empty:
+                complete_runs['hour'] = complete_runs['run_end_time'].dt.hour
+                pivot_df = pd.crosstab(
+                    index=complete_runs['hour'],
+                    columns=complete_runs['time_bucket'].astype('category').cat.set_categories(results["bucket_labels"])
+                )
+                all_hours_index = pd.Index(range(24), name='hour')
+                pivot_df = pivot_df.reindex(all_hours_index, fill_value=0)
+                fig_hourly_bucket = px.bar(
+                    pivot_df, x=pivot_df.index, y=pivot_df.columns,
+                    title='Hourly Distribution of Run Durations', barmode='stack',
+                    color_discrete_map=results["bucket_color_map"],
+                    labels={'hour': 'Hour of Stop', 'value': 'Number of Runs', 'variable': 'Run Duration (min)'}
+                )
+                st.plotly_chart(fig_hourly_bucket, use_container_width=True)
+            else:
+                st.info("No complete runs to display in the hourly trend.")
+
+            st.subheader("Hourly MTTR & MTBF Trend")
+            hourly_summary = results['hourly_summary']
+            if not hourly_summary.empty and hourly_summary['stops'].sum() > 0:
+                fig_mt = go.Figure()
+                fig_mt.add_trace(go.Scatter(x=hourly_summary['hour'], y=hourly_summary['mttr_min'], name='MTTR (min)', mode='lines+markers', line=dict(color='red', width=4)))
+                fig_mt.add_trace(go.Scatter(x=hourly_summary['hour'], y=hourly_summary['mtbf_min'], name='MTBF (min)', mode='lines+markers', line=dict(color='green', width=4), yaxis='y2'))
+                fig_mt.update_layout(title="Hourly MTTR & MTBF Trend", yaxis=dict(title='MTTR (min)'), yaxis2=dict(title='MTBF (min)', overlaying='y', side='right'),
+                                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                st.plotly_chart(fig_mt, use_container_width=True)
+            else:
+                st.info("No stops on this day to generate MTTR/MTBF trend.")
+
+            st.subheader("🚨 Stoppage Alerts")
+            stoppage_alerts = results['processed_df'][results['processed_df']['stop_event']].copy()
+            if stoppage_alerts.empty:
+                st.info("✅ No new stop events were recorded on this day.")
+            else:
+                stoppage_alerts["Duration (min)"] = (stoppage_alerts["ct_diff_sec"] / 60)
+                display_table = stoppage_alerts[['shot_time', 'Duration (min)']].rename(columns={"shot_time": "Event Time"})
+                st.dataframe(display_table.style.format({'Duration (min)': '{:.1f}'}), use_container_width=True)
 
 
 elif analysis_level == "Weekly":
@@ -620,7 +695,7 @@ elif analysis_level == "Weekly":
                     st.info("No complete runs to analyze for bucket distribution.")
 
             with c2: # Daily Bucket Trend
-                if not complete_runs.empty:
+                if not complete_runs.empty and not daily_summary_df.empty:
                     complete_runs['date'] = complete_runs['run_end_time'].dt.date
                     pivot_df = pd.crosstab(
                         index=complete_runs['date'],
