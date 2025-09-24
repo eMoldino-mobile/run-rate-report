@@ -408,26 +408,21 @@ else:
 
         st.subheader("Hourly Bucket Trend")
         run_durations_day = results_day['run_durations']
-        
         if not run_durations_day.empty:
             processed_day_df = results_day['processed_df']
         
-            # First run time for each group
+            # Get first shot time per run group
             run_start_times = processed_day_df[['run_group', 'shot_time']].drop_duplicates(
                 subset=['run_group'], keep='first'
             )
-        
-            # Merge run durations with start times
             run_times = run_durations_day.merge(run_start_times, on='run_group', how='left')
+            run_times['hour'] = run_times['shot_time'].dt.hour
         
-            # --- Remove phantom baseline groups (e.g., group 0 with no stop) ---
+            # ✅ Remove phantom groups (carryover with only 1 shot)
             valid_groups = processed_day_df.groupby("run_group").size()
             run_times = run_times[run_times["run_group"].isin(valid_groups[valid_groups > 1].index)]
         
-            # Hour extraction
-            run_times['hour'] = run_times['shot_time'].dt.hour
-        
-            # Bucket by hour
+            # Now group into hourly buckets
             bucket_hourly = (
                 run_times.groupby(['hour', 'time_bucket'], observed=False)
                 .size()
@@ -449,7 +444,12 @@ else:
                     margin=dict(l=40, r=40, t=80, b=40),
                     xaxis=dict(range=[-0.5, 23.5], tickvals=list(range(24)))
                 )
-                st.plotly_chart(fig_hourly_bucket, use_container_width=True, config={"displayModeBar": True, "scrollZoom": False})
+        
+                st.plotly_chart(
+                    fig_hourly_bucket,
+                    use_container_width=True,
+                    config={"displayModeBar": True, "scrollZoom": False}
+                )
         
                 with st.expander("View Bucket Trend Data", expanded=False):
                     st.dataframe(bucket_hourly)
