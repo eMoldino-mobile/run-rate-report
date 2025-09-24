@@ -443,9 +443,19 @@ else:
 
         with st.container(border=True):
             col1, col2, col3 = st.columns(3)
-            col1.metric("Total Shots", f"{results_day.get('total_shots', 0):,}")
-            col2.metric("Normal Shots", f"{results_day.get('normal_shots', 0):,}")
-            col3.metric("Stop Count", f"{results_day.get('stop_events', 0)}")
+            
+            total_shots = results_day.get('total_shots', 0)
+            normal_shots = results_day.get('normal_shots', 0)
+            stop_events_val = results_day.get('stop_events', 0)
+
+            stopped_shots = total_shots - normal_shots
+            
+            normal_percent = (normal_shots / total_shots * 100) if total_shots > 0 else 0
+            stopped_percent = (stopped_shots / total_shots * 100) if total_shots > 0 else 0
+
+            col1.metric("Total Shots", f"{total_shots:,}")
+            col2.metric("Normal Shots", f"{normal_shots:,}", f"{normal_percent:.1f}% of Total")
+            col3.metric("Stop Count", f"{stop_events_val}", f"{stopped_percent:.1f}% Stopped Shots", delta_color="inverse")
 
         with st.container(border=True):
             col1, col2 = st.columns(2)
