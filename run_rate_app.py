@@ -435,30 +435,25 @@ else:
                     processed_day_df['stop_event'], 'shot_time'
                 ].min()
                 # Exclude only the run that *started before* the first stop
-                run_times = run_times[~(
-                    (run_times['shot_time'] < first_stop_time) &
-                    (run_times['run_group'] == run_times['run_group'].min())
-                )]
+                run_times = run_times[~((run_times['shot_time'] < first_stop_time) & (run_times['run_group'] == run_times['run_group'].min()))]
         
             if not run_times.empty:
                 run_times['hour'] = run_times['shot_time'].dt.hour
-        
-                # ✅ Sum total minutes per bucket/hour instead of just counts
                 bucket_hourly = (
-                    run_times.groupby(['hour', 'time_bucket'], observed=False)['duration_min']
-                    .sum()
-                    .reset_index(name='total_minutes')
+                    run_times.groupby(['hour', 'time_bucket'], observed=False)
+                    .size()
+                    .reset_index(name='count')
                 )
         
                 if not bucket_hourly.empty:
                     fig_hourly_bucket = px.bar(
                         bucket_hourly,
-                        x='hour', y='total_minutes', color='time_bucket',
-                        title='Hourly Distribution of Run Durations (minutes)',
+                        x='hour', y='count', color='time_bucket',
+                        title='Hourly Distribution of Run Durations',
                         barmode='stack',
                         category_orders={"time_bucket": results_day["bucket_labels"]},
                         color_discrete_map=results_day["bucket_color_map"],
-                        labels={'hour': 'Hour of Day', 'total_minutes': 'Run Duration (min)', 'time_bucket': 'Bucket'}
+                        labels={'hour': 'Hour of Day', 'count': 'Number of Runs', 'time_bucket': 'Run Duration (min)'}
                     )
                     fig_hourly_bucket.update_layout(
                         height=400,
@@ -469,7 +464,7 @@ else:
         
                     with st.expander("View Bucket Trend Data", expanded=False):
                         st.dataframe(bucket_hourly)
-                
+
         st.subheader("Hourly MTTR & MTBF Trend")
         hourly_summary = results_day['hourly_summary']
         if not hourly_summary.empty and hourly_summary['stops'].sum() > 0:
