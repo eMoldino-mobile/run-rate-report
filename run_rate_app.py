@@ -433,7 +433,7 @@ else:
 
     # --- Breakdown Tables for Weekly/Monthly Views ---
     if analysis_level == "Weekly":
-        daily_summary_df = calculate_daily_summaries_for_week(df_view, tolerance)
+        daily_summary_df = calculate_daily_summaries_for_week(df_view, tolerance, mode)
         with st.expander("View Daily Breakdown Table", expanded=False):
             if not daily_summary_df.empty:
                 d_df = daily_summary_df.copy()
@@ -441,7 +441,7 @@ else:
                 d_df.rename(columns={'date': 'Day', 'stability_index': 'Stability (%)', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'stops': 'Stops'}, inplace=True)
                 st.dataframe(d_df.style.format({'Stability (%)': '{:.1f}', 'MTTR (min)': '{:.1f}', 'MTBF (min)': '{:.1f}'}), use_container_width=True)
     elif analysis_level == "Monthly":
-        weekly_summary_df = calculate_weekly_summaries_for_month(df_view, tolerance)
+        weekly_summary_df = calculate_weekly_summaries_for_month(df_view, tolerance, mode)
         with st.expander("View Weekly Breakdown Table", expanded=False):
             if not weekly_summary_df.empty:
                 d_df = weekly_summary_df.copy()
