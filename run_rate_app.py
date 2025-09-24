@@ -320,6 +320,29 @@ else:
     else:
         calc_day = RunRateCalculator(df_day, tolerance)
         results_day = calc_day.results
+        
+        # --- Explainer Section ---
+        with st.expander("ℹ️ About This Dashboard", expanded=False):
+            st.markdown("""
+            ### Run Rate Analysis
+        
+            - **Real-time Capture:** Tracks the live run of the tool in the press.  
+            - **MTTR & MTBF:** Identifies stoppages and inefficiencies during a run, or aggregated over time.  
+            - **Bucket Analysis:** Groups run durations into intervals to reveal patterns of short vs. long runs.  
+            - **Stoppage Analysis:** Calculates MTTR and MTBF from stoppages, analyzing both duration and frequency.  
+            - **Runtime Breakdown:** Separates total run time vs. downtime.  
+            - **Cycle Insights:** Captures efficiency, stop counts, and cycle deviations at the shot level.  
+        
+            ---
+        
+            ### Calculation Methods
+        
+            - **Efficiency (%)** = Normal Shots ÷ Total Shots × 100  
+            - **MTTR (min)** = Average downtime per stop event (downtime ÷ stop events)  
+            - **MTBF (min)** = Average uptime between failures (uptime ÷ stop events)  
+            - **Stability Index (%)** = Uptime ÷ (Uptime + Downtime) × 100  
+            - **Bucket Analysis** = Groups each continuous run duration into 20-minute intervals (e.g., 0–20, 20–40, etc.)  
+            """)
 
         # --- SECTION 1: Summary ---
         st.header(f"Daily Analysis for {selected_date.strftime('%d %b %Y')}")
