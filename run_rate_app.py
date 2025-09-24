@@ -423,23 +423,25 @@ else:
         if not run_durations_day.empty:
             processed_day_df = results_day['processed_df']
         
-            # --- Get run END times (the stop event that closed the run)
+            # --- Get run END times (anchored to stop events)
             run_end_times = processed_day_df.loc[processed_day_df['stop_event'], ['run_group', 'shot_time']]
             run_times = run_durations_day.merge(run_end_times, on='run_group', how='left')
         
             # --- Drop phantom first run (before the first stop of the day)
             if processed_day_df['stop_event'].any():
-                first_stop_time = processed_day_df.loc[
-                    processed_day_df['stop_event'], 'shot_time'
-                ].min()
+                first_stop_time = processed_day_df.loc[processed_day_df['stop_event'], 'shot_time'].min()
                 run_times = run_times[run_times['shot_time'] >= first_stop_time]
         
+            # --- Exclude runs without a stop_time (trailing run at end of day)
+            run_times = run_times.dropna(subset=['shot_time'])
+        
             if not run_times.empty:
-                # ✅ Use stop time hour (not start) as the anchor
+                # Anchor bucket to the HOUR of the stop
                 run_times['hour'] = run_times['shot_time'].dt.hour
         
-                # One bucket per stop hour
-                bucket_hourly = run_times[['hour', 'time_bucket']].value_counts().reset_index(name='count')
+                # ✅ Each run contributes exactly one record: (stop hour, bucket)
+                bucket_hourly = run_times[['hour', 'time_bucket']].copy()
+                bucket_hourly['count'] = 1
         
                 if not bucket_hourly.empty:
                     fig_hourly_bucket = px.bar(
