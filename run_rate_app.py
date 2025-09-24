@@ -433,25 +433,30 @@ else:
         run_durations_day = results_day["run_durations"]
         processed_day_df = results_day['processed_df']
 
-        # Associate runs with their end times (the time of the stop event)
-        stop_events_df = processed_day_df.loc[processed_day_df['stop_event'], ['run_group', 'shot_time']].copy()
-        stop_events_df.rename(columns={'shot_time': 'run_end_time'}, inplace=True)
-        # A stop in run_group 'N' terminates the previous run, which is 'N-1'
-        stop_events_df['terminated_run_group'] = stop_events_df['run_group'] - 1
+        # Get all stop events for the day
+        stop_events_df = processed_day_df.loc[processed_day_df['stop_event']].copy()
 
-        # Merge to find which runs have a defined end.
-        run_times = pd.merge(
-            run_durations_day,
-            stop_events_df[['terminated_run_group', 'run_end_time']],
-            left_on='run_group',
-            right_on='terminated_run_group',
-            how='left'
-        )
+        complete_runs = pd.DataFrame()
+        incomplete_run = pd.DataFrame()
 
-        # A 'complete run' is one that was terminated by a stop.
-        complete_runs = run_times.dropna(subset=['run_end_time']).copy()
-        # An 'incomplete run' is the trailing run at the end of the day.
-        incomplete_run = run_times[run_times['run_end_time'].isna()]
+        # A run is "complete" if it is terminated by a stop event.
+        if not stop_events_df.empty:
+            # A stop in run_group 'N' terminates the previous run, which is 'N-1'
+            stop_events_df['terminated_run_group'] = stop_events_df['run_group'] - 1
+            
+            # Create a map from the terminated run_group to the time of the stop
+            end_time_map = stop_events_df.set_index('terminated_run_group')['shot_time']
+            
+            # Add the 'run_end_time' to the original run_durations dataframe using the map
+            run_durations_day['run_end_time'] = run_durations_day['run_group'].map(end_time_map)
+            
+            # Complete runs are those that have a non-null end time
+            complete_runs = run_durations_day.dropna(subset=['run_end_time']).copy()
+            # Incomplete runs are the rest (typically just the final run of the day)
+            incomplete_run = run_durations_day[run_durations_day['run_end_time'].isna()]
+        else:
+            # If there are no stops on this day, the entire day's production is one single, incomplete run.
+            incomplete_run = run_durations_day
 
 
         col1, col2 = st.columns(2)
