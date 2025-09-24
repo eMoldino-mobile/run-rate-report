@@ -159,10 +159,10 @@ class RunRateCalculator:
             upper_bound = int(np.ceil(max_minutes / 20.0) * 20)
             edges = list(range(0, upper_bound + 20, 20)) if upper_bound > 0 else [0, 20]
             labels = [f"{edges[i]}-{edges[i+1]}" for i in range(len(edges) - 1)]
-            if not run_durations.empty:
-                run_durations["time_bucket"] = pd.cut(
-                    run_durations["duration_min"], bins=edges, labels=labels, right=False
-                )
+                if not run_durations.empty:
+                    run_durations["time_bucket"] = pd.cut(
+                        run_durations["duration_min"], bins=edges, labels=labels, right=False
+                    )
         
             # --- Bucket Colors ---
             reds = px.colors.sequential.Reds[4:8]
