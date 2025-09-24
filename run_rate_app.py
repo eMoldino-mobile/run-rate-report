@@ -80,6 +80,7 @@ class RunRateCalculator:
     
         return hourly_summary
 
+
     def _calculate_all_metrics(self) -> dict:
         df = self._prepare_data()
         if df.empty or "ACTUAL CT" not in df.columns:
