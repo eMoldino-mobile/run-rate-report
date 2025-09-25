@@ -320,10 +320,11 @@ with st.sidebar.expander("ℹ️ About This Dashboard", expanded=False):
     ### Analysis Levels
     - **Daily**: Hourly trends for one day.
     - **Weekly / Monthly**: Aggregated data, with daily/weekly trend charts.
-    - **Weekly / Monthly (by Run)**: A more precise analysis where the tolerance for stops is calculated from the Mode CT of each individual production run (a period with no >8hr breaks).
+    - **Weekly / Monthly (by Run)**: A more precise analysis where the tolerance for stops is calculated from the Mode CT of each individual production run. A new run is identified after a stoppage longer than the selected 'Run Interval Threshold'.
     ---
-    ### Tolerance Slider
-    Defines the acceptable CT range around the Mode CT.
+    ### Sliders
+    - **Tolerance Band**: Defines the acceptable CT range around the Mode CT.
+    - **Run Interval Threshold**: Defines the max hours between shots before a new Production Run is identified.
     """)
 
 analysis_level = st.sidebar.radio("Select Analysis Level", ["Daily", "Weekly", "Monthly", "Weekly (by Run)", "Monthly (by Run)"])
@@ -348,9 +349,10 @@ if df_tool.empty:
 
 st.sidebar.markdown("---")
 tolerance = st.sidebar.slider("Tolerance Band (% of Mode CT)", 0.01, 0.20, 0.05, 0.01, help="Defines the ±% around Mode CT.")
+run_interval_hours = st.sidebar.slider("Run Interval Threshold (hours)", 1, 24, 8, 1, help="Defines the max hours between shots before a new Production Run is identified.")
 
 @st.cache_data(show_spinner="Performing initial data processing...")
-def get_processed_data(df):
+def get_processed_data(df, interval_hours):
     # This initial run just gets the timestamps and identifies the runs
     base_calc = RunRateCalculator(df, 0.01) # Tolerance doesn't matter here
     df_processed = base_calc.results.get("processed_df", pd.DataFrame())
@@ -359,14 +361,14 @@ def get_processed_data(df):
         df_processed['date'] = df_processed['shot_time'].dt.date
         df_processed['month'] = df_processed['shot_time'].dt.to_period('M')
         # Identify production runs
-        is_new_run = df_processed['ct_diff_sec'] > 28800
+        is_new_run = df_processed['ct_diff_sec'] > (interval_hours * 3600)
         df_processed['run_id'] = is_new_run.cumsum()
         run_start_dates = df_processed.groupby('run_id')['shot_time'].min()
         run_labels = {run_id: f"{i+1:03d} ({date.strftime('%Y-%m-%d')})" for i, (run_id, date) in enumerate(run_start_dates.items())}
         df_processed['run_label'] = df_processed['run_id'].map(run_labels)
     return df_processed
 
-df_processed = get_processed_data(df_tool)
+df_processed = get_processed_data(df_tool, run_interval_hours)
 
 if df_processed.empty:
     st.error(f"Could not process data for {tool_id}."); st.stop()
