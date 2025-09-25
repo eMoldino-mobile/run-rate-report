@@ -537,6 +537,16 @@ else:
                     }),
                     use_container_width=True
                 )
+        
+        # Rename columns in the main dataframe for subsequent plots
+        if not run_summary_df.empty:
+            run_summary_df.rename(columns={
+                'run_label': 'RUN ID',
+                'stability_index': 'STABILITY %',
+                'stops': 'STOPS',
+                'mttr_min': 'MTTR (min)',
+                'mtbf_min': 'MTBF (min)'
+            }, inplace=True)
 
 
     # --- Plot main chart and trends ---
@@ -647,6 +657,16 @@ else:
         st.header(f"Run-Based Analysis")
         run_summary_df = calculate_run_summaries(df_view, tolerance)
         
+        # Rename columns in the main dataframe for subsequent plots
+        if not run_summary_df.empty:
+            run_summary_df.rename(columns={
+                'run_label': 'RUN ID',
+                'stability_index': 'STABILITY %',
+                'stops': 'STOPS',
+                'mttr_min': 'MTTR (min)',
+                'mtbf_min': 'MTBF (min)'
+            }, inplace=True)
+        
         run_durations = results.get("run_durations", pd.DataFrame())
         processed_df = results.get('processed_df', pd.DataFrame())
         stop_events_df = processed_df.loc[processed_df['stop_event']].copy()
@@ -694,3 +714,4 @@ else:
             fig_mt.update_layout(title="MTTR & MTBF per Run", yaxis=dict(title='MTTR (min)'), yaxis2=dict(title='MTBF (min)', overlaying='y', side='right'), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_mt, use_container_width=True)
             with st.expander("View MTTR/MTBF Data", expanded=False): st.dataframe(run_summary_df)
+
