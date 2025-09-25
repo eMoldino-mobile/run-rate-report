@@ -208,7 +208,7 @@ def plot_shot_bar_chart(df, lower_limit, upper_limit, mode_ct, time_agg='hourly'
     tick_format = {"hourly": "%H:%M", "daily": "%b %d", "weekly": "Week %W"}.get(time_agg, "%b %d")
 
     fig.update_layout(title="Cycle Time per Shot vs. Tolerance", xaxis_title="Time", yaxis_title="Cycle Time (sec)",
-                      yaxis=dict(range=[0, y_axis_cap]), bargap=0.05, xaxis=dict(tickformat=tick_format, showgrid=True))
+                        yaxis=dict(range=[0, y_axis_cap]), bargap=0.05, xaxis=dict(tickformat=tick_format, showgrid=True))
     st.plotly_chart(fig, use_container_width=True)
 
 def plot_trend_chart(df, x_col, y_col, title, x_title, y_title, y_range=[0, 101], is_stability=False):
@@ -218,12 +218,12 @@ def plot_trend_chart(df, x_col, y_col, title, x_title, y_title, y_range=[0, 101]
         marker_config['color'] = [PASTEL_COLORS['red'] if v <= 50 else PASTEL_COLORS['orange'] if v <= 70 else PASTEL_COLORS['green'] for v in df[y_col]]
         marker_config['size'] = 10
     fig.add_trace(go.Scatter(x=df[x_col], y=df[y_col], mode="lines+markers", name=y_title,
-                             line=dict(color="black" if is_stability else "royalblue", width=2), marker=marker_config))
+                                line=dict(color="black" if is_stability else "royalblue", width=2), marker=marker_config))
     if is_stability:
         for y0, y1, c in [(0, 50, PASTEL_COLORS['red']), (50, 70, PASTEL_COLORS['orange']), (70, 100, PASTEL_COLORS['green'])]:
             fig.add_shape(type="rect", xref="paper", x0=0, x1=1, y0=y0, y1=y1, fillcolor=c, opacity=0.2, line_width=0, layer="below")
     fig.update_layout(title=title, yaxis=dict(title=y_title, range=y_range), xaxis_title=x_title,
-                      legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     st.plotly_chart(fig, use_container_width=True)
 
 def format_duration(seconds):
@@ -245,8 +245,8 @@ def calculate_daily_summaries_for_week(df_week, tolerance, analysis_mode):
             calc = RunRateCalculator(df_day.copy(), tolerance, analysis_mode=analysis_mode)
             res = calc.results
             summary = {'date': date, 'stability_index': res.get('stability_index', np.nan),
-                       'mttr_min': res.get('mttr_min', np.nan), 'mtbf_min': res.get('mtbf_min', np.nan),
-                       'stops': res.get('stop_events', 0)}
+                        'mttr_min': res.get('mttr_min', np.nan), 'mtbf_min': res.get('mtbf_min', np.nan),
+                        'stops': res.get('stop_events', 0)}
             daily_results_list.append(summary)
     return pd.DataFrame(daily_results_list) if daily_results_list else pd.DataFrame()
 
@@ -258,8 +258,8 @@ def calculate_weekly_summaries_for_month(df_month, tolerance, analysis_mode):
             calc = RunRateCalculator(df_week.copy(), tolerance, analysis_mode=analysis_mode)
             res = calc.results
             summary = {'week': week, 'stability_index': res.get('stability_index', np.nan),
-                       'mttr_min': res.get('mttr_min', np.nan), 'mtbf_min': res.get('mtbf_min', np.nan),
-                       'stops': res.get('stop_events', 0)}
+                        'mttr_min': res.get('mttr_min', np.nan), 'mtbf_min': res.get('mtbf_min', np.nan),
+                        'stops': res.get('stop_events', 0)}
             weekly_results_list.append(summary)
     return pd.DataFrame(weekly_results_list) if weekly_results_list else pd.DataFrame()
 
@@ -271,15 +271,34 @@ def calculate_run_summaries(df_period, tolerance):
             # For each individual run, we do an 'aggregate' calculation on it
             calc = RunRateCalculator(df_run.copy(), tolerance, analysis_mode='aggregate')
             res = calc.results
+            
+            total_shots = res.get('total_shots', 0)
+            normal_shots = res.get('normal_shots', 0)
+            stopped_shots = total_shots - normal_shots
+            total_runtime_sec = res.get('total_runtime_sec', 0)
+            production_time_sec = res.get('production_time_sec', 0)
+            downtime_sec = res.get('downtime_sec', 0)
+            
             summary = {
                 'run_label': run_label,
                 'start_time': df_run['shot_time'].min(),
-                'stability_index': res.get('stability_index', np.nan),
+                'end_time': df_run['shot_time'].max(),
+                'total_shots': total_shots,
+                'normal_shots': normal_shots,
+                'stopped_shots': stopped_shots,
+                'mode_ct': res.get('mode_ct', 0),
+                'lower_limit': res.get('lower_limit', 0),
+                'upper_limit': res.get('upper_limit', 0),
+                'total_runtime_sec': total_runtime_sec,
+                'production_time_sec': production_time_sec,
+                'downtime_sec': downtime_sec,
                 'mttr_min': res.get('mttr_min', np.nan),
                 'mtbf_min': res.get('mtbf_min', np.nan),
+                'stability_index': res.get('stability_index', np.nan),
                 'stops': res.get('stop_events', 0)
             }
             run_summary_list.append(summary)
+            
     if not run_summary_list:
         return pd.DataFrame()
     
@@ -452,8 +471,73 @@ else:
         with st.expander("View Run Breakdown Table", expanded=False):
             if not run_summary_df.empty:
                 d_df = run_summary_df.copy()
-                d_df.rename(columns={'run_label': 'Run ID', 'stability_index': 'Stability (%)', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'stops': 'Stops'}, inplace=True)
-                st.dataframe(d_df[['Run ID', 'Stability (%)', 'MTTR (min)', 'MTBF (min)', 'Stops']].style.format({'Stability (%)': '{:.1f}', 'MTTR (min)': '{:.1f}', 'MTBF (min)': '{:.1f}'}), use_container_width=True)
+
+                # Create all the new formatted string columns
+                d_df["Period (date/time from to)"] = d_df.apply(lambda row: f"{row['start_time'].strftime('%Y-%m-%d %H:%M')} to {row['end_time'].strftime('%Y-%m-%d %H:%M')}", axis=1)
+                d_df["Total shots"] = d_df['total_shots'].apply(lambda x: f"{x:,}")
+                d_df["Normal shots (& %)"] = d_df.apply(
+                    lambda row: f"{row['normal_shots']:,} ({row['normal_shots'] / row['total_shots'] * 100:.1f}%)" if row['total_shots'] > 0 else "0 (0.0%)",
+                    axis=1
+                )
+                d_df["STOPS (&%)"] = d_df.apply(
+                    lambda row: f"{row['stops']} ({row['stopped_shots'] / row['total_shots'] * 100:.1f}%)" if row['total_shots'] > 0 else "0 (0.0%)",
+                    axis=1
+                )
+                d_df["Total Run duration (d/h/m)"] = d_df['total_runtime_sec'].apply(format_duration)
+                d_df["Production Time (d/h/m) (& %)"] = d_df.apply(
+                    lambda row: f"{format_duration(row['production_time_sec'])} ({row['production_time_sec'] / row['total_runtime_sec'] * 100:.1f}%)" if row['total_runtime_sec'] > 0 else "0m (0.0%)",
+                    axis=1
+                )
+                d_df["Downtime (& %)"] = d_df.apply(
+                    lambda row: f"{format_duration(row['downtime_sec'])} ({row['downtime_sec'] / row['total_runtime_sec'] * 100:.1f}%)" if row['total_runtime_sec'] > 0 else "0m (0.0%)",
+                    axis=1
+                )
+
+                # Rename the simple numeric columns
+                d_df.rename(columns={
+                    'run_label': 'RUN ID',
+                    'mode_ct': 'Mode CT (for the run)',
+                    'lower_limit': 'Lower limit CT (sec)',
+                    'upper_limit': 'Upper Limit CT (sec)',
+                    'mttr_min': 'MTTR (min)',
+                    'mtbf_min': 'MTBF (min)',
+                    'stability_index': 'STABILITY %',
+                    'stops': 'STOPS'
+                }, inplace=True)
+
+                # Define the final column order from the user request
+                final_cols_order = [
+                    'RUN ID',
+                    'Period (date/time from to)',
+                    'Total shots',
+                    'Normal shots (& %)',
+                    'STOPS (&%)',
+                    'Mode CT (for the run)',
+                    'Lower limit CT (sec)',
+                    'Upper Limit CT (sec)',
+                    'Total Run duration (d/h/m)',
+                    'Production Time (d/h/m) (& %)',
+                    'Downtime (& %)',
+                    'MTTR (min)',
+                    'MTBF (min)',
+                    'STABILITY %',
+                    'STOPS'
+                ]
+                
+                display_df = d_df[final_cols_order]
+
+                st.dataframe(
+                    display_df.style.format({
+                        'Mode CT (for the run)': '{:.2f}',
+                        'Lower limit CT (sec)': '{:.2f}',
+                        'Upper Limit CT (sec)': '{:.2f}',
+                        'MTTR (min)': '{:.1f}',
+                        'MTBF (min)': '{:.1f}',
+                        'STABILITY %': '{:.1f}'
+                    }),
+                    use_container_width=True
+                )
+
 
     # --- Plot main chart and trends ---
     time_agg = 'hourly' if analysis_level == 'Daily' else 'daily' if 'Weekly' in analysis_level else 'weekly'
@@ -585,7 +669,7 @@ else:
         with c2:
             st.subheader("Stability per Production Run")
             if not run_summary_df.empty:
-                plot_trend_chart(run_summary_df, 'run_label', 'stability_index', "Stability per Run", "Run ID", "Stability (%)", is_stability=True)
+                plot_trend_chart(run_summary_df, 'RUN ID', 'STABILITY %', "Stability per Run", "Run ID", "Stability (%)", is_stability=True)
                 with st.expander("View Stability Data", expanded=False): st.dataframe(run_summary_df)
             else: st.info(f"No runs to analyze.")
         
@@ -596,18 +680,17 @@ else:
             complete_runs['run_label'] = complete_runs['run_group'].map(run_group_to_label_map)
             
             pivot_df = pd.crosstab(index=complete_runs['run_label'], columns=complete_runs['time_bucket'].astype('category').cat.set_categories(results["bucket_labels"]))
-            all_runs = run_summary_df['run_label']
+            all_runs = run_summary_df['RUN ID']
             pivot_df = pivot_df.reindex(all_runs, fill_value=0)
             fig_trend_bucket = px.bar(pivot_df, x=pivot_df.index, y=pivot_df.columns, title='Distribution of Run Durations per Run', barmode='stack', color_discrete_map=results["bucket_color_map"], labels={'run_label': 'Run ID', 'value': 'Number of Runs', 'variable': 'Run Duration (min)'})
             st.plotly_chart(fig_trend_bucket, use_container_width=True)
             with st.expander("View Bucket Trend Data", expanded=False): st.dataframe(pivot_df)
 
         st.subheader("MTTR & MTBF per Production Run")
-        if not run_summary_df.empty and run_summary_df['stops'].sum() > 0:
+        if not run_summary_df.empty and run_summary_df['STOPS'].sum() > 0:
             fig_mt = go.Figure()
-            fig_mt.add_trace(go.Scatter(x=run_summary_df['run_label'], y=run_summary_df['mttr_min'], name='MTTR (min)', mode='lines+markers', line=dict(color='red', width=4)))
-            fig_mt.add_trace(go.Scatter(x=run_summary_df['run_label'], y=run_summary_df['mtbf_min'], name='MTBF (min)', mode='lines+markers', line=dict(color='green', width=4), yaxis='y2'))
+            fig_mt.add_trace(go.Scatter(x=run_summary_df['RUN ID'], y=run_summary_df['MTTR (min)'], name='MTTR (min)', mode='lines+markers', line=dict(color='red', width=4)))
+            fig_mt.add_trace(go.Scatter(x=run_summary_df['RUN ID'], y=run_summary_df['MTBF (min)'], name='MTBF (min)', mode='lines+markers', line=dict(color='green', width=4), yaxis='y2'))
             fig_mt.update_layout(title="MTTR & MTBF per Run", yaxis=dict(title='MTTR (min)'), yaxis2=dict(title='MTBF (min)', overlaying='y', side='right'), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_mt, use_container_width=True)
             with st.expander("View MTTR/MTBF Data", expanded=False): st.dataframe(run_summary_df)
-
