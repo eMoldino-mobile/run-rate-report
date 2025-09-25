@@ -455,6 +455,7 @@ else:
             run_durations['run_end_time'] = run_durations['run_group'].map(end_time_map)
             complete_runs = run_durations.dropna(subset=['run_end_time']).copy()
 
+
         c1, c2 = st.columns(2)
         with c1:
             st.subheader("Total Bucket Analysis")
