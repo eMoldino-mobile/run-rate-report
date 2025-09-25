@@ -205,10 +205,9 @@ def plot_shot_bar_chart(df, lower_limit, upper_limit, mode_ct, time_agg='hourly'
     
     y_axis_cap_val = mode_ct if isinstance(mode_ct, (int, float)) else df['mode_ct'].mean() if 'mode_ct' in df else 50
     y_axis_cap = min(max(y_axis_cap_val * 2, 50), 500)
-    tick_format = {"hourly": "%H:%M", "daily": "%b %d", "weekly": "Week %W"}.get(time_agg, "%b %d")
-
+    
     fig.update_layout(title="Cycle Time per Shot vs. Tolerance", xaxis_title="Time", yaxis_title="Cycle Time (sec)",
-                        yaxis=dict(range=[0, y_axis_cap]), bargap=0.05, xaxis=dict(tickformat=tick_format, showgrid=True))
+                        yaxis=dict(range=[0, y_axis_cap]), bargap=0.05, xaxis=dict(showgrid=True))
     st.plotly_chart(fig, use_container_width=True)
 
 def plot_trend_chart(df, x_col, y_col, title, x_title, y_title, y_range=[0, 101], is_stability=False):
