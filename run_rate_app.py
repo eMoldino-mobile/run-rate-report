@@ -147,18 +147,29 @@ class RunRateCalculator:
             except (ValueError, IndexError): continue
         hourly_summary = self._calculate_hourly_summary(df)
         
-        # Use scalar values for display in metric cards
-        scalar_lower_limit = lower_limit.mean() if isinstance(lower_limit, pd.Series) else lower_limit
-        scalar_upper_limit = upper_limit.mean() if isinstance(upper_limit, pd.Series) else upper_limit
-
-        return {
-            "processed_df": df, "mode_ct": mode_ct_display, "lower_limit": scalar_lower_limit,
-            "upper_limit": scalar_upper_limit, "total_shots": total_shots, "efficiency": efficiency,
+        # Package results for returning
+        final_results = {
+            "processed_df": df, "mode_ct": mode_ct_display, "total_shots": total_shots, "efficiency": efficiency,
             "stop_events": stop_events, "normal_shots": normal_shots, "mttr_min": mttr_min,
             "mtbf_min": mtbf_min, "stability_index": stability_index, "run_durations": run_durations,
             "bucket_labels": labels, "bucket_color_map": bucket_color_map, "hourly_summary": hourly_summary,
             "total_runtime_sec": total_runtime_sec, "production_time_sec": production_time_sec, "downtime_sec": downtime_sec,
         }
+        
+        # Add limit values based on analysis mode for the metric cards
+        if self.analysis_mode == 'by_run' and isinstance(lower_limit, pd.Series) and not df.empty:
+            final_results["min_lower_limit"] = lower_limit.min()
+            final_results["max_lower_limit"] = lower_limit.max()
+            final_results["min_upper_limit"] = upper_limit.min()
+            final_results["max_upper_limit"] = upper_limit.max()
+            final_results["min_mode_ct"] = df['mode_ct'].min()
+            final_results["max_mode_ct"] = df['mode_ct'].max()
+        else:
+            final_results["lower_limit"] = lower_limit
+            final_results["upper_limit"] = upper_limit
+            
+        return final_results
+
 # --- UI Helper and Plotting Functions ---
 
 def create_gauge(value, title, steps=None):
@@ -444,12 +455,28 @@ else:
 
     with st.container(border=True):
         c1, c2, c3 = st.columns(3)
-        mode_val = results.get('mode_ct', 0)
-        mode_disp = f"{mode_val:.2f}" if isinstance(mode_val, (int,float)) else mode_val
-        c1.metric("Lower Limit (sec)", f"{results.get('lower_limit', 0):.2f}")
-        with c2:
-            with st.container(border=True): st.metric("Mode CT (sec)", mode_disp)
-        c3.metric("Upper Limit (sec)", f"{results.get('upper_limit', 0):.2f}")
+        if mode == 'by_run':
+            min_ll = results.get('min_lower_limit', 0)
+            max_ll = results.get('max_lower_limit', 0)
+            c1.metric("Lower Limit (sec)", f"{min_ll:.2f} – {max_ll:.2f}")
+
+            with c2:
+                min_mc = results.get('min_mode_ct', 0)
+                max_mc = results.get('max_mode_ct', 0)
+                with st.container(border=True):
+                    st.metric("Mode CT (sec)", f"{min_mc:.2f} – {max_mc:.2f}")
+            
+            min_ul = results.get('min_upper_limit', 0)
+            max_ul = results.get('max_upper_limit', 0)
+            c3.metric("Upper Limit (sec)", f"{min_ul:.2f} – {max_ul:.2f}")
+
+        else: # aggregate mode
+            mode_val = results.get('mode_ct', 0)
+            mode_disp = f"{mode_val:.2f}" if isinstance(mode_val, (int,float)) else mode_val
+            c1.metric("Lower Limit (sec)", f"{results.get('lower_limit', 0):.2f}")
+            with c2:
+                with st.container(border=True): st.metric("Mode CT (sec)", mode_disp)
+            c3.metric("Upper Limit (sec)", f"{results.get('upper_limit', 0):.2f}")
 
     # --- Breakdown Tables for Weekly/Monthly Views ---
     if analysis_level == "Weekly":
