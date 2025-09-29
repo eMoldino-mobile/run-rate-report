@@ -431,6 +431,20 @@ else:
     results = calc.results
     st.subheader(sub_header)
 
+    # --- Pre-calculate summary df for Analysis section and Breakdown tables ---
+    trend_summary_df = None
+    if analysis_level == "Weekly":
+        trend_summary_df = calculate_daily_summaries_for_week(df_view, tolerance, mode)
+    elif analysis_level == "Monthly":
+        trend_summary_df = calculate_weekly_summaries_for_month(df_view, tolerance, mode)
+    elif "by Run" in analysis_level:
+        trend_summary_df = calculate_run_summaries(df_view, tolerance)
+        if not trend_summary_df.empty:
+             trend_summary_df.rename(columns={'run_label': 'RUN ID', 'stability_index': 'STABILITY %', 'stops': 'STOPS'}, inplace=True)
+    elif analysis_level == "Daily":
+        trend_summary_df = results.get('hourly_summary', pd.DataFrame())
+
+
     with st.container(border=True):
         col1, col2, col3, col4, col5 = st.columns(5)
         total_d = results.get('total_runtime_sec', 0); prod_t = results.get('production_time_sec', 0); down_t = results.get('downtime_sec', 0)
@@ -483,7 +497,7 @@ else:
                 with st.container(border=True): st.metric("Mode CT (sec)", mode_disp)
             c3.metric("Upper Limit (sec)", f"{results.get('upper_limit', 0):.2f}")
 
-    # --- LLM Analysis Button and Display ---
+    # --- Analysis Button and Display ---
     st.markdown("---")
 
     if st.button("🤖 Generate Analysis", use_container_width=True):
@@ -495,33 +509,69 @@ else:
         mtbf = results.get('mtbf_min', 0)
         mttr = results.get('mttr_min', 0)
 
-        # Determine the primary recommendation based on MTTR vs MTBF
+        # --- Dynamic Trend and Stoppage Analysis ---
+        trend_analysis_text = "A review of the trend charts is recommended to identify specific periods of volatility or decline."
+        high_stops_text = "High stop counts generally correlate with dips in the stability index."
+
+        if trend_summary_df is not None and not trend_summary_df.empty and trend_summary_df.shape[0] > 1:
+            period_col, stability_col, stops_col = None, None, None
+            if 'hour' in trend_summary_df.columns:
+                period_col, stability_col, stops_col = 'hour', 'stability_index', 'stops'
+            elif 'date' in trend_summary_df.columns:
+                period_col, stability_col, stops_col = 'date', 'stability_index', 'stops'
+            elif 'week' in trend_summary_df.columns:
+                period_col, stability_col, stops_col = 'week', 'stability_index', 'stops'
+            elif 'RUN ID' in trend_summary_df.columns:
+                period_col, stability_col, stops_col = 'RUN ID', 'STABILITY %', 'STOPS'
+
+            if period_col and stability_col in trend_summary_df.columns:
+                # Lowest stability
+                min_stability_row = trend_summary_df.loc[trend_summary_df[stability_col].idxmin()]
+                lowest_stability_period = min_stability_row[period_col]
+                lowest_stability_value = min_stability_row[stability_col]
+                
+                if period_col == 'date': lowest_stability_period = pd.to_datetime(lowest_stability_period).strftime('%A, %b %d')
+                elif period_col == 'week': lowest_stability_period = f"Week {lowest_stability_period}"
+                elif period_col == 'hour': lowest_stability_period = f"{lowest_stability_period}:00"
+
+                trend_analysis_text = f"The stability trend shows some volatility. The lowest performance was recorded during <strong>{lowest_stability_period}</strong> with a stability of <strong>{lowest_stability_value:.1f}%</strong>."
+
+                # Highest stops
+                max_stops_row = trend_summary_df.loc[trend_summary_df[stops_col].idxmax()]
+                highest_stops_period = max_stops_row[period_col]
+                highest_stops_value = int(max_stops_row[stops_col])
+
+                if period_col == 'date': highest_stops_period = pd.to_datetime(highest_stops_period).strftime('%A, %b %d')
+                elif period_col == 'week': highest_stops_period = f"Week {highest_stops_period}"
+                elif period_col == 'hour': highest_stops_period = f"{highest_stops_period}:00"
+                
+                if highest_stops_value > 0:
+                    high_stops_text = f"A high number of stop events is a key factor. For example, <strong>{highest_stops_period}</strong> experienced the most stops with <strong>{highest_stops_value} events</strong>, impacting overall performance."
+
+        # --- Recommendation Logic ---
         if mtbf > 0 and mttr > 0:
             recommendation = "Mean Time Between Failures (MTBF)" if mtbf < mttr else "Mean Time To Repair (MTTR)"
             recommendation_value = f"{mtbf:.1f}" if mtbf < mttr else f"{mttr:.1f}"
             recommendation_text = "investigating the root causes of frequent stops to improve uptime." if mtbf < mttr else "streamlining the repair process to reduce downtime."
-        else: # Handle cases where one metric might be zero
-            recommendation = "MTBF" if mtbf > 0 else "MTTR"
-            recommendation_value = f"{mtbf:.1f}" if mtbf > 0 else f"{mttr:.1f}"
-            recommendation_text = "addressing the root cause of any recorded stops."
+        else:
+            recommendation, recommendation_value, recommendation_text = "MTBF" if mtbf > 0 else "MTTR", f"{mtbf:.1f}" if mtbf > 0 else f"{mttr:.1f}", "addressing the root cause of any recorded stops."
 
-        static_analysis = f"""
+        # --- Final HTML Output ---
+        analysis_html = f"""
         <div style="border: 1px solid #262730; border-radius: 0.5rem; padding: 1rem; margin-top: 1rem; font-family: sans-serif;">
             <h4>Analysis Summary</h4>
             <ul>
-                <li><strong>Overall Stability Summary:</strong> The overall stability for this period is <strong>{stability:.1f}%</strong>, which is considered <strong>{stability_class}</strong>.</li>
-                <li><strong>Performance Trend Analysis:</strong> A review of the trend charts is recommended to identify specific periods of volatility or decline. High stop counts generally correlate with dips in the stability index.</li>
-                <li><strong>Key Insight & Recommendation:</strong> The primary area for improvement appears to be the <strong>{recommendation}</strong>. With a value of <strong>{recommendation_value} minutes</strong>, the data suggests focusing on <strong>{recommendation_text}</strong></li>
+                <li><strong>Overall Stability:</strong> The overall stability for this period is <strong>{stability:.1f}%</strong>, which is considered <strong>{stability_class}</strong>.</li>
+                <li><strong>Trend Analysis:</strong> {trend_analysis_text} {high_stops_text}</li>
+                <li><strong>Key Recommendation:</strong> The primary area for improvement appears to be the <strong>{recommendation}</strong>. With a value of <strong>{recommendation_value} minutes</strong>, the data suggests focusing on <strong>{recommendation_text}</strong></li>
             </ul>
         </div>
         """
-        components.html(static_analysis, height=180, scrolling=True)
+        components.html(analysis_html, height=200, scrolling=True)
 
 
     # --- Breakdown Tables for Weekly/Monthly Views ---
-    trend_summary_df = None
     if analysis_level == "Weekly":
-        trend_summary_df = calculate_daily_summaries_for_week(df_view, tolerance, mode)
         with st.expander("View Daily Breakdown Table", expanded=False):
             if trend_summary_df is not None and not trend_summary_df.empty:
                 d_df = trend_summary_df.copy()
@@ -529,7 +579,6 @@ else:
                 d_df.rename(columns={'date': 'Day', 'stability_index': 'Stability (%)', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'stops': 'Stops'}, inplace=True)
                 st.dataframe(d_df.style.format({'Stability (%)': '{:.1f}', 'MTTR (min)': '{:.1f}', 'MTBF (min)': '{:.1f}'}), use_container_width=True)
     elif analysis_level == "Monthly":
-        trend_summary_df = calculate_weekly_summaries_for_month(df_view, tolerance, mode)
         with st.expander("View Weekly Breakdown Table", expanded=False):
             if trend_summary_df is not None and not trend_summary_df.empty:
                 d_df = trend_summary_df.copy()
