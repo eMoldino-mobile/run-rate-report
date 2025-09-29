@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from io import BytesIO
 import warnings
 import streamlit.components.v1 as components
@@ -62,7 +63,9 @@ class RunRateCalculator:
         stops = hourly_groups['stop_event'].sum()
         total_downtime = hourly_groups['downtime_min_event'].sum()
         uptime_min = df[df['stop_flag'] == 0].groupby('hour')['ct_diff_sec'].sum() / 60
+        shots = hourly_groups.size().rename('total_shots')
         hourly_summary = pd.DataFrame({'stops': stops, 'total_downtime_min': total_downtime})
+        hourly_summary = hourly_summary.join(shots)
         hourly_summary = hourly_summary.join(uptime_min.rename('uptime_min')).fillna(0).reset_index()
         hourly_summary['mttr_min'] = hourly_summary['total_downtime_min'] / hourly_summary['stops'].replace(0, np.nan)
         hourly_summary['mtbf_min'] = hourly_summary['uptime_min'] / hourly_summary['stops'].replace(0, np.nan)
@@ -267,7 +270,7 @@ def calculate_daily_summaries_for_week(df_week, tolerance, analysis_mode):
             res = calc.results
             summary = {'date': date, 'stability_index': res.get('stability_index', np.nan),
                         'mttr_min': res.get('mttr_min', np.nan), 'mtbf_min': res.get('mtbf_min', np.nan),
-                        'stops': res.get('stop_events', 0)}
+                        'stops': res.get('stop_events', 0), 'total_shots': res.get('total_shots', 0)}
             daily_results_list.append(summary)
     return pd.DataFrame(daily_results_list) if daily_results_list else pd.DataFrame()
 
@@ -280,7 +283,7 @@ def calculate_weekly_summaries_for_month(df_month, tolerance, analysis_mode):
             res = calc.results
             summary = {'week': week, 'stability_index': res.get('stability_index', np.nan),
                         'mttr_min': res.get('mttr_min', np.nan), 'mtbf_min': res.get('mtbf_min', np.nan),
-                        'stops': res.get('stop_events', 0)}
+                        'stops': res.get('stop_events', 0), 'total_shots': res.get('total_shots', 0)}
             weekly_results_list.append(summary)
     return pd.DataFrame(weekly_results_list) if weekly_results_list else pd.DataFrame()
 
@@ -862,18 +865,21 @@ else:
         st.subheader("Hourly MTTR & MTBF Trend")
         hourly_summary = results['hourly_summary']
         if not hourly_summary.empty and hourly_summary['stops'].sum() > 0:
-            fig_mt = go.Figure()
-            fig_mt.add_trace(go.Scatter(x=hourly_summary['hour'], y=hourly_summary['mttr_min'], name='MTTR (min)', mode='lines+markers', line=dict(color='red', width=4)))
-            fig_mt.add_trace(go.Scatter(x=hourly_summary['hour'], y=hourly_summary['mtbf_min'], name='MTBF (min)', mode='lines+markers', line=dict(color='green', width=4), yaxis='y2'))
-            fig_mt.update_layout(title="Hourly MTTR & MTBF Trend", yaxis=dict(title='MTTR (min)'), yaxis2=dict(title='MTBF (min)', overlaying='y', side='right'), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+            fig_mt = make_subplots(specs=[[{"secondary_y": True}]])
+            fig_mt.add_trace(go.Scatter(x=hourly_summary['hour'], y=hourly_summary['mttr_min'], name='MTTR (min)', mode='lines+markers', line=dict(color='red', width=4)), secondary_y=False)
+            fig_mt.add_trace(go.Scatter(x=hourly_summary['hour'], y=hourly_summary['mtbf_min'], name='MTBF (min)', mode='lines+markers', line=dict(color='green', width=4)), secondary_y=True)
+            fig_mt.add_trace(go.Scatter(x=hourly_summary['hour'], y=hourly_summary['total_shots'], name='Total Shots', mode='lines+markers+text', text=hourly_summary['total_shots'], textposition='top center', line=dict(color='blue', dash='dot')), secondary_y=True)
+            
+            fig_mt.update_layout(title_text="Hourly MTTR, MTBF & Shot Count Trend", yaxis_title="MTTR (min)", yaxis2_title="MTBF (min) / Shot Count", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_mt, use_container_width=True)
+
             with st.expander("View MTTR/MTBF Data", expanded=False): st.dataframe(hourly_summary)
 
             # --- NEW SECTION ---
             if detailed_view:
                 with st.expander("🤖 View MTTR/MTBF Correlation Analysis", expanded=False):
                     st.info("""
-                    **How this analysis works:** It determines if stability is more affected by many small stops (a **frequency** problem) or a few long stops (a **duration** problem).
+                    **How this analysis works:** It determines if stability is more affected by many small stops (a **frequency** problem) or a few long stops (a **duration** problem). This helps prioritize engineering efforts.
                     """)
                     analysis_df = hourly_summary.copy()
                     analysis_df.rename(columns={'hour': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}, inplace=True)
@@ -918,8 +924,14 @@ else:
             pivot_df = pd.crosstab(index=complete_runs[time_col], columns=complete_runs['time_bucket'].astype('category').cat.set_categories(results["bucket_labels"]))
             all_units = summary_df[time_col]
             pivot_df = pivot_df.reindex(all_units, fill_value=0)
-            fig_trend_bucket = px.bar(pivot_df, x=pivot_df.index, y=pivot_df.columns, title=f'{trend_level} Distribution of Run Durations', barmode='stack', color_discrete_map=results["bucket_color_map"], labels={time_col: trend_level, 'value': 'Number of Runs', 'variable': 'Run Duration (min)'})
-            st.plotly_chart(fig_trend_bucket, use_container_width=True)
+            
+            fig_bucket_trend = make_subplots(specs=[[{"secondary_y": True}]])
+            for col in pivot_df.columns:
+                fig_bucket_trend.add_trace(go.Bar(name=col, x=pivot_df.index, y=pivot_df[col], marker_color=results["bucket_color_map"].get(col)), secondary_y=False)
+            fig_bucket_trend.add_trace(go.Scatter(name='Total Shots', x=summary_df[time_col], y=summary_df['total_shots'], mode='lines+markers+text', text=summary_df['total_shots'], textposition='top center', line=dict(color='blue')), secondary_y=True)
+            fig_bucket_trend.update_layout(barmode='stack', title_text=f'{trend_level} Distribution of Run Durations vs. Shot Count', xaxis_title=trend_level, yaxis_title='Number of Runs', yaxis2_title='Total Shots', legend_title_text='Run Duration (min)')
+            st.plotly_chart(fig_bucket_trend, use_container_width=True)
+
             with st.expander("View Bucket Trend Data", expanded=False): st.dataframe(pivot_df)
 
             # --- NEW SECTION ---
@@ -931,10 +943,12 @@ else:
         st.subheader(f"{trend_level} MTTR & MTBF Trend")
         if summary_df is not None and not summary_df.empty and summary_df['stops'].sum() > 0:
             x_col = 'date' if trend_level == "Daily" else 'week'
-            fig_mt = go.Figure()
-            fig_mt.add_trace(go.Scatter(x=summary_df[x_col], y=summary_df['mttr_min'], name='MTTR (min)', mode='lines+markers', line=dict(color='red', width=4)))
-            fig_mt.add_trace(go.Scatter(x=summary_df[x_col], y=summary_df['mtbf_min'], name='MTBF (min)', mode='lines+markers', line=dict(color='green', width=4), yaxis='y2'))
-            fig_mt.update_layout(title=f"{trend_level} MTTR & MTBF Trend", yaxis=dict(title='MTTR (min)'), yaxis2=dict(title='MTBF (min)', overlaying='y', side='right'), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+            fig_mt = make_subplots(specs=[[{"secondary_y": True}]])
+            fig_mt.add_trace(go.Scatter(x=summary_df[x_col], y=summary_df['mttr_min'], name='MTTR (min)', mode='lines+markers', line=dict(color='red', width=4)), secondary_y=False)
+            fig_mt.add_trace(go.Scatter(x=summary_df[x_col], y=summary_df['mtbf_min'], name='MTBF (min)', mode='lines+markers', line=dict(color='green', width=4)), secondary_y=True)
+            fig_mt.add_trace(go.Scatter(x=summary_df[x_col], y=summary_df['total_shots'], name='Total Shots', mode='lines+markers+text', text=summary_df['total_shots'], textposition='top center', line=dict(color='blue', dash='dot')), secondary_y=True)
+
+            fig_mt.update_layout(title_text=f"{trend_level} MTTR, MTBF & Shot Count Trend", yaxis_title="MTTR (min)", yaxis2_title="MTBF (min) / Shot Count", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_mt, use_container_width=True)
             with st.expander("View MTTR/MTBF Data", expanded=False): st.dataframe(summary_df)
 
@@ -942,7 +956,7 @@ else:
             if detailed_view:
                 with st.expander("🤖 View MTTR/MTBF Correlation Analysis", expanded=False):
                     st.info("""
-                    **How this analysis works:** It determines if stability is more affected by many small stops (a **frequency** problem) or a few long stops (a **duration** problem).
+                    **How this analysis works:** It determines if stability is more affected by many small stops (a **frequency** problem) or a few long stops (a **duration** problem). This helps prioritize engineering efforts.
                     """)
                     analysis_df = summary_df.copy()
                     rename_map = {}
@@ -956,7 +970,7 @@ else:
         st.header(f"Run-Based Analysis")
         run_summary_df = calculate_run_summaries(df_view, tolerance)
         if not run_summary_df.empty:
-            run_summary_df.rename(columns={'run_label': 'RUN ID', 'stability_index': 'STABILITY %', 'stops': 'STOPS', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)'}, inplace=True)
+            run_summary_df.rename(columns={'run_label': 'RUN ID', 'stability_index': 'STABILITY %', 'stops': 'STOPS', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'total_shots': 'Total Shots'}, inplace=True)
 
         
         run_durations = results.get("run_durations", pd.DataFrame())
@@ -994,8 +1008,14 @@ else:
             pivot_df = pd.crosstab(index=complete_runs['run_label'], columns=complete_runs['time_bucket'].astype('category').cat.set_categories(results["bucket_labels"]))
             all_runs = run_summary_df['RUN ID']
             pivot_df = pivot_df.reindex(all_runs, fill_value=0)
-            fig_trend_bucket = px.bar(pivot_df, x=pivot_df.index, y=pivot_df.columns, title='Distribution of Run Durations per Run', barmode='stack', color_discrete_map=results["bucket_color_map"], labels={'run_label': 'Run ID', 'value': 'Number of Runs', 'variable': 'Run Duration (min)'})
-            st.plotly_chart(fig_trend_bucket, use_container_width=True)
+            
+            fig_bucket_trend = make_subplots(specs=[[{"secondary_y": True}]])
+            for col in pivot_df.columns:
+                fig_bucket_trend.add_trace(go.Bar(name=col, x=pivot_df.index, y=pivot_df[col], marker_color=results["bucket_color_map"].get(col)), secondary_y=False)
+            fig_bucket_trend.add_trace(go.Scatter(name='Total Shots', x=run_summary_df['RUN ID'], y=run_summary_df['Total Shots'], mode='lines+markers+text', text=run_summary_df['Total Shots'], textposition='top center', line=dict(color='blue')), secondary_y=True)
+            fig_bucket_trend.update_layout(barmode='stack', title_text='Distribution of Run Durations per Run vs. Shot Count', xaxis_title='Run ID', yaxis_title='Number of Runs', yaxis2_title='Total Shots', legend_title_text='Run Duration (min)')
+            st.plotly_chart(fig_bucket_trend, use_container_width=True)
+
             with st.expander("View Bucket Trend Data", expanded=False): st.dataframe(pivot_df)
 
             # --- NEW SECTION ---
@@ -1006,10 +1026,12 @@ else:
 
         st.subheader("MTTR & MTBF per Production Run")
         if run_summary_df is not None and not run_summary_df.empty and run_summary_df['STOPS'].sum() > 0:
-            fig_mt = go.Figure()
-            fig_mt.add_trace(go.Scatter(x=run_summary_df['RUN ID'], y=run_summary_df['MTTR (min)'], name='MTTR (min)', mode='lines+markers', line=dict(color='red', width=4)))
-            fig_mt.add_trace(go.Scatter(x=run_summary_df['RUN ID'], y=run_summary_df['MTBF (min)'], name='MTBF (min)', mode='lines+markers', line=dict(color='green', width=4), yaxis='y2'))
-            fig_mt.update_layout(title="MTTR & MTBF per Run", yaxis=dict(title='MTTR (min)'), yaxis2=dict(title='MTBF (min)', overlaying='y', side='right'), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+            fig_mt = make_subplots(specs=[[{"secondary_y": True}]])
+            fig_mt.add_trace(go.Scatter(x=run_summary_df['RUN ID'], y=run_summary_df['MTTR (min)'], name='MTTR (min)', mode='lines+markers', line=dict(color='red', width=4)), secondary_y=False)
+            fig_mt.add_trace(go.Scatter(x=run_summary_df['RUN ID'], y=run_summary_df['MTBF (min)'], name='MTBF (min)', mode='lines+markers', line=dict(color='green', width=4)), secondary_y=True)
+            fig_mt.add_trace(go.Scatter(x=run_summary_df['RUN ID'], y=run_summary_df['Total Shots'], name='Total Shots', mode='lines+markers+text', text=run_summary_df['Total Shots'], textposition='top center', line=dict(color='blue', dash='dot')), secondary_y=True)
+
+            fig_mt.update_layout(title_text="MTTR, MTBF & Shot Count per Run", yaxis_title="MTTR (min)", yaxis2_title="MTBF (min) / Shot Count", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_mt, use_container_width=True)
             with st.expander("View MTTR/MTBF Data", expanded=False): st.dataframe(run_summary_df)
 
@@ -1017,7 +1039,7 @@ else:
             if detailed_view:
                 with st.expander("🤖 View MTTR/MTBF Correlation Analysis", expanded=False):
                     st.info("""
-                    **How this analysis works:** It determines if stability is more affected by many small stops (a **frequency** problem) or a few long stops (a **duration** problem).
+                    **How this analysis works:** It determines if stability is more affected by many small stops (a **frequency** problem) or a few long stops (a **duration** problem). This helps prioritize engineering efforts.
                     """)
                     analysis_df = run_summary_df.copy()
                     analysis_df.rename(columns={'RUN ID': 'period', 'STABILITY %': 'stability', 'STOPS': 'stops', 'MTTR (min)': 'mttr'}, inplace=True)
