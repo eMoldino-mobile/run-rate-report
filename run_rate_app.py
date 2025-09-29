@@ -631,7 +631,6 @@ run_interval_hours = st.sidebar.slider("Run Interval Threshold (hours)", 1, 24, 
 st.sidebar.markdown("---")
 detailed_view = st.sidebar.toggle("Show Detailed Analysis", value=True)
 
-
 # FIX: Moved data processing up
 @st.cache_data(show_spinner="Performing initial data processing...")
 def get_processed_data(df, interval_hours):
@@ -1112,4 +1111,21 @@ else:
                     analysis_df.rename(columns={'RUN ID': 'period', 'STABILITY %': 'stability', 'STOPS': 'stops', 'MTTR (min)': 'mttr'}, inplace=True)
                     mttr_mtbf_summary = generate_mttr_mtbf_analysis(analysis_df, analysis_level)
                     st.markdown(mttr_mtbf_summary, unsafe_allow_html=True)
+
+    # --- ADD EXPORT BUTTON AT THE END ---
+    st.sidebar.markdown("---")
+    st.sidebar.header("Export Data")
+    excel_data = create_excel_export(
+        df_view, 
+        results, 
+        tolerance, 
+        run_interval_hours, 
+        analysis_level
+    )
+    st.sidebar.download_button(
+        label="📥 Export to Excel",
+        data=excel_data,
+        file_name=f"Run_Rate_Analysis_{tool_id}_{analysis_level.replace(' ', '_')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
