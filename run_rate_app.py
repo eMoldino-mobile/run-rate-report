@@ -471,20 +471,24 @@ def generate_mttr_mtbf_analysis(analysis_df, analysis_level):
     mttr_stability_corr = analysis_df['mttr'].corr(analysis_df['stability'])
 
     corr_insight = ""
+    primary_driver_is_frequency = False
+    primary_driver_is_duration = False
+
     if not pd.isna(stops_stability_corr) and not pd.isna(mttr_stability_corr):
         if abs(stops_stability_corr) > abs(mttr_stability_corr) * 1.5:
             primary_driver = "the **frequency of stops (low MTBF)**"
+            primary_driver_is_frequency = True
         elif abs(mttr_stability_corr) > abs(stops_stability_corr) * 1.5:
             primary_driver = "the **duration of stops (high MTTR)**"
+            primary_driver_is_duration = True
         else:
             primary_driver = "both the **frequency and duration of stops**"
         
         corr_insight = (f"Correlation analysis indicates that {primary_driver} has the strongest negative impact on stability in this period "
                         f"(Stops vs. Stability Corr: {stops_stability_corr:.2f}, MTTR vs. Stability Corr: {mttr_stability_corr:.2f}).")
 
-    # Outlier Analysis
-    outlier_insight = ""
-    highest_mttr_period_row = analysis_df.loc[analysis_df['mttr'].idxmax()]
+    # Outlier/Example Analysis
+    example_insight = ""
     
     def format_period(period_value, level):
         if isinstance(period_value, (pd.Timestamp, pd.Period, pd.Timedelta)):
@@ -493,13 +497,27 @@ def generate_mttr_mtbf_analysis(analysis_df, analysis_level):
         if level == "Daily": return f"{period_value}:00"
         return str(period_value)
 
-    period_label = format_period(highest_mttr_period_row['period'], analysis_level)
-    
-    outlier_insight = (f"The longest average repair times occurred during <strong>{period_label}</strong>, "
-                       f"with an MTTR of <strong>{highest_mttr_period_row['mttr']:.1f} minutes</strong>. "
-                       f"Investigating the cause of these prolonged stops could be particularly beneficial for improving overall stability.")
+    if primary_driver_is_frequency:
+        highest_stops_period_row = analysis_df.loc[analysis_df['stops'].idxmax()]
+        period_label = format_period(highest_stops_period_row['period'], analysis_level)
+        example_insight = (f"For example, the highest frequency of interruptions occurred during <strong>{period_label}</strong>, "
+                           f"which recorded <strong>{int(highest_stops_period_row['stops'])} stops</strong>. "
+                           f"Focusing on the root causes of these frequent, smaller stops is key.")
+    elif primary_driver_is_duration:
+        highest_mttr_period_row = analysis_df.loc[analysis_df['mttr'].idxmax()]
+        period_label = format_period(highest_mttr_period_row['period'], analysis_level)
+        example_insight = (f"The longest average repair times occurred during <strong>{period_label}</strong>, "
+                           f"with an MTTR of <strong>{highest_mttr_period_row['mttr']:.1f} minutes</strong>. "
+                           f"Investigating the cause of these prolonged stops is the top priority.")
+    else: # If both are drivers, or correlations are close
+        highest_mttr_period_row = analysis_df.loc[analysis_df['mttr'].idxmax()]
+        period_label = format_period(highest_mttr_period_row['period'], analysis_level)
+        example_insight = (f"The longest average repair times occurred during <strong>{period_label}</strong>, "
+                           f"with an MTTR of <strong>{highest_mttr_period_row['mttr']:.1f} minutes</strong>. "
+                           f"Addressing both the frequency and duration of stops is necessary for improvement.")
 
-    return f"<div style='line-height: 1.6;'><p>{corr_insight}</p><p>{outlier_insight}</p></div>"
+
+    return f"<div style='line-height: 1.6;'><p>{corr_insight}</p><p>{example_insight}</p></div>"
 
 # --- Main Application Logic ---
 st.sidebar.title("Run Rate Report Generator ⚙️")
