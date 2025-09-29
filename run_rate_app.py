@@ -521,7 +521,7 @@ def generate_mttr_mtbf_analysis(analysis_df, analysis_level):
 def create_excel_export(df_view, results, tolerance, run_interval_hours, analysis_level):
     """Generates an in-memory Excel file for download."""
     output_buffer = BytesIO()
-    with xlsxwriter.Workbook(output_buffer, {'in_memory': True}) as workbook:
+    with xlsxwriter.Workbook(output_buffer, {'in_memory': True, 'nan_inf_to_errors': True}) as workbook:
         # Define formats
         header_format = workbook.add_format({'bold': True, 'bg_color': '#4F81BD', 'font_color': 'white', 'align': 'center', 'valign': 'vcenter', 'border': 1})
         label_format = workbook.add_format({'bold': True, 'align': 'right'})
@@ -568,6 +568,8 @@ def create_excel_export(df_view, results, tolerance, run_interval_hours, analysi
         df_to_export = df_view.copy()
         if 'month' in df_to_export.columns:
             df_to_export['month'] = df_to_export['month'].astype(str)
+        df_to_export.replace([np.inf, -np.inf], np.nan, inplace=True)
+        df_to_export = df_to_export.fillna('')
         
         for col_num, value in enumerate(df_to_export.columns.values):
             ws_raw.write(0, col_num, value, header_format)
@@ -579,6 +581,8 @@ def create_excel_export(df_view, results, tolerance, run_interval_hours, analysi
         calc_df = results.get('processed_df', pd.DataFrame()).copy()
         if 'month' in calc_df.columns:
             calc_df['month'] = calc_df['month'].astype(str)
+        calc_df.replace([np.inf, -np.inf], np.nan, inplace=True)
+        calc_df = calc_df.fillna('')
 
         for col_num, value in enumerate(calc_df.columns.values):
             ws_calc.write(0, col_num, value, header_format)
