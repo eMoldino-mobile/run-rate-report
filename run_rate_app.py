@@ -567,6 +567,7 @@ run_interval_hours = st.sidebar.slider("Run Interval Threshold (hours)", 1, 24, 
 st.sidebar.markdown("---")
 detailed_view = st.sidebar.toggle("Show Detailed Analysis", value=True)
 
+# FIX: Moved data processing up
 @st.cache_data(show_spinner="Performing initial data processing...")
 def get_processed_data(df, interval_hours):
     # This initial run just gets the timestamps and identifies the runs
@@ -584,7 +585,6 @@ def get_processed_data(df, interval_hours):
         df_processed['run_label'] = df_processed['run_id'].map(run_labels)
     return df_processed
 
-# --- FIX: Moved data processing up ---
 df_processed = get_processed_data(df_tool, run_interval_hours)
 if df_processed.empty:
     st.error(f"Could not process data for {tool_id}."); st.stop()
@@ -877,6 +877,9 @@ else:
             # --- NEW SECTION ---
             if detailed_view:
                 with st.expander("🤖 View MTTR/MTBF Correlation Analysis", expanded=False):
+                    st.info("""
+                    **How to read this:** Correlation identifies the primary driver of instability. A stronger negative value (closer to -1.0) indicates a bigger impact. This helps prioritize between fixing stop **frequency (MTBF)** or stop **duration (MTTR)**.
+                    """)
                     analysis_df = hourly_summary.copy()
                     analysis_df.rename(columns={'hour': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}, inplace=True)
                     mttr_mtbf_summary = generate_mttr_mtbf_analysis(analysis_df, analysis_level)
@@ -943,6 +946,9 @@ else:
             # --- NEW SECTION ---
             if detailed_view:
                 with st.expander("🤖 View MTTR/MTBF Correlation Analysis", expanded=False):
+                    st.info("""
+                    **How to read this:** Correlation identifies the primary driver of instability. A stronger negative value (closer to -1.0) indicates a bigger impact. This helps prioritize between fixing stop **frequency (MTBF)** or stop **duration (MTTR)**.
+                    """)
                     analysis_df = summary_df.copy()
                     rename_map = {}
                     if 'date' in analysis_df.columns: rename_map = {'date': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}
@@ -1015,6 +1021,9 @@ else:
             # --- NEW SECTION ---
             if detailed_view:
                 with st.expander("🤖 View MTTR/MTBF Correlation Analysis", expanded=False):
+                    st.info("""
+                    **How to read this:** Correlation identifies the primary driver of instability. A stronger negative value (closer to -1.0) indicates a bigger impact. This helps prioritize between fixing stop **frequency (MTBF)** or stop **duration (MTTR)**.
+                    """)
                     analysis_df = run_summary_df.copy()
                     analysis_df.rename(columns={'RUN ID': 'period', 'STABILITY %': 'stability', 'STOPS': 'stops', 'MTTR (min)': 'mttr'}, inplace=True)
                     mttr_mtbf_summary = generate_mttr_mtbf_analysis(analysis_df, analysis_level)
