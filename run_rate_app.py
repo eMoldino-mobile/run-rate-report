@@ -872,5 +872,3 @@ else:
             fig_mt.update_layout(title="MTTR & MTBF per Run", yaxis=dict(title='MTTR (min)'), yaxis2=dict(title='MTBF (min)', overlaying='y', side='right'), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_mt, use_container_width=True)
             with st.expander("View MTTR/MTBF Data", expanded=False): st.dataframe(run_summary_df)
-" a query to refine and improve the predictive analysis in the app. I want to change the text and the engine behind "Automated Analysis Summary". I will focus on "Performance Variance" and "Predictive Trend". I also want to make the "Key Recommendation" more granular and add a "Pattern analysis" section.
-
