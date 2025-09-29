@@ -7,6 +7,7 @@ from plotly.subplots import make_subplots
 from io import BytesIO
 import warnings
 import streamlit.components.v1 as components
+import xlsxwriter
 
 # --- Page and Code Configuration ---
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -517,6 +518,70 @@ def generate_mttr_mtbf_analysis(analysis_df, analysis_level):
 
     return f"<div style='line-height: 1.6;'><p>{corr_insight}</p><p>{example_insight}</p></div>"
 
+def create_excel_export(df_view, results, tolerance, run_interval_hours, analysis_level):
+    """Generates an in-memory Excel file for download."""
+    output_buffer = BytesIO()
+    with xlsxwriter.Workbook(output_buffer, {'in_memory': True}) as workbook:
+        # Define formats
+        header_format = workbook.add_format({'bold': True, 'bg_color': '#4F81BD', 'font_color': 'white', 'align': 'center', 'valign': 'vcenter', 'border': 1})
+        label_format = workbook.add_format({'bold': True, 'align': 'right'})
+        output_format = workbook.add_format({'bold': True, 'bg_color': '#C5D9F1', 'border': 1})
+        percent_format = workbook.add_format({'num_format': '0.0%', 'bg_color': '#C5D9F1', 'border': 1})
+        decimal_format = workbook.add_format({'num_format': '0.00', 'bg_color': '#C5D9F1', 'border': 1})
+        dhm_format = workbook.add_format({'num_format': '[h]"h" mm"m"', 'bg_color': '#C5D9F1', 'border': 1})
+
+        # --- Dashboard Sheet ---
+        ws_dash = workbook.add_worksheet('Dashboard')
+        ws_dash.set_column('B:C', 25)
+
+        ws_dash.write('B2', 'Overall Performance Metrics', header_format)
+        ws_dash.merge_range('B2:C2', 'Overall Performance Metrics', header_format)
+
+        # Write metrics
+        metrics = {
+            'Total Shots:': results.get('total_shots', 0),
+            'Normal Shots:': results.get('normal_shots', 0),
+            'Stop Events:': results.get('stop_events', 0),
+            'Efficiency:': results.get('efficiency', 0),
+            'Total Duration:': results.get('total_runtime_sec', 0) / 86400,
+            'Total Production Time:': results.get('production_time_sec', 0) / 86400,
+            'Total Downtime:': results.get('downtime_sec', 0) / 86400,
+            'Stability Index:': results.get('stability_index', 0) / 100,
+            'MTTR (min):': results.get('mttr_min', 0),
+            'MTBF (min):': results.get('mtbf_min', 0),
+        }
+        row = 3
+        for label, value in metrics.items():
+            ws_dash.write(f'B{row}', label, label_format)
+            fmt = output_format
+            if '%' in label or 'Efficiency' in label or 'Stability' in label:
+                fmt = percent_format
+            elif '(min)' in label:
+                fmt = decimal_format
+            elif 'Duration' in label or 'Time' in label:
+                fmt = dhm_format
+            ws_dash.write(f'C{row}', value, fmt)
+            row += 1
+
+        # --- Raw Data Sheet ---
+        ws_raw = workbook.add_worksheet('Exported_Raw_Data')
+        # Write headers
+        for col_num, value in enumerate(df_view.columns.values):
+            ws_raw.write(0, col_num, value, header_format)
+        # Write data
+        for row_num, row_data in enumerate(df_view.itertuples(index=False), 1):
+            ws_raw.write_row(row_num, 0, row_data)
+
+        # --- Calculations Sheet ---
+        ws_calc = workbook.add_worksheet('Calculations_Data')
+        calc_df = results.get('processed_df', pd.DataFrame())
+        for col_num, value in enumerate(calc_df.columns.values):
+            ws_calc.write(0, col_num, value, header_format)
+        for row_num, row_data in enumerate(calc_df.itertuples(index=False), 1):
+            ws_calc.write_row(row_num, 0, row_data)
+
+    return output_buffer.getvalue()
+
 # --- Main Application Logic ---
 st.sidebar.title("Run Rate Report Generator ⚙️")
 
@@ -564,6 +629,7 @@ tolerance = st.sidebar.slider("Tolerance Band (% of Mode CT)", 0.01, 0.20, 0.05,
 run_interval_hours = st.sidebar.slider("Run Interval Threshold (hours)", 1, 24, 8, 1, help="Defines the max hours between shots before a new Production Run is identified.")
 st.sidebar.markdown("---")
 detailed_view = st.sidebar.toggle("Show Detailed Analysis", value=True)
+
 
 # FIX: Moved data processing up
 @st.cache_data(show_spinner="Performing initial data processing...")
@@ -639,7 +705,7 @@ else:
     elif "by Run" in analysis_level:
         trend_summary_df = calculate_run_summaries(df_view, tolerance)
         if not trend_summary_df.empty:
-             trend_summary_df.rename(columns={'run_label': 'RUN ID', 'stability_index': 'STABILITY %', 'stops': 'STOPS', 'mttr_min': 'MTTR (min)'}, inplace=True)
+             trend_summary_df.rename(columns={'run_label': 'RUN ID', 'stability_index': 'STABILITY %', 'stops': 'STOPS', 'mttr_min': 'MTTR (min)', 'total_shots': 'Total Shots'}, inplace=True)
     elif analysis_level == "Daily":
         trend_summary_df = results.get('hourly_summary', pd.DataFrame())
 
