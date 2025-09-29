@@ -483,9 +483,9 @@ if df_processed.empty:
 
 st.title(f"Run Rate Dashboard: {tool_id}")
 
-# --- Initialize session state for LLM analysis ---
-if "show_llm_analysis" not in st.session_state:
-    st.session_state.show_llm_analysis = False
+# --- Initialize session state for analysis expander ---
+if "show_analysis" not in st.session_state:
+    st.session_state.show_analysis = False
 
 # --- Determine mode and filter data for the selected view ---
 mode = 'by_run' if '(by Run)' in analysis_level else 'aggregate'
@@ -594,13 +594,10 @@ else:
                 with st.container(border=True): st.metric("Mode CT (sec)", mode_disp)
             c3.metric("Upper Limit (sec)", f"{results.get('upper_limit', 0):.2f}")
 
-    # --- Analysis Button and Display ---
+    # --- Analysis Expander ---
     st.markdown("---")
 
-    if st.button("🤖 Generate Detailed Analysis", use_container_width=True):
-        st.session_state.show_llm_analysis = not st.session_state.show_llm_analysis
-
-    if st.session_state.show_llm_analysis:
+    with st.expander("🤖 View Automated Analysis Summary", expanded=False):
         # Standardize trend_summary_df for consistent analysis
         analysis_df = pd.DataFrame()
         if trend_summary_df is not None and not trend_summary_df.empty:
@@ -626,20 +623,20 @@ else:
             st.error(insights["error"])
         else:
             analysis_html = f"""
-            <div style="border: 1px solid #262730; border-radius: 0.5rem; padding: 1.5rem; margin-top: 1rem; font-family: sans-serif; line-height: 1.6;">
-                <h4 style="margin-top: 0;">Automated Analysis Summary</h4>
-                <p><strong>Overall Assessment:</strong> {insights['overall']}</p>
-                <p><strong>Predictive Trend:</strong> {insights['predictive']}</p>
-                <p><strong>Performance Variance:</strong> {insights['best_worst']}</p>
+            <div style="border: 1px solid #333; border-radius: 0.5rem; padding: 1.5rem; margin-top: 1rem; font-family: sans-serif; line-height: 1.6; background-color: #0E1117;">
+                <h4 style="margin-top: 0; color: #FAFAFA;">Automated Analysis Summary</h4>
+                <p style="color: #FAFAFA;"><strong>Overall Assessment:</strong> {insights['overall']}</p>
+                <p style="color: #FAFAFA;"><strong>Predictive Trend:</strong> {insights['predictive']}</p>
+                <p style="color: #FAFAFA;"><strong>Performance Variance:</strong> {insights['best_worst']}</p>
             """
             if insights['patterns']:
-                 analysis_html += f"<p><strong>Identified Patterns:</strong> {insights['patterns']}</p>"
+                 analysis_html += f"<p style='color: #FAFAFA;'><strong>Identified Patterns:</strong> {insights['patterns']}</p>"
             
             analysis_html += f"""
-                <p style="margin-top: 1rem;"><strong>Key Recommendation:</strong> {insights['recommendation']}</p>
+                <p style="margin-top: 1rem; color: #FAFAFA; background-color: #262730; padding: 1rem; border-radius: 0.5rem;"><strong>Key Recommendation:</strong> {insights['recommendation']}</p>
             </div>
             """
-            st.components.v1.html(analysis_html, height=350, scrolling=True)
+            st.components.v1.html(analysis_html, height=400, scrolling=True)
 
 
     # --- Breakdown Tables for Weekly/Monthly Views ---
@@ -872,3 +869,4 @@ else:
             fig_mt.update_layout(title="MTTR & MTBF per Run", yaxis=dict(title='MTTR (min)'), yaxis2=dict(title='MTBF (min)', overlaying='y', side='right'), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_mt, use_container_width=True)
             with st.expander("View MTTR/MTBF Data", expanded=False): st.dataframe(run_summary_df)
+
