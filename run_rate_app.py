@@ -582,6 +582,7 @@ def create_excel_export(df_view, results, tolerance, run_interval_hours, analysi
 
     return output_buffer.getvalue()
 
+
 # --- Main Application Logic ---
 st.sidebar.title("Run Rate Report Generator ⚙️")
 
