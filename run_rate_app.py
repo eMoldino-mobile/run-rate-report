@@ -476,16 +476,15 @@ def generate_mttr_mtbf_analysis(analysis_df, analysis_level):
 
     if not pd.isna(stops_stability_corr) and not pd.isna(mttr_stability_corr):
         if abs(stops_stability_corr) > abs(mttr_stability_corr) * 1.5:
-            primary_driver = "the **frequency of stops (low MTBF)**"
+            primary_driver = "the **frequency of stops**"
             primary_driver_is_frequency = True
         elif abs(mttr_stability_corr) > abs(stops_stability_corr) * 1.5:
-            primary_driver = "the **duration of stops (high MTTR)**"
+            primary_driver = "the **duration of stops**"
             primary_driver_is_duration = True
         else:
             primary_driver = "both the **frequency and duration of stops**"
         
-        corr_insight = (f"Correlation analysis indicates that {primary_driver} has the strongest negative impact on stability in this period "
-                        f"(Stops vs. Stability Corr: {stops_stability_corr:.2f}, MTTR vs. Stability Corr: {mttr_stability_corr:.2f}).")
+        corr_insight = (f"This analysis suggests that <strong>{primary_driver}</strong> has the strongest impact on overall stability.")
 
     # Outlier/Example Analysis
     example_insight = ""
@@ -500,21 +499,17 @@ def generate_mttr_mtbf_analysis(analysis_df, analysis_level):
     if primary_driver_is_frequency:
         highest_stops_period_row = analysis_df.loc[analysis_df['stops'].idxmax()]
         period_label = format_period(highest_stops_period_row['period'], analysis_level)
-        example_insight = (f"For example, the highest frequency of interruptions occurred during <strong>{period_label}</strong>, "
-                           f"which recorded <strong>{int(highest_stops_period_row['stops'])} stops</strong>. "
-                           f"Focusing on the root causes of these frequent, smaller stops is key.")
+        example_insight = (f"For example, the period with the most interruptions was <strong>{period_label}</strong>, which recorded <strong>{int(highest_stops_period_row['stops'])} stops</strong>. "
+                           f"Prioritizing the root cause of these frequent events is recommended.")
     elif primary_driver_is_duration:
         highest_mttr_period_row = analysis_df.loc[analysis_df['mttr'].idxmax()]
         period_label = format_period(highest_mttr_period_row['period'], analysis_level)
-        example_insight = (f"The longest average repair times occurred during <strong>{period_label}</strong>, "
-                           f"with an MTTR of <strong>{highest_mttr_period_row['mttr']:.1f} minutes</strong>. "
+        example_insight = (f"The period with the longest downtimes was <strong>{period_label}</strong>, where the average repair time was <strong>{highest_mttr_period_row['mttr']:.1f} minutes</strong>. "
                            f"Investigating the cause of these prolonged stops is the top priority.")
     else: # If both are drivers, or correlations are close
         highest_mttr_period_row = analysis_df.loc[analysis_df['mttr'].idxmax()]
         period_label = format_period(highest_mttr_period_row['period'], analysis_level)
-        example_insight = (f"The longest average repair times occurred during <strong>{period_label}</strong>, "
-                           f"with an MTTR of <strong>{highest_mttr_period_row['mttr']:.1f} minutes</strong>. "
-                           f"Addressing both the frequency and duration of stops is necessary for improvement.")
+        example_insight = (f"As an example, <strong>{period_label}</strong> experienced prolonged downtimes with an average repair time of <strong>{highest_mttr_period_row['mttr']:.1f} minutes</strong>, highlighting the impact of long stops.")
 
 
     return f"<div style='line-height: 1.6;'><p>{corr_insight}</p><p>{example_insight}</p></div>"
@@ -878,7 +873,7 @@ else:
             if detailed_view:
                 with st.expander("🤖 View MTTR/MTBF Correlation Analysis", expanded=False):
                     st.info("""
-                    **How to read this:** Correlation identifies the primary driver of instability. A stronger negative value (closer to -1.0) indicates a bigger impact. This helps prioritize between fixing stop **frequency (MTBF)** or stop **duration (MTTR)**.
+                    **How this analysis works:** It determines if stability is more affected by many small stops (a **frequency** problem) or a few long stops (a **duration** problem). This helps prioritize engineering efforts.
                     """)
                     analysis_df = hourly_summary.copy()
                     analysis_df.rename(columns={'hour': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}, inplace=True)
@@ -947,7 +942,7 @@ else:
             if detailed_view:
                 with st.expander("🤖 View MTTR/MTBF Correlation Analysis", expanded=False):
                     st.info("""
-                    **How to read this:** Correlation identifies the primary driver of instability. A stronger negative value (closer to -1.0) indicates a bigger impact. This helps prioritize between fixing stop **frequency (MTBF)** or stop **duration (MTTR)**.
+                    **How this analysis works:** It determines if stability is more affected by many small stops (a **frequency** problem) or a few long stops (a **duration** problem). This helps prioritize engineering efforts.
                     """)
                     analysis_df = summary_df.copy()
                     rename_map = {}
@@ -1022,7 +1017,7 @@ else:
             if detailed_view:
                 with st.expander("🤖 View MTTR/MTBF Correlation Analysis", expanded=False):
                     st.info("""
-                    **How to read this:** Correlation identifies the primary driver of instability. A stronger negative value (closer to -1.0) indicates a bigger impact. This helps prioritize between fixing stop **frequency (MTBF)** or stop **duration (MTTR)**.
+                    **How this analysis works:** It determines if stability is more affected by many small stops (a **frequency** problem) or a few long stops (a **duration** problem). This helps prioritize engineering efforts.
                     """)
                     analysis_df = run_summary_df.copy()
                     analysis_df.rename(columns={'RUN ID': 'period', 'STABILITY %': 'stability', 'STOPS': 'stops', 'MTTR (min)': 'mttr'}, inplace=True)
