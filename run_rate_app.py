@@ -413,6 +413,40 @@ def generate_detailed_analysis(analysis_df, overall_stability, overall_mttr, ove
         "recommendation": recommendation
     }
 
+def generate_bucket_run_analysis(complete_runs, bucket_labels):
+    if complete_runs.empty or 'duration_min' not in complete_runs.columns:
+        return "No completed runs to analyze for long-run trends."
+
+    total_completed_runs = len(complete_runs)
+    
+    # Define 'long runs' as those lasting 60 minutes or more
+    try:
+        long_run_buckets = [label for label in bucket_labels if int(label.split('-')[0].replace('+', '')) >= 60]
+    except (ValueError, IndexError):
+        long_run_buckets = [] # Handle cases where labels might be malformed
+    
+    if not long_run_buckets:
+        num_long_runs = 0
+    else:
+        num_long_runs = complete_runs[complete_runs['time_bucket'].isin(long_run_buckets)].shape[0]
+
+    percent_long_runs = (num_long_runs / total_completed_runs * 100) if total_completed_runs > 0 else 0
+    
+    longest_run_min = complete_runs['duration_min'].max()
+
+    analysis_text = f"Out of <strong>{total_completed_runs}</strong> completed runs, <strong>{num_long_runs}</strong> ({percent_long_runs:.1f}%) qualified as long runs (lasting over 60 minutes). "
+    analysis_text += f"The single longest stable run during this period lasted for <strong>{longest_run_min:.1f} minutes</strong>."
+
+    if total_completed_runs > 0: # Avoid division by zero and give meaningful insight
+        if percent_long_runs < 20:
+            analysis_text += " This suggests that most stoppages occur after relatively short periods of operation, indicating frequent process interruptions."
+        elif percent_long_runs > 50:
+            analysis_text += " This indicates a strong capability for sustained stable operation, with over half the runs achieving significant duration before a stop event."
+        else:
+            analysis_text += " This shows a mixed performance, with a reasonable number of long runs but also frequent shorter ones."
+        
+    return analysis_text
+
 # --- Main Application Logic ---
 st.sidebar.title("Run Rate Report Generator ⚙️")
 
@@ -752,6 +786,11 @@ else:
             fig_hourly_bucket = px.bar(pivot_df, x=pivot_df.index, y=pivot_df.columns, title='Hourly Distribution of Run Durations', barmode='stack', color_discrete_map=results["bucket_color_map"], labels={'hour': 'Hour of Stop', 'value': 'Number of Runs', 'variable': 'Run Duration (min)'})
             st.plotly_chart(fig_hourly_bucket, use_container_width=True)
             with st.expander("View Bucket Trend Data", expanded=False): st.dataframe(pivot_df)
+            
+            # --- NEW SECTION ---
+            st.subheader("Long Run Analysis")
+            long_run_summary = generate_bucket_run_analysis(complete_runs, results["bucket_labels"])
+            st.markdown(long_run_summary, unsafe_allow_html=True)
         
         st.subheader("Hourly MTTR & MTBF Trend")
         hourly_summary = results['hourly_summary']
@@ -804,6 +843,11 @@ else:
             fig_trend_bucket = px.bar(pivot_df, x=pivot_df.index, y=pivot_df.columns, title=f'{trend_level} Distribution of Run Durations', barmode='stack', color_discrete_map=results["bucket_color_map"], labels={time_col: trend_level, 'value': 'Number of Runs', 'variable': 'Run Duration (min)'})
             st.plotly_chart(fig_trend_bucket, use_container_width=True)
             with st.expander("View Bucket Trend Data", expanded=False): st.dataframe(pivot_df)
+
+            # --- NEW SECTION ---
+            st.subheader("Long Run Analysis")
+            long_run_summary = generate_bucket_run_analysis(complete_runs, results["bucket_labels"])
+            st.markdown(long_run_summary, unsafe_allow_html=True)
 
         st.subheader(f"{trend_level} MTTR & MTBF Trend")
         if summary_df is not None and not summary_df.empty and summary_df['stops'].sum() > 0:
@@ -860,6 +904,11 @@ else:
             fig_trend_bucket = px.bar(pivot_df, x=pivot_df.index, y=pivot_df.columns, title='Distribution of Run Durations per Run', barmode='stack', color_discrete_map=results["bucket_color_map"], labels={'run_label': 'Run ID', 'value': 'Number of Runs', 'variable': 'Run Duration (min)'})
             st.plotly_chart(fig_trend_bucket, use_container_width=True)
             with st.expander("View Bucket Trend Data", expanded=False): st.dataframe(pivot_df)
+
+            # --- NEW SECTION ---
+            st.subheader("Long Run Analysis")
+            long_run_summary = generate_bucket_run_analysis(complete_runs, results["bucket_labels"])
+            st.markdown(long_run_summary, unsafe_allow_html=True)
 
         st.subheader("MTTR & MTBF per Production Run")
         if run_summary_df is not None and not run_summary_df.empty and run_summary_df['STOPS'].sum() > 0:
