@@ -565,16 +565,21 @@ def create_excel_export(df_view, results, tolerance, run_interval_hours, analysi
 
         # --- Raw Data Sheet ---
         ws_raw = workbook.add_worksheet('Exported_Raw_Data')
-        # Write headers
-        for col_num, value in enumerate(df_view.columns.values):
+        df_to_export = df_view.copy()
+        if 'month' in df_to_export.columns:
+            df_to_export['month'] = df_to_export['month'].astype(str)
+        
+        for col_num, value in enumerate(df_to_export.columns.values):
             ws_raw.write(0, col_num, value, header_format)
-        # Write data
-        for row_num, row_data in enumerate(df_view.itertuples(index=False), 1):
+        for row_num, row_data in enumerate(df_to_export.itertuples(index=False), 1):
             ws_raw.write_row(row_num, 0, row_data)
 
         # --- Calculations Sheet ---
         ws_calc = workbook.add_worksheet('Calculations_Data')
-        calc_df = results.get('processed_df', pd.DataFrame())
+        calc_df = results.get('processed_df', pd.DataFrame()).copy()
+        if 'month' in calc_df.columns:
+            calc_df['month'] = calc_df['month'].astype(str)
+
         for col_num, value in enumerate(calc_df.columns.values):
             ws_calc.write(0, col_num, value, header_format)
         for row_num, row_data in enumerate(calc_df.itertuples(index=False), 1):
@@ -694,7 +699,25 @@ if df_view.empty:
 else:
     calc = RunRateCalculator(df_view.copy(), tolerance, analysis_mode=mode)
     results = calc.results
-    st.subheader(sub_header)
+    
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        st.subheader(sub_header)
+    with col2:
+        excel_data = create_excel_export(
+            df_view, 
+            results, 
+            tolerance, 
+            run_interval_hours, 
+            analysis_level
+        )
+        st.download_button(
+            label="📥 Export to Excel",
+            data=excel_data,
+            file_name=f"Run_Rate_Analysis_{tool_id}_{analysis_level.replace(' ', '_')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True
+        )
 
     # --- Pre-calculate summary df for Analysis section and Breakdown tables ---
     trend_summary_df = None
@@ -1112,19 +1135,15 @@ else:
                     mttr_mtbf_summary = generate_mttr_mtbf_analysis(analysis_df, analysis_level)
                     st.markdown(mttr_mtbf_summary, unsafe_allow_html=True)
 
-    # --- ADD EXPORT BUTTON AT THE END ---
-    st.sidebar.markdown("---")
-    st.sidebar.header("Export Data")
-    excel_data = create_excel_export(
-        df_view, 
-        results, 
-        tolerance, 
-        run_interval_hours, 
-        analysis_level
-    )
     st.sidebar.download_button(
         label="📥 Export to Excel",
-        data=excel_data,
+        data=create_excel_export(
+            df_view,
+            results,
+            tolerance,
+            run_interval_hours,
+            analysis_level
+        ),
         file_name=f"Run_Rate_Analysis_{tool_id}_{analysis_level.replace(' ', '_')}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
