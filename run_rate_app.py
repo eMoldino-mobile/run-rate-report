@@ -567,6 +567,12 @@ run_interval_hours = st.sidebar.slider("Run Interval Threshold (hours)", 1, 24, 
 st.sidebar.markdown("---")
 detailed_view = st.sidebar.toggle("Show Detailed Analysis", value=True)
 
+# --- FIX: Moved data processing up ---
+df_processed = get_processed_data(df_tool, run_interval_hours)
+if df_processed.empty:
+    st.error(f"Could not process data for {tool_id}."); st.stop()
+
+st.title(f"Run Rate Dashboard: {tool_id}")
 
 # --- Determine mode and filter data for the selected view ---
 mode = 'by_run' if '(by Run)' in analysis_level else 'aggregate'
