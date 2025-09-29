@@ -567,6 +567,23 @@ run_interval_hours = st.sidebar.slider("Run Interval Threshold (hours)", 1, 24, 
 st.sidebar.markdown("---")
 detailed_view = st.sidebar.toggle("Show Detailed Analysis", value=True)
 
+@st.cache_data(show_spinner="Performing initial data processing...")
+def get_processed_data(df, interval_hours):
+    # This initial run just gets the timestamps and identifies the runs
+    base_calc = RunRateCalculator(df, 0.01) # Tolerance doesn't matter here
+    df_processed = base_calc.results.get("processed_df", pd.DataFrame())
+    if not df_processed.empty:
+        df_processed['week'] = df_processed['shot_time'].dt.isocalendar().week
+        df_processed['date'] = df_processed['shot_time'].dt.date
+        df_processed['month'] = df_processed['shot_time'].dt.to_period('M')
+        # Identify production runs
+        is_new_run = df_processed['ct_diff_sec'] > (interval_hours * 3600)
+        df_processed['run_id'] = is_new_run.cumsum()
+        run_start_dates = df_processed.groupby('run_id')['shot_time'].min()
+        run_labels = {run_id: f"{i+1:03d} ({date.strftime('%Y-%m-%d')})" for i, (run_id, date) in enumerate(run_start_dates.items())}
+        df_processed['run_label'] = df_processed['run_id'].map(run_labels)
+    return df_processed
+
 # --- FIX: Moved data processing up ---
 df_processed = get_processed_data(df_tool, run_interval_hours)
 if df_processed.empty:
