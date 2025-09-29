@@ -5,6 +5,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 from io import BytesIO
 import warnings
+import json
+import streamlit.components.v1 as components
 
 # --- Page and Code Configuration ---
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -315,6 +317,117 @@ def calculate_run_summaries(df_period, tolerance):
     summary_df = pd.DataFrame(run_summary_list).sort_values('start_time').reset_index(drop=True)
     return summary_df
 
+# --- NEW: LLM Analysis Functions ---
+def generate_llm_prompt(main_results, trend_df, analysis_level):
+    """Formats the data into a text prompt for the LLM."""
+    prompt = f"Analyze the following manufacturing run-rate data for the selected '{analysis_level}' period.\n\n"
+    prompt += "## Overall Performance Summary\n"
+    prompt += f"- **Stability Index**: {main_results.get('stability_index', 0):.1f}%\n"
+    prompt += f"- **MTTR (Mean Time to Repair)**: {main_results.get('mttr_min', 0):.1f} minutes\n"
+    prompt += f"- **MTBF (Mean Time Between Failures)**: {main_results.get('mtbf_min', 0):.1f} minutes\n"
+    prompt += f"- **Total Stop Events**: {main_results.get('stop_events', 0)}\n"
+    prompt += f"- **Efficiency (Normal Shots / Total Shots)**: {main_results.get('efficiency', 0) * 100:.1f}%\n\n"
+
+    if trend_df is not None and not trend_df.empty:
+        prompt += "## Performance Trend Data\n"
+        prompt += "Here is the performance trend data over the period. Each row represents a sub-period (e.g., day, week, or production run).\n"
+        # Select relevant columns for the prompt to keep it concise
+        trend_cols = [col for col in ['date', 'week', 'RUN ID', 'stability_index', 'STABILITY %', 'mttr_min', 'MTTR (min)', 'mtbf_min', 'MTBF (min)', 'stops', 'STOPS', 'Hour'] if col in trend_df.columns]
+        prompt += trend_df[trend_cols].to_string(index=False)
+        prompt += "\n\n"
+    
+    prompt += """
+## Analysis Task
+Based on all the data provided:
+1.  **Summarize the overall stability.** Is it good (above 70%), needs improvement (50-70%), or poor (below 50%)?
+2.  **Analyze the Stability Index Trend.** Is performance improving, declining, or volatile over the period? Point out any specific highs or lows from the trend data.
+3.  **Analyze the Stop Events.** How do the number of stops correlate with periods of low stability?
+4.  **Provide a key insight or recommendation.** What is the most important takeaway from this data? For example, if MTTR is high, suggest focusing on faster repairs. If MTBF is low, suggest investigating the root causes of frequent stops.
+"""
+    return prompt
+
+def render_llm_analysis_component(prompt):
+    """Renders the HTML component to call the Gemini API and display the result."""
+    
+    # Simple JS to render markdown-like text to HTML
+    js_markdown_renderer = """
+        function renderSimpleMarkdown(text) {
+            let html = text.replace(/\\n/g, '<br>');
+            html = html.replace(/\\*\\*(.*?)\\*\\*/g, '<strong>$1</strong>'); // Bold
+            html = html.replace(/\\*(.*?)\\*/g, '<em>$1</em>'); // Italics
+            html = html.replace(/^- (.*?)<br>/gm, '<li>$1</li>'); // List items
+            html = html.replace(/(<li>.*<\\/li>)/gs, '<ul>$1</ul>'); // Wrap lists
+            return html;
+        }
+    """
+
+    components.html(f"""
+        <div id="llm-container" style="border: 1px solid #262730; border-radius: 0.5rem; padding: 1rem; margin-top: 1rem;">
+            <p id="llm-status">⏳ Calling Gemini API to generate analysis...</p>
+            <div id="llm-output"></div>
+        </div>
+        <script>
+            {js_markdown_renderer}
+
+            const callGeminiApi = async () => {{
+                const statusEl = document.getElementById('llm-status');
+                const outputEl = document.getElementById('llm-output');
+                const systemPrompt = "You are an expert manufacturing process analyst. Your task is to analyze the provided run-rate data summary and identify key trends, insights, and potential areas for improvement. Be concise, professional, use bullet points for clarity, and focus on actionable advice based ONLY on the data given.";
+                const userQuery = {json.dumps(prompt)};
+                const apiKey = ""; // Canvas will provide the key
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${{apiKey}}`;
+
+                const payload = {{
+                    contents: [{{ "role": "user", "parts": [{{ "text": userQuery }}] }}],
+                    // FIX 2: Removed systemInstruction from payload to troubleshoot 403 error.
+                    // The prompt now contains all necessary instructions.
+                }};
+                
+                let retries = 3;
+                let delay = 1000;
+
+                for (let i = 0; i < retries; i++) {{
+                    try {{
+                        const response = await fetch(apiUrl, {{
+                            method: 'POST',
+                            headers: {{ 'Content-Type': 'application/json' }},
+                            body: JSON.stringify(payload)
+                        }});
+
+                        if (!response.ok) {{
+                            throw new Error(`HTTP error! status: ${{response.status}}`);
+                        }}
+
+                        const result = await response.json();
+                        const candidate = result.candidates?.[0];
+
+                        if (candidate && candidate.content?.parts?.[0]?.text) {{
+                            const text = candidate.content.parts[0].text;
+                            statusEl.style.display = 'none'; // Hide status
+                            outputEl.innerHTML = renderSimpleMarkdown(text);
+                        }} else {{
+                            throw new Error("Invalid response structure from API.");
+                        }}
+                        return; // Success, exit the loop
+                    }} catch (error) {{
+                        console.error('API call failed:', error);
+                        if (i === retries - 1) {{
+                             statusEl.textContent = '❌ Error generating analysis after multiple retries.';
+                             outputEl.textContent = `Error details: ${{error.message}}. Check the browser console for more information.`;
+                        }} else {{
+                            statusEl.textContent = `⏳ API call failed, retrying in ${{delay / 1000}}s...`;
+                            await new Promise(res => setTimeout(res, delay));
+                            delay *= 2; // Exponential backoff
+                        }}
+                    }}
+                }}
+            }};
+
+            // Call the function when the component loads
+            callGeminiApi();
+        </script>
+    """, height=400, scrolling=True)
+
 # --- Main Application Logic ---
 st.sidebar.title("Run Rate Report Generator ⚙️")
 
@@ -384,6 +497,12 @@ if df_processed.empty:
     st.error(f"Could not process data for {tool_id}."); st.stop()
 
 st.title(f"Run Rate Dashboard: {tool_id}")
+
+# --- Initialize session state for LLM analysis ---
+if "show_llm_analysis" not in st.session_state:
+    st.session_state.show_llm_analysis = False
+if "llm_prompt" not in st.session_state:
+    st.session_state.llm_prompt = ""
 
 # --- Determine mode and filter data for the selected view ---
 mode = 'by_run' if '(by Run)' in analysis_level else 'aggregate'
@@ -478,26 +597,52 @@ else:
                 with st.container(border=True): st.metric("Mode CT (sec)", mode_disp)
             c3.metric("Upper Limit (sec)", f"{results.get('upper_limit', 0):.2f}")
 
+    # --- LLM Analysis Button and Display ---
+    st.markdown("---")
+    
+    # Pre-calculate summary df for prompt generation
+    trend_summary_df = None
+    if analysis_level == "Weekly":
+        trend_summary_df = calculate_daily_summaries_for_week(df_view, tolerance, mode)
+    elif analysis_level == "Monthly":
+        trend_summary_df = calculate_weekly_summaries_for_month(df_view, tolerance, mode)
+    elif "by Run" in analysis_level:
+        trend_summary_df = calculate_run_summaries(df_view, tolerance)
+        if not trend_summary_df.empty:
+             trend_summary_df.rename(columns={'run_label': 'RUN ID', 'stability_index': 'STABILITY %', 'stops': 'STOPS', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)'}, inplace=True)
+    elif analysis_level == "Daily":
+        # FIX 1: Copy the dataframe to prevent modifying the original in `results`
+        hourly_summary_for_prompt = results.get('hourly_summary', pd.DataFrame()).copy()
+        if not hourly_summary_for_prompt.empty:
+            hourly_summary_for_prompt.rename(columns={'hour': 'Hour'}, inplace=True)
+        trend_summary_df = hourly_summary_for_prompt
+
+
+    if st.button("🤖 Generate LLM Analysis", use_container_width=True):
+        st.session_state.show_llm_analysis = True
+        st.session_state.llm_prompt = generate_llm_prompt(results, trend_summary_df, analysis_level)
+    
+    if st.session_state.show_llm_analysis and st.session_state.llm_prompt:
+        render_llm_analysis_component(st.session_state.llm_prompt)
+
     # --- Breakdown Tables for Weekly/Monthly Views ---
     if analysis_level == "Weekly":
-        daily_summary_df = calculate_daily_summaries_for_week(df_view, tolerance, mode)
         with st.expander("View Daily Breakdown Table", expanded=False):
-            if not daily_summary_df.empty:
-                d_df = daily_summary_df.copy()
+            if trend_summary_df is not None and not trend_summary_df.empty:
+                d_df = trend_summary_df.copy()
                 d_df['date'] = pd.to_datetime(d_df['date']).dt.strftime('%A, %b %d')
                 d_df.rename(columns={'date': 'Day', 'stability_index': 'Stability (%)', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'stops': 'Stops'}, inplace=True)
                 st.dataframe(d_df.style.format({'Stability (%)': '{:.1f}', 'MTTR (min)': '{:.1f}', 'MTBF (min)': '{:.1f}'}), use_container_width=True)
     elif analysis_level == "Monthly":
-        weekly_summary_df = calculate_weekly_summaries_for_month(df_view, tolerance, mode)
         with st.expander("View Weekly Breakdown Table", expanded=False):
-            if not weekly_summary_df.empty:
-                d_df = weekly_summary_df.copy()
+            if trend_summary_df is not None and not trend_summary_df.empty:
+                d_df = trend_summary_df.copy()
                 d_df.rename(columns={'week': 'Week', 'stability_index': 'Stability (%)', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'stops': 'Stops'}, inplace=True)
                 st.dataframe(d_df.style.format({'Stability (%)': '{:.1f}', 'MTTR (min)': '{:.1f}', 'MTBF (min)': '{:.1f}'}), use_container_width=True)
     elif analysis_level in ["Weekly (by Run)", "Monthly (by Run)"]:
-        run_summary_df = calculate_run_summaries(df_view, tolerance)
+        run_summary_df = calculate_run_summaries(df_view, tolerance) # Recalculate for display
         with st.expander("View Run Breakdown Table", expanded=False):
-            if not run_summary_df.empty:
+            if run_summary_df is not None and not run_summary_df.empty:
                 d_df = run_summary_df.copy()
 
                 # Create all the new formatted string columns
@@ -535,48 +680,23 @@ else:
 
                 # Define the final column order from the user request
                 final_cols_order = [
-                    'RUN ID',
-                    'Period (date/time from to)',
-                    'Total shots',
-                    'Normal shots (& %)',
-                    'STOPS (&%)',
-                    'Mode CT (for the run)',
-                    'Lower limit CT (sec)',
-                    'Upper Limit CT (sec)',
-                    'Total Run duration (d/h/m)',
-                    'Production Time (d/h/m) (& %)',
-                    'Downtime (& %)',
-                    'MTTR (min)',
-                    'MTBF (min)',
-                    'STABILITY %',
-                    'STOPS'
+                    'RUN ID', 'Period (date/time from to)', 'Total shots', 'Normal shots (& %)', 'STOPS (&%)',
+                    'Mode CT (for the run)', 'Lower limit CT (sec)', 'Upper Limit CT (sec)',
+                    'Total Run duration (d/h/m)', 'Production Time (d/h/m) (& %)', 'Downtime (& %)',
+                    'MTTR (min)', 'MTBF (min)', 'STABILITY %', 'STOPS'
                 ]
                 
                 display_df = d_df[final_cols_order]
 
                 st.dataframe(
                     display_df.style.format({
-                        'Mode CT (for the run)': '{:.2f}',
-                        'Lower limit CT (sec)': '{:.2f}',
-                        'Upper Limit CT (sec)': '{:.2f}',
-                        'MTTR (min)': '{:.1f}',
-                        'MTBF (min)': '{:.1f}',
-                        'STABILITY %': '{:.1f}'
+                        'Mode CT (for the run)': '{:.2f}', 'Lower limit CT (sec)': '{:.2f}',
+                        'Upper Limit CT (sec)': '{:.2f}', 'MTTR (min)': '{:.1f}',
+                        'MTBF (min)': '{:.1f}', 'STABILITY %': '{:.1f}'
                     }),
                     use_container_width=True
                 )
         
-        # Rename columns in the main dataframe for subsequent plots
-        if not run_summary_df.empty:
-            run_summary_df.rename(columns={
-                'run_label': 'RUN ID',
-                'stability_index': 'STABILITY %',
-                'stops': 'STOPS',
-                'mttr_min': 'MTTR (min)',
-                'mtbf_min': 'MTBF (min)'
-            }, inplace=True)
-
-
     # --- Plot main chart and trends ---
     time_agg = 'hourly' if analysis_level == 'Daily' else 'daily' if 'Weekly' in analysis_level else 'weekly'
     plot_shot_bar_chart(results['processed_df'], results.get('lower_limit'), results.get('upper_limit'), results.get('mode_ct'), time_agg=time_agg)
@@ -654,14 +774,14 @@ else:
             else: st.info("No complete runs.")
         with c2:
             st.subheader(f"{trend_level} Stability Trend")
-            if not summary_df.empty:
+            if summary_df is not None and not summary_df.empty:
                 x_col = 'date' if trend_level == "Daily" else 'week'
                 plot_trend_chart(summary_df, x_col, 'stability_index', f"{trend_level} Stability Trend", trend_level, "Stability (%)", is_stability=True)
                 with st.expander("View Stability Data", expanded=False): st.dataframe(summary_df)
             else: st.info(f"No {trend_level.lower()} data.")
         
         st.subheader(f"{trend_level} Bucket Trend")
-        if not complete_runs.empty and not summary_df.empty:
+        if not complete_runs.empty and summary_df is not None and not summary_df.empty:
             time_col = 'date' if trend_level == "Daily" else 'week'
             complete_runs[time_col] = complete_runs['run_end_time'].dt.date if trend_level == "Daily" else complete_runs['run_end_time'].dt.isocalendar().week
             pivot_df = pd.crosstab(index=complete_runs[time_col], columns=complete_runs['time_bucket'].astype('category').cat.set_categories(results["bucket_labels"]))
@@ -672,7 +792,7 @@ else:
             with st.expander("View Bucket Trend Data", expanded=False): st.dataframe(pivot_df)
 
         st.subheader(f"{trend_level} MTTR & MTBF Trend")
-        if not summary_df.empty and summary_df['stops'].sum() > 0:
+        if summary_df is not None and not summary_df.empty and summary_df['stops'].sum() > 0:
             x_col = 'date' if trend_level == "Daily" else 'week'
             fig_mt = go.Figure()
             fig_mt.add_trace(go.Scatter(x=summary_df[x_col], y=summary_df['mttr_min'], name='MTTR (min)', mode='lines+markers', line=dict(color='red', width=4)))
@@ -684,16 +804,9 @@ else:
     elif "by Run" in analysis_level:
         st.header(f"Run-Based Analysis")
         run_summary_df = calculate_run_summaries(df_view, tolerance)
-        
-        # Rename columns in the main dataframe for subsequent plots
         if not run_summary_df.empty:
-            run_summary_df.rename(columns={
-                'run_label': 'RUN ID',
-                'stability_index': 'STABILITY %',
-                'stops': 'STOPS',
-                'mttr_min': 'MTTR (min)',
-                'mtbf_min': 'MTBF (min)'
-            }, inplace=True)
+            run_summary_df.rename(columns={'run_label': 'RUN ID', 'stability_index': 'STABILITY %', 'stops': 'STOPS', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)'}, inplace=True)
+
         
         run_durations = results.get("run_durations", pd.DataFrame())
         processed_df = results.get('processed_df', pd.DataFrame())
@@ -716,13 +829,13 @@ else:
             else: st.info("No complete runs.")
         with c2:
             st.subheader("Stability per Production Run")
-            if not run_summary_df.empty:
+            if run_summary_df is not None and not run_summary_df.empty:
                 plot_trend_chart(run_summary_df, 'RUN ID', 'STABILITY %', "Stability per Run", "Run ID", "Stability (%)", is_stability=True)
                 with st.expander("View Stability Data", expanded=False): st.dataframe(run_summary_df)
             else: st.info(f"No runs to analyze.")
         
         st.subheader("Bucket Trend per Production Run")
-        if not complete_runs.empty and not run_summary_df.empty:
+        if not complete_runs.empty and run_summary_df is not None and not run_summary_df.empty:
             # Map run_group to run_label
             run_group_to_label_map = processed_df.drop_duplicates('run_group')[['run_group', 'run_label']].set_index('run_group')['run_label']
             complete_runs['run_label'] = complete_runs['run_group'].map(run_group_to_label_map)
@@ -735,7 +848,7 @@ else:
             with st.expander("View Bucket Trend Data", expanded=False): st.dataframe(pivot_df)
 
         st.subheader("MTTR & MTBF per Production Run")
-        if not run_summary_df.empty and run_summary_df['STOPS'].sum() > 0:
+        if run_summary_df is not None and not run_summary_df.empty and run_summary_df['STOPS'].sum() > 0:
             fig_mt = go.Figure()
             fig_mt.add_trace(go.Scatter(x=run_summary_df['RUN ID'], y=run_summary_df['MTTR (min)'], name='MTTR (min)', mode='lines+markers', line=dict(color='red', width=4)))
             fig_mt.add_trace(go.Scatter(x=run_summary_df['RUN ID'], y=run_summary_df['MTBF (min)'], name='MTBF (min)', mode='lines+markers', line=dict(color='green', width=4), yaxis='y2'))
