@@ -5,7 +5,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 from io import BytesIO
 import warnings
-import streamlit.components.v1 as components
 
 # --- Page and Code Configuration ---
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -386,10 +385,6 @@ if df_processed.empty:
 
 st.title(f"Run Rate Dashboard: {tool_id}")
 
-# --- Initialize session state for LLM analysis ---
-if "show_llm_analysis" not in st.session_state:
-    st.session_state.show_llm_analysis = False
-
 # --- Determine mode and filter data for the selected view ---
 mode = 'by_run' if '(by Run)' in analysis_level else 'aggregate'
 df_view = pd.DataFrame()
@@ -430,20 +425,6 @@ else:
     calc = RunRateCalculator(df_view.copy(), tolerance, analysis_mode=mode)
     results = calc.results
     st.subheader(sub_header)
-
-    # --- Pre-calculate summary df for Analysis section and Breakdown tables ---
-    trend_summary_df = None
-    if analysis_level == "Weekly":
-        trend_summary_df = calculate_daily_summaries_for_week(df_view, tolerance, mode)
-    elif analysis_level == "Monthly":
-        trend_summary_df = calculate_weekly_summaries_for_month(df_view, tolerance, mode)
-    elif "by Run" in analysis_level:
-        trend_summary_df = calculate_run_summaries(df_view, tolerance)
-        if not trend_summary_df.empty:
-             trend_summary_df.rename(columns={'run_label': 'RUN ID', 'stability_index': 'STABILITY %', 'stops': 'STOPS'}, inplace=True)
-    elif analysis_level == "Daily":
-        trend_summary_df = results.get('hourly_summary', pd.DataFrame())
-
 
     with st.container(border=True):
         col1, col2, col3, col4, col5 = st.columns(5)
@@ -497,95 +478,26 @@ else:
                 with st.container(border=True): st.metric("Mode CT (sec)", mode_disp)
             c3.metric("Upper Limit (sec)", f"{results.get('upper_limit', 0):.2f}")
 
-    # --- Analysis Button and Display ---
-    st.markdown("---")
-
-    if st.button("🤖 Generate Analysis", use_container_width=True):
-        st.session_state.show_llm_analysis = not st.session_state.show_llm_analysis
-
-    if st.session_state.show_llm_analysis:
-        stability = results.get('stability_index', 0)
-        stability_class = "good (above 70%)" if stability > 70 else "needs improvement (50-70%)" if stability > 50 else "poor (below 50%)"
-        mtbf = results.get('mtbf_min', 0)
-        mttr = results.get('mttr_min', 0)
-
-        # --- Dynamic Trend and Stoppage Analysis ---
-        trend_analysis_text = "A review of the trend charts is recommended to identify specific periods of volatility or decline."
-        
-        if trend_summary_df is not None and not trend_summary_df.empty and trend_summary_df.shape[0] > 1:
-            period_col, stability_col, stops_col = None, None, None
-            if 'hour' in trend_summary_df.columns:
-                period_col, stability_col, stops_col = 'hour', 'stability_index', 'stops'
-            elif 'date' in trend_summary_df.columns:
-                period_col, stability_col, stops_col = 'date', 'stability_index', 'stops'
-            elif 'week' in trend_summary_df.columns:
-                period_col, stability_col, stops_col = 'week', 'stability_index', 'stops'
-            elif 'RUN ID' in trend_summary_df.columns:
-                period_col, stability_col, stops_col = 'RUN ID', 'STABILITY %', 'STOPS'
-
-            if period_col and stability_col in trend_summary_df.columns:
-                # Find the period with the lowest stability and get its data
-                min_stability_row = trend_summary_df.loc[trend_summary_df[stability_col].idxmin()]
-                lowest_stability_period = min_stability_row[period_col]
-                lowest_stability_value = min_stability_row[stability_col]
-                stops_during_lowest = int(min_stability_row[stops_col])
-
-                if period_col == 'date': lowest_stability_period = pd.to_datetime(lowest_stability_period).strftime('%A, %b %d')
-                elif period_col == 'week': lowest_stability_period = f"Week {lowest_stability_period}"
-                elif period_col == 'hour': lowest_stability_period = f"{lowest_stability_period}:00"
-                
-                trend_analysis_text = f"The stability trend shows some volatility. The lowest performance was recorded during <strong>{lowest_stability_period}</strong> with a stability of <strong>{lowest_stability_value:.1f}%</strong>. This period experienced <strong>{stops_during_lowest} stop events</strong>, highlighting the direct impact of stoppages on performance."
-
-        # --- Improved Recommendation Logic ---
-        recommendation = "Mean Time Between Failures (MTBF)"
-        recommendation_value = f"{mtbf:.1f}"
-        recommendation_text = "investigating the root causes of frequent stops to improve uptime."
-        
-        # Switch to MTTR if its impact is proportionally high
-        if mtbf > 0 and mttr > 0:
-            repair_impact_ratio = mttr / mtbf
-            if repair_impact_ratio > 0.1: # If avg repair time is >10% of avg uptime
-                recommendation = "Mean Time To Repair (MTTR)"
-                recommendation_value = f"{mttr:.1f}"
-                recommendation_text = "streamlining the repair process to reduce downtime."
-        elif mttr > 0: # Handle case where MTBF might be 0 or NaN
-             recommendation = "Mean Time To Repair (MTTR)"
-             recommendation_value = f"{mttr:.1f}"
-             recommendation_text = "addressing the root cause of any recorded stops, as the time to repair is significant."
-
-
-        # --- Final HTML Output ---
-        analysis_html = f"""
-        <div style="border: 1px solid #262730; border-radius: 0.5rem; padding: 1rem; margin-top: 1rem; font-family: sans-serif;">
-            <h4>Analysis Summary</h4>
-            <ul>
-                <li><strong>Overall Stability:</strong> The overall stability for this period is <strong>{stability:.1f}%</strong>, which is considered <strong>{stability_class}</strong>.</li>
-                <li><strong>Trend Analysis:</strong> {trend_analysis_text}</li>
-                <li><strong>Key Recommendation:</strong> The primary area for improvement appears to be the <strong>{recommendation}</strong>. With a value of <strong>{recommendation_value} minutes</strong>, the data suggests focusing on <strong>{recommendation_text}</strong></li>
-            </ul>
-        </div>
-        """
-        components.html(analysis_html, height=200, scrolling=True)
-
-
     # --- Breakdown Tables for Weekly/Monthly Views ---
     if analysis_level == "Weekly":
+        daily_summary_df = calculate_daily_summaries_for_week(df_view, tolerance, mode)
         with st.expander("View Daily Breakdown Table", expanded=False):
-            if trend_summary_df is not None and not trend_summary_df.empty:
-                d_df = trend_summary_df.copy()
+            if not daily_summary_df.empty:
+                d_df = daily_summary_df.copy()
                 d_df['date'] = pd.to_datetime(d_df['date']).dt.strftime('%A, %b %d')
                 d_df.rename(columns={'date': 'Day', 'stability_index': 'Stability (%)', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'stops': 'Stops'}, inplace=True)
                 st.dataframe(d_df.style.format({'Stability (%)': '{:.1f}', 'MTTR (min)': '{:.1f}', 'MTBF (min)': '{:.1f}'}), use_container_width=True)
     elif analysis_level == "Monthly":
+        weekly_summary_df = calculate_weekly_summaries_for_month(df_view, tolerance, mode)
         with st.expander("View Weekly Breakdown Table", expanded=False):
-            if trend_summary_df is not None and not trend_summary_df.empty:
-                d_df = trend_summary_df.copy()
+            if not weekly_summary_df.empty:
+                d_df = weekly_summary_df.copy()
                 d_df.rename(columns={'week': 'Week', 'stability_index': 'Stability (%)', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'stops': 'Stops'}, inplace=True)
                 st.dataframe(d_df.style.format({'Stability (%)': '{:.1f}', 'MTTR (min)': '{:.1f}', 'MTBF (min)': '{:.1f}'}), use_container_width=True)
     elif analysis_level in ["Weekly (by Run)", "Monthly (by Run)"]:
-        run_summary_df = calculate_run_summaries(df_view, tolerance) # Recalculate for display
+        run_summary_df = calculate_run_summaries(df_view, tolerance)
         with st.expander("View Run Breakdown Table", expanded=False):
-            if run_summary_df is not None and not run_summary_df.empty:
+            if not run_summary_df.empty:
                 d_df = run_summary_df.copy()
 
                 # Create all the new formatted string columns
@@ -605,7 +517,7 @@ else:
                     axis=1
                 )
                 d_df["Downtime (& %)"] = d_df.apply(
-                    lambda row: f"{format_duration(row['downtime_sec'])} ({row['total_runtime_sec'] / row['total_runtime_sec'] * 100:.1f}%)" if row['total_runtime_sec'] > 0 else "0m (0.0%)",
+                    lambda row: f"{format_duration(row['downtime_sec'])} ({row['downtime_sec'] / row['total_runtime_sec'] * 100:.1f}%)" if row['total_runtime_sec'] > 0 else "0m (0.0%)",
                     axis=1
                 )
 
@@ -623,23 +535,48 @@ else:
 
                 # Define the final column order from the user request
                 final_cols_order = [
-                    'RUN ID', 'Period (date/time from to)', 'Total shots', 'Normal shots (& %)', 'STOPS (&%)',
-                    'Mode CT (for the run)', 'Lower limit CT (sec)', 'Upper Limit CT (sec)',
-                    'Total Run duration (d/h/m)', 'Production Time (d/h/m) (& %)', 'Downtime (& %)',
-                    'MTTR (min)', 'MTBF (min)', 'STABILITY %', 'STOPS'
+                    'RUN ID',
+                    'Period (date/time from to)',
+                    'Total shots',
+                    'Normal shots (& %)',
+                    'STOPS (&%)',
+                    'Mode CT (for the run)',
+                    'Lower limit CT (sec)',
+                    'Upper Limit CT (sec)',
+                    'Total Run duration (d/h/m)',
+                    'Production Time (d/h/m) (& %)',
+                    'Downtime (& %)',
+                    'MTTR (min)',
+                    'MTBF (min)',
+                    'STABILITY %',
+                    'STOPS'
                 ]
                 
                 display_df = d_df[final_cols_order]
 
                 st.dataframe(
                     display_df.style.format({
-                        'Mode CT (for the run)': '{:.2f}', 'Lower limit CT (sec)': '{:.2f}',
-                        'Upper Limit CT (sec)': '{:.2f}', 'MTTR (min)': '{:.1f}',
-                        'MTBF (min)': '{:.1f}', 'STABILITY %': '{:.1f}'
+                        'Mode CT (for the run)': '{:.2f}',
+                        'Lower limit CT (sec)': '{:.2f}',
+                        'Upper Limit CT (sec)': '{:.2f}',
+                        'MTTR (min)': '{:.1f}',
+                        'MTBF (min)': '{:.1f}',
+                        'STABILITY %': '{:.1f}'
                     }),
                     use_container_width=True
                 )
         
+        # Rename columns in the main dataframe for subsequent plots
+        if not run_summary_df.empty:
+            run_summary_df.rename(columns={
+                'run_label': 'RUN ID',
+                'stability_index': 'STABILITY %',
+                'stops': 'STOPS',
+                'mttr_min': 'MTTR (min)',
+                'mtbf_min': 'MTBF (min)'
+            }, inplace=True)
+
+
     # --- Plot main chart and trends ---
     time_agg = 'hourly' if analysis_level == 'Daily' else 'daily' if 'Weekly' in analysis_level else 'weekly'
     plot_shot_bar_chart(results['processed_df'], results.get('lower_limit'), results.get('upper_limit'), results.get('mode_ct'), time_agg=time_agg)
@@ -695,7 +632,7 @@ else:
     elif analysis_level in ["Weekly", "Monthly"]:
         trend_level = "Daily" if "Weekly" in analysis_level else "Weekly"
         st.header(f"{trend_level} Trends for {analysis_level.split(' ')[0]}")
-        summary_df = trend_summary_df
+        summary_df = calculate_daily_summaries_for_week(df_view, tolerance, mode) if "Weekly" in analysis_level else calculate_weekly_summaries_for_month(df_view, tolerance, mode)
         run_durations = results.get("run_durations", pd.DataFrame())
         processed_df = results.get('processed_df', pd.DataFrame())
         stop_events_df = processed_df.loc[processed_df['stop_event']].copy()
@@ -717,14 +654,14 @@ else:
             else: st.info("No complete runs.")
         with c2:
             st.subheader(f"{trend_level} Stability Trend")
-            if summary_df is not None and not summary_df.empty:
+            if not summary_df.empty:
                 x_col = 'date' if trend_level == "Daily" else 'week'
                 plot_trend_chart(summary_df, x_col, 'stability_index', f"{trend_level} Stability Trend", trend_level, "Stability (%)", is_stability=True)
                 with st.expander("View Stability Data", expanded=False): st.dataframe(summary_df)
             else: st.info(f"No {trend_level.lower()} data.")
         
         st.subheader(f"{trend_level} Bucket Trend")
-        if not complete_runs.empty and summary_df is not None and not summary_df.empty:
+        if not complete_runs.empty and not summary_df.empty:
             time_col = 'date' if trend_level == "Daily" else 'week'
             complete_runs[time_col] = complete_runs['run_end_time'].dt.date if trend_level == "Daily" else complete_runs['run_end_time'].dt.isocalendar().week
             pivot_df = pd.crosstab(index=complete_runs[time_col], columns=complete_runs['time_bucket'].astype('category').cat.set_categories(results["bucket_labels"]))
@@ -735,7 +672,7 @@ else:
             with st.expander("View Bucket Trend Data", expanded=False): st.dataframe(pivot_df)
 
         st.subheader(f"{trend_level} MTTR & MTBF Trend")
-        if summary_df is not None and not summary_df.empty and summary_df['stops'].sum() > 0:
+        if not summary_df.empty and summary_df['stops'].sum() > 0:
             x_col = 'date' if trend_level == "Daily" else 'week'
             fig_mt = go.Figure()
             fig_mt.add_trace(go.Scatter(x=summary_df[x_col], y=summary_df['mttr_min'], name='MTTR (min)', mode='lines+markers', line=dict(color='red', width=4)))
@@ -747,9 +684,16 @@ else:
     elif "by Run" in analysis_level:
         st.header(f"Run-Based Analysis")
         run_summary_df = calculate_run_summaries(df_view, tolerance)
+        
+        # Rename columns in the main dataframe for subsequent plots
         if not run_summary_df.empty:
-            run_summary_df.rename(columns={'run_label': 'RUN ID', 'stability_index': 'STABILITY %', 'stops': 'STOPS', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)'}, inplace=True)
-
+            run_summary_df.rename(columns={
+                'run_label': 'RUN ID',
+                'stability_index': 'STABILITY %',
+                'stops': 'STOPS',
+                'mttr_min': 'MTTR (min)',
+                'mtbf_min': 'MTBF (min)'
+            }, inplace=True)
         
         run_durations = results.get("run_durations", pd.DataFrame())
         processed_df = results.get('processed_df', pd.DataFrame())
@@ -772,13 +716,13 @@ else:
             else: st.info("No complete runs.")
         with c2:
             st.subheader("Stability per Production Run")
-            if run_summary_df is not None and not run_summary_df.empty:
+            if not run_summary_df.empty:
                 plot_trend_chart(run_summary_df, 'RUN ID', 'STABILITY %', "Stability per Run", "Run ID", "Stability (%)", is_stability=True)
                 with st.expander("View Stability Data", expanded=False): st.dataframe(run_summary_df)
             else: st.info(f"No runs to analyze.")
         
         st.subheader("Bucket Trend per Production Run")
-        if not complete_runs.empty and run_summary_df is not None and not run_summary_df.empty:
+        if not complete_runs.empty and not run_summary_df.empty:
             # Map run_group to run_label
             run_group_to_label_map = processed_df.drop_duplicates('run_group')[['run_group', 'run_label']].set_index('run_group')['run_label']
             complete_runs['run_label'] = complete_runs['run_group'].map(run_group_to_label_map)
@@ -791,7 +735,7 @@ else:
             with st.expander("View Bucket Trend Data", expanded=False): st.dataframe(pivot_df)
 
         st.subheader("MTTR & MTBF per Production Run")
-        if run_summary_df is not None and not run_summary_df.empty and run_summary_df['STOPS'].sum() > 0:
+        if not run_summary_df.empty and run_summary_df['STOPS'].sum() > 0:
             fig_mt = go.Figure()
             fig_mt.add_trace(go.Scatter(x=run_summary_df['RUN ID'], y=run_summary_df['MTTR (min)'], name='MTTR (min)', mode='lines+markers', line=dict(color='red', width=4)))
             fig_mt.add_trace(go.Scatter(x=run_summary_df['RUN ID'], y=run_summary_df['MTBF (min)'], name='MTBF (min)', mode='lines+markers', line=dict(color='green', width=4), yaxis='y2'))
