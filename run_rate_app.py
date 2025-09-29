@@ -237,16 +237,22 @@ def plot_trend_chart(df, x_col, y_col, title, x_title, y_title, y_range=[0, 101]
                         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     st.plotly_chart(fig, use_container_width=True)
 
-def format_duration(seconds):
-    if pd.isna(seconds) or seconds < 0: return "N/A"
-    days = int(seconds // (24 * 3600))
-    hours = int((seconds % (24 * 3600)) // 3600)
-    minutes = int((seconds % 3600) // 60)
+def format_minutes_to_dhm(total_minutes):
+    if pd.isna(total_minutes) or total_minutes < 0: return "N/A"
+    total_minutes = int(total_minutes)
+    days = total_minutes // (60 * 24)
+    remaining_minutes = total_minutes % (60 * 24)
+    hours = remaining_minutes // 60
+    minutes = remaining_minutes % 60
     parts = []
     if days > 0: parts.append(f"{days}d")
     if hours > 0: parts.append(f"{hours}h")
     if minutes > 0 or not parts: parts.append(f"{minutes}m")
     return " ".join(parts) if parts else "0m"
+
+def format_duration(seconds):
+    if pd.isna(seconds) or seconds < 0: return "N/A"
+    return format_minutes_to_dhm(seconds / 60)
     
 def calculate_daily_summaries_for_week(df_week, tolerance, analysis_mode):
     daily_results_list = []
@@ -413,7 +419,7 @@ def generate_detailed_analysis(analysis_df, overall_stability, overall_mttr, ove
         "recommendation": recommendation
     }
 
-def generate_bucket_run_analysis(complete_runs, bucket_labels):
+def generate_bucket_analysis(complete_runs, bucket_labels):
     if complete_runs.empty or 'duration_min' not in complete_runs.columns:
         return "No completed runs to analyze for long-run trends."
 
@@ -433,9 +439,10 @@ def generate_bucket_run_analysis(complete_runs, bucket_labels):
     percent_long_runs = (num_long_runs / total_completed_runs * 100) if total_completed_runs > 0 else 0
     
     longest_run_min = complete_runs['duration_min'].max()
+    longest_run_formatted = format_minutes_to_dhm(longest_run_min)
 
     analysis_text = f"Out of <strong>{total_completed_runs}</strong> completed runs, <strong>{num_long_runs}</strong> ({percent_long_runs:.1f}%) qualified as long runs (lasting over 60 minutes). "
-    analysis_text += f"The single longest stable run during this period lasted for <strong>{longest_run_min:.1f} minutes</strong>."
+    analysis_text += f"The single longest stable run during this period lasted for <strong>{longest_run_formatted}</strong>."
 
     if total_completed_runs > 0: # Avoid division by zero and give meaningful insight
         if percent_long_runs < 20:
@@ -446,6 +453,49 @@ def generate_bucket_run_analysis(complete_runs, bucket_labels):
             analysis_text += " This shows a mixed performance, with a reasonable number of long runs but also frequent shorter ones."
         
     return analysis_text
+
+def generate_mttr_mtbf_analysis(analysis_df, analysis_level):
+    if analysis_df is None or analysis_df.empty or analysis_df['stops'].sum() == 0 or len(analysis_df) < 2:
+        return "Not enough stoppage data to generate a detailed correlation analysis."
+
+    # Ensure required columns exist
+    if not all(col in analysis_df.columns for col in ['stops', 'stability', 'mttr']):
+        return "Could not perform analysis due to missing data columns."
+
+    # Correlation Analysis
+    stops_stability_corr = analysis_df['stops'].corr(analysis_df['stability'])
+    mttr_stability_corr = analysis_df['mttr'].corr(analysis_df['stability'])
+
+    corr_insight = ""
+    if not pd.isna(stops_stability_corr) and not pd.isna(mttr_stability_corr):
+        if abs(stops_stability_corr) > abs(mttr_stability_corr) * 1.5:
+            primary_driver = "the **frequency of stops (low MTBF)**"
+        elif abs(mttr_stability_corr) > abs(stops_stability_corr) * 1.5:
+            primary_driver = "the **duration of stops (high MTTR)**"
+        else:
+            primary_driver = "both the **frequency and duration of stops**"
+        
+        corr_insight = (f"Correlation analysis indicates that {primary_driver} has the strongest negative impact on stability in this period "
+                        f"(Stops vs. Stability Corr: {stops_stability_corr:.2f}, MTTR vs. Stability Corr: {mttr_stability_corr:.2f}).")
+
+    # Outlier Analysis
+    outlier_insight = ""
+    highest_mttr_period_row = analysis_df.loc[analysis_df['mttr'].idxmax()]
+    
+    def format_period(period_value, level):
+        if isinstance(period_value, (pd.Timestamp, pd.Period, pd.Timedelta)):
+            return pd.to_datetime(period_value).strftime('%A, %b %d')
+        if level == "Monthly": return f"Week {period_value}"
+        if level == "Daily": return f"{period_value}:00"
+        return str(period_value)
+
+    period_label = format_period(highest_mttr_period_row['period'], analysis_level)
+    
+    outlier_insight = (f"The longest average repair times occurred during <strong>{period_label}</strong>, "
+                       f"with an MTTR of <strong>{highest_mttr_period_row['mttr']:.1f} minutes</strong>. "
+                       f"Investigating the cause of these prolonged stops could be particularly beneficial for improving overall stability.")
+
+    return f"<div style='line-height: 1.6;'><p>{corr_insight}</p><p>{outlier_insight}</p></div>"
 
 # --- Main Application Logic ---
 st.sidebar.title("Run Rate Report Generator ⚙️")
@@ -788,9 +838,9 @@ else:
             with st.expander("View Bucket Trend Data", expanded=False): st.dataframe(pivot_df)
             
             # --- NEW SECTION ---
-            st.subheader("Long Run Analysis")
-            long_run_summary = generate_bucket_run_analysis(complete_runs, results["bucket_labels"])
-            st.markdown(long_run_summary, unsafe_allow_html=True)
+            with st.expander("🤖 View Bucket Trend Analysis", expanded=False):
+                long_run_summary = generate_bucket_analysis(complete_runs, results["bucket_labels"])
+                st.markdown(long_run_summary, unsafe_allow_html=True)
         
         st.subheader("Hourly MTTR & MTBF Trend")
         hourly_summary = results['hourly_summary']
@@ -801,6 +851,13 @@ else:
             fig_mt.update_layout(title="Hourly MTTR & MTBF Trend", yaxis=dict(title='MTTR (min)'), yaxis2=dict(title='MTBF (min)', overlaying='y', side='right'), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_mt, use_container_width=True)
             with st.expander("View MTTR/MTBF Data", expanded=False): st.dataframe(hourly_summary)
+
+            # --- NEW SECTION ---
+            with st.expander("🤖 View MTTR/MTBF Correlation Analysis", expanded=False):
+                analysis_df = hourly_summary.copy()
+                analysis_df.rename(columns={'hour': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}, inplace=True)
+                mttr_mtbf_summary = generate_mttr_mtbf_analysis(analysis_df, analysis_level)
+                st.markdown(mttr_mtbf_summary, unsafe_allow_html=True)
 
     elif analysis_level in ["Weekly", "Monthly"]:
         trend_level = "Daily" if "Weekly" in analysis_level else "Weekly"
@@ -845,9 +902,9 @@ else:
             with st.expander("View Bucket Trend Data", expanded=False): st.dataframe(pivot_df)
 
             # --- NEW SECTION ---
-            st.subheader("Long Run Analysis")
-            long_run_summary = generate_bucket_run_analysis(complete_runs, results["bucket_labels"])
-            st.markdown(long_run_summary, unsafe_allow_html=True)
+            with st.expander("🤖 View Bucket Trend Analysis", expanded=False):
+                long_run_summary = generate_bucket_analysis(complete_runs, results["bucket_labels"])
+                st.markdown(long_run_summary, unsafe_allow_html=True)
 
         st.subheader(f"{trend_level} MTTR & MTBF Trend")
         if summary_df is not None and not summary_df.empty and summary_df['stops'].sum() > 0:
@@ -858,6 +915,16 @@ else:
             fig_mt.update_layout(title=f"{trend_level} MTTR & MTBF Trend", yaxis=dict(title='MTTR (min)'), yaxis2=dict(title='MTBF (min)', overlaying='y', side='right'), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_mt, use_container_width=True)
             with st.expander("View MTTR/MTBF Data", expanded=False): st.dataframe(summary_df)
+
+            # --- NEW SECTION ---
+            with st.expander("🤖 View MTTR/MTBF Correlation Analysis", expanded=False):
+                analysis_df = summary_df.copy()
+                rename_map = {}
+                if 'date' in analysis_df.columns: rename_map = {'date': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}
+                elif 'week' in analysis_df.columns: rename_map = {'week': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}
+                analysis_df.rename(columns=rename_map, inplace=True)
+                mttr_mtbf_summary = generate_mttr_mtbf_analysis(analysis_df, analysis_level)
+                st.markdown(mttr_mtbf_summary, unsafe_allow_html=True)
 
     elif "by Run" in analysis_level:
         st.header(f"Run-Based Analysis")
@@ -906,9 +973,9 @@ else:
             with st.expander("View Bucket Trend Data", expanded=False): st.dataframe(pivot_df)
 
             # --- NEW SECTION ---
-            st.subheader("Long Run Analysis")
-            long_run_summary = generate_bucket_run_analysis(complete_runs, results["bucket_labels"])
-            st.markdown(long_run_summary, unsafe_allow_html=True)
+            with st.expander("🤖 View Bucket Trend Analysis", expanded=False):
+                long_run_summary = generate_bucket_analysis(complete_runs, results["bucket_labels"])
+                st.markdown(long_run_summary, unsafe_allow_html=True)
 
         st.subheader("MTTR & MTBF per Production Run")
         if run_summary_df is not None and not run_summary_df.empty and run_summary_df['STOPS'].sum() > 0:
@@ -918,4 +985,11 @@ else:
             fig_mt.update_layout(title="MTTR & MTBF per Run", yaxis=dict(title='MTTR (min)'), yaxis2=dict(title='MTBF (min)', overlaying='y', side='right'), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_mt, use_container_width=True)
             with st.expander("View MTTR/MTBF Data", expanded=False): st.dataframe(run_summary_df)
+
+            # --- NEW SECTION ---
+            with st.expander("🤖 View MTTR/MTBF Correlation Analysis", expanded=False):
+                analysis_df = run_summary_df.copy()
+                analysis_df.rename(columns={'RUN ID': 'period', 'STABILITY %': 'stability', 'STOPS': 'stops', 'MTTR (min)': 'mttr'}, inplace=True)
+                mttr_mtbf_summary = generate_mttr_mtbf_analysis(analysis_df, analysis_level)
+                st.markdown(mttr_mtbf_summary, unsafe_allow_html=True)
 
