@@ -564,34 +564,9 @@ if df_tool.empty:
 st.sidebar.markdown("---")
 tolerance = st.sidebar.slider("Tolerance Band (% of Mode CT)", 0.01, 0.20, 0.05, 0.01, help="Defines the ±% around Mode CT.")
 run_interval_hours = st.sidebar.slider("Run Interval Threshold (hours)", 1, 24, 8, 1, help="Defines the max hours between shots before a new Production Run is identified.")
+st.sidebar.markdown("---")
+detailed_view = st.sidebar.toggle("Show Detailed Analysis", value=True)
 
-@st.cache_data(show_spinner="Performing initial data processing...")
-def get_processed_data(df, interval_hours):
-    # This initial run just gets the timestamps and identifies the runs
-    base_calc = RunRateCalculator(df, 0.01) # Tolerance doesn't matter here
-    df_processed = base_calc.results.get("processed_df", pd.DataFrame())
-    if not df_processed.empty:
-        df_processed['week'] = df_processed['shot_time'].dt.isocalendar().week
-        df_processed['date'] = df_processed['shot_time'].dt.date
-        df_processed['month'] = df_processed['shot_time'].dt.to_period('M')
-        # Identify production runs
-        is_new_run = df_processed['ct_diff_sec'] > (interval_hours * 3600)
-        df_processed['run_id'] = is_new_run.cumsum()
-        run_start_dates = df_processed.groupby('run_id')['shot_time'].min()
-        run_labels = {run_id: f"{i+1:03d} ({date.strftime('%Y-%m-%d')})" for i, (run_id, date) in enumerate(run_start_dates.items())}
-        df_processed['run_label'] = df_processed['run_id'].map(run_labels)
-    return df_processed
-
-df_processed = get_processed_data(df_tool, run_interval_hours)
-
-if df_processed.empty:
-    st.error(f"Could not process data for {tool_id}."); st.stop()
-
-st.title(f"Run Rate Dashboard: {tool_id}")
-
-# --- Initialize session state for analysis expander ---
-if "show_analysis" not in st.session_state:
-    st.session_state.show_analysis = False
 
 # --- Determine mode and filter data for the selected view ---
 mode = 'by_run' if '(by Run)' in analysis_level else 'aggregate'
@@ -701,48 +676,49 @@ else:
             c3.metric("Upper Limit (sec)", f"{results.get('upper_limit', 0):.2f}")
 
     # --- Analysis Expander ---
-    st.markdown("---")
+    if detailed_view:
+        st.markdown("---")
 
-    with st.expander("🤖 View Automated Analysis Summary", expanded=False):
-        # Standardize trend_summary_df for consistent analysis
-        analysis_df = pd.DataFrame()
-        if trend_summary_df is not None and not trend_summary_df.empty:
-            analysis_df = trend_summary_df.copy()
-            rename_map = {}
-            if 'hour' in analysis_df.columns: rename_map = {'hour': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}
-            elif 'date' in analysis_df.columns: rename_map = {'date': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}
-            elif 'week' in analysis_df.columns: rename_map = {'week': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}
-            elif 'RUN ID' in analysis_df.columns: rename_map = {'RUN ID': 'period', 'STABILITY %': 'stability', 'STOPS': 'stops', 'MTTR (min)': 'mttr'}
-            analysis_df.rename(columns=rename_map, inplace=True)
+        with st.expander("🤖 View Automated Analysis Summary", expanded=False):
+            # Standardize trend_summary_df for consistent analysis
+            analysis_df = pd.DataFrame()
+            if trend_summary_df is not None and not trend_summary_df.empty:
+                analysis_df = trend_summary_df.copy()
+                rename_map = {}
+                if 'hour' in analysis_df.columns: rename_map = {'hour': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}
+                elif 'date' in analysis_df.columns: rename_map = {'date': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}
+                elif 'week' in analysis_df.columns: rename_map = {'week': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}
+                elif 'RUN ID' in analysis_df.columns: rename_map = {'RUN ID': 'period', 'STABILITY %': 'stability', 'STOPS': 'stops', 'MTTR (min)': 'mttr'}
+                analysis_df.rename(columns=rename_map, inplace=True)
 
-        # Generate insights using the new engine
-        insights = generate_detailed_analysis(
-            analysis_df,
-            results.get('stability_index', 0),
-            results.get('mttr_min', 0),
-            results.get('mtbf_min', 0),
-            analysis_level
-        )
+            # Generate insights using the new engine
+            insights = generate_detailed_analysis(
+                analysis_df,
+                results.get('stability_index', 0),
+                results.get('mttr_min', 0),
+                results.get('mtbf_min', 0),
+                analysis_level
+            )
 
-        # Display the generated analysis
-        if "error" in insights:
-            st.error(insights["error"])
-        else:
-            analysis_html = f"""
-            <div style="border: 1px solid #333; border-radius: 0.5rem; padding: 1.5rem; margin-top: 1rem; font-family: sans-serif; line-height: 1.6; background-color: #0E1117;">
-                <h4 style="margin-top: 0; color: #FAFAFA;">Automated Analysis Summary</h4>
-                <p style="color: #FAFAFA;"><strong>Overall Assessment:</strong> {insights['overall']}</p>
-                <p style="color: #FAFAFA;"><strong>Predictive Trend:</strong> {insights['predictive']}</p>
-                <p style="color: #FAFAFA;"><strong>Performance Variance:</strong> {insights['best_worst']}</p>
-            """
-            if insights['patterns']:
-                 analysis_html += f"<p style='color: #FAFAFA;'><strong>Identified Patterns:</strong> {insights['patterns']}</p>"
-            
-            analysis_html += f"""
-                <p style="margin-top: 1rem; color: #FAFAFA; background-color: #262730; padding: 1rem; border-radius: 0.5rem;"><strong>Key Recommendation:</strong> {insights['recommendation']}</p>
-            </div>
-            """
-            st.components.v1.html(analysis_html, height=400, scrolling=True)
+            # Display the generated analysis
+            if "error" in insights:
+                st.error(insights["error"])
+            else:
+                analysis_html = f"""
+                <div style="border: 1px solid #333; border-radius: 0.5rem; padding: 1.5rem; margin-top: 1rem; font-family: sans-serif; line-height: 1.6; background-color: #0E1117;">
+                    <h4 style="margin-top: 0; color: #FAFAFA;">Automated Analysis Summary</h4>
+                    <p style="color: #FAFAFA;"><strong>Overall Assessment:</strong> {insights['overall']}</p>
+                    <p style="color: #FAFAFA;"><strong>Predictive Trend:</strong> {insights['predictive']}</p>
+                    <p style="color: #FAFAFA;"><strong>Performance Variance:</strong> {insights['best_worst']}</p>
+                """
+                if insights['patterns']:
+                     analysis_html += f"<p style='color: #FAFAFA;'><strong>Identified Patterns:</strong> {insights['patterns']}</p>"
+                
+                analysis_html += f"""
+                    <p style="margin-top: 1rem; color: #FAFAFA; background-color: #262730; padding: 1rem; border-radius: 0.5rem;"><strong>Key Recommendation:</strong> {insights['recommendation']}</p>
+                </div>
+                """
+                st.components.v1.html(analysis_html, height=400, scrolling=True)
 
 
     # --- Breakdown Tables for Weekly/Monthly Views ---
@@ -860,9 +836,10 @@ else:
             with st.expander("View Bucket Trend Data", expanded=False): st.dataframe(pivot_df)
             
             # --- NEW SECTION ---
-            with st.expander("🤖 View Bucket Trend Analysis", expanded=False):
-                long_run_summary = generate_bucket_analysis(complete_runs, results["bucket_labels"])
-                st.markdown(long_run_summary, unsafe_allow_html=True)
+            if detailed_view:
+                with st.expander("🤖 View Bucket Trend Analysis", expanded=False):
+                    long_run_summary = generate_bucket_analysis(complete_runs, results["bucket_labels"])
+                    st.markdown(long_run_summary, unsafe_allow_html=True)
         
         st.subheader("Hourly MTTR & MTBF Trend")
         hourly_summary = results['hourly_summary']
@@ -875,11 +852,12 @@ else:
             with st.expander("View MTTR/MTBF Data", expanded=False): st.dataframe(hourly_summary)
 
             # --- NEW SECTION ---
-            with st.expander("🤖 View MTTR/MTBF Correlation Analysis", expanded=False):
-                analysis_df = hourly_summary.copy()
-                analysis_df.rename(columns={'hour': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}, inplace=True)
-                mttr_mtbf_summary = generate_mttr_mtbf_analysis(analysis_df, analysis_level)
-                st.markdown(mttr_mtbf_summary, unsafe_allow_html=True)
+            if detailed_view:
+                with st.expander("🤖 View MTTR/MTBF Correlation Analysis", expanded=False):
+                    analysis_df = hourly_summary.copy()
+                    analysis_df.rename(columns={'hour': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}, inplace=True)
+                    mttr_mtbf_summary = generate_mttr_mtbf_analysis(analysis_df, analysis_level)
+                    st.markdown(mttr_mtbf_summary, unsafe_allow_html=True)
 
     elif analysis_level in ["Weekly", "Monthly"]:
         trend_level = "Daily" if "Weekly" in analysis_level else "Weekly"
@@ -924,9 +902,10 @@ else:
             with st.expander("View Bucket Trend Data", expanded=False): st.dataframe(pivot_df)
 
             # --- NEW SECTION ---
-            with st.expander("🤖 View Bucket Trend Analysis", expanded=False):
-                long_run_summary = generate_bucket_analysis(complete_runs, results["bucket_labels"])
-                st.markdown(long_run_summary, unsafe_allow_html=True)
+            if detailed_view:
+                with st.expander("🤖 View Bucket Trend Analysis", expanded=False):
+                    long_run_summary = generate_bucket_analysis(complete_runs, results["bucket_labels"])
+                    st.markdown(long_run_summary, unsafe_allow_html=True)
 
         st.subheader(f"{trend_level} MTTR & MTBF Trend")
         if summary_df is not None and not summary_df.empty and summary_df['stops'].sum() > 0:
@@ -939,14 +918,15 @@ else:
             with st.expander("View MTTR/MTBF Data", expanded=False): st.dataframe(summary_df)
 
             # --- NEW SECTION ---
-            with st.expander("🤖 View MTTR/MTBF Correlation Analysis", expanded=False):
-                analysis_df = summary_df.copy()
-                rename_map = {}
-                if 'date' in analysis_df.columns: rename_map = {'date': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}
-                elif 'week' in analysis_df.columns: rename_map = {'week': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}
-                analysis_df.rename(columns=rename_map, inplace=True)
-                mttr_mtbf_summary = generate_mttr_mtbf_analysis(analysis_df, analysis_level)
-                st.markdown(mttr_mtbf_summary, unsafe_allow_html=True)
+            if detailed_view:
+                with st.expander("🤖 View MTTR/MTBF Correlation Analysis", expanded=False):
+                    analysis_df = summary_df.copy()
+                    rename_map = {}
+                    if 'date' in analysis_df.columns: rename_map = {'date': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}
+                    elif 'week' in analysis_df.columns: rename_map = {'week': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}
+                    analysis_df.rename(columns=rename_map, inplace=True)
+                    mttr_mtbf_summary = generate_mttr_mtbf_analysis(analysis_df, analysis_level)
+                    st.markdown(mttr_mtbf_summary, unsafe_allow_html=True)
 
     elif "by Run" in analysis_level:
         st.header(f"Run-Based Analysis")
@@ -995,9 +975,10 @@ else:
             with st.expander("View Bucket Trend Data", expanded=False): st.dataframe(pivot_df)
 
             # --- NEW SECTION ---
-            with st.expander("🤖 View Bucket Trend Analysis", expanded=False):
-                long_run_summary = generate_bucket_analysis(complete_runs, results["bucket_labels"])
-                st.markdown(long_run_summary, unsafe_allow_html=True)
+            if detailed_view:
+                with st.expander("🤖 View Bucket Trend Analysis", expanded=False):
+                    long_run_summary = generate_bucket_analysis(complete_runs, results["bucket_labels"])
+                    st.markdown(long_run_summary, unsafe_allow_html=True)
 
         st.subheader("MTTR & MTBF per Production Run")
         if run_summary_df is not None and not run_summary_df.empty and run_summary_df['STOPS'].sum() > 0:
@@ -1009,9 +990,10 @@ else:
             with st.expander("View MTTR/MTBF Data", expanded=False): st.dataframe(run_summary_df)
 
             # --- NEW SECTION ---
-            with st.expander("🤖 View MTTR/MTBF Correlation Analysis", expanded=False):
-                analysis_df = run_summary_df.copy()
-                analysis_df.rename(columns={'RUN ID': 'period', 'STABILITY %': 'stability', 'STOPS': 'stops', 'MTTR (min)': 'mttr'}, inplace=True)
-                mttr_mtbf_summary = generate_mttr_mtbf_analysis(analysis_df, analysis_level)
-                st.markdown(mttr_mtbf_summary, unsafe_allow_html=True)
+            if detailed_view:
+                with st.expander("🤖 View MTTR/MTBF Correlation Analysis", expanded=False):
+                    analysis_df = run_summary_df.copy()
+                    analysis_df.rename(columns={'RUN ID': 'period', 'STABILITY %': 'stability', 'STOPS': 'stops', 'MTTR (min)': 'mttr'}, inplace=True)
+                    mttr_mtbf_summary = generate_mttr_mtbf_analysis(analysis_df, analysis_level)
+                    st.markdown(mttr_mtbf_summary, unsafe_allow_html=True)
 
