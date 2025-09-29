@@ -1135,16 +1135,3 @@ else:
                     mttr_mtbf_summary = generate_mttr_mtbf_analysis(analysis_df, analysis_level)
                     st.markdown(mttr_mtbf_summary, unsafe_allow_html=True)
 
-    st.sidebar.download_button(
-        label="📥 Export to Excel",
-        data=create_excel_export(
-            df_view,
-            results,
-            tolerance,
-            run_interval_hours,
-            analysis_level
-        ),
-        file_name=f"Run_Rate_Analysis_{tool_id}_{analysis_level.replace(' ', '_')}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-
