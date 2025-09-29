@@ -873,7 +873,7 @@ else:
             if detailed_view:
                 with st.expander("🤖 View MTTR/MTBF Correlation Analysis", expanded=False):
                     st.info("""
-                    **How this analysis works:** It determines if stability is more affected by many small stops (a **frequency** problem) or a few long stops (a **duration** problem). This helps prioritize engineering efforts.
+                    **How this analysis works:** It determines if stability is more affected by many small stops (a **frequency** problem) or a few long stops (a **duration** problem).
                     """)
                     analysis_df = hourly_summary.copy()
                     analysis_df.rename(columns={'hour': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}, inplace=True)
@@ -942,7 +942,7 @@ else:
             if detailed_view:
                 with st.expander("🤖 View MTTR/MTBF Correlation Analysis", expanded=False):
                     st.info("""
-                    **How this analysis works:** It determines if stability is more affected by many small stops (a **frequency** problem) or a few long stops (a **duration** problem). This helps prioritize engineering efforts.
+                    **How this analysis works:** It determines if stability is more affected by many small stops (a **frequency** problem) or a few long stops (a **duration** problem).
                     """)
                     analysis_df = summary_df.copy()
                     rename_map = {}
@@ -1017,7 +1017,7 @@ else:
             if detailed_view:
                 with st.expander("🤖 View MTTR/MTBF Correlation Analysis", expanded=False):
                     st.info("""
-                    **How this analysis works:** It determines if stability is more affected by many small stops (a **frequency** problem) or a few long stops (a **duration** problem). This helps prioritize engineering efforts.
+                    **How this analysis works:** It determines if stability is more affected by many small stops (a **frequency** problem) or a few long stops (a **duration** problem).
                     """)
                     analysis_df = run_summary_df.copy()
                     analysis_df.rename(columns={'RUN ID': 'period', 'STABILITY %': 'stability', 'STOPS': 'stops', 'MTTR (min)': 'mttr'}, inplace=True)
