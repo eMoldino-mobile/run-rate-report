@@ -122,7 +122,11 @@ class RunRateCalculator:
         mtbf_min = (production_time_sec / 60 / stop_events) if stop_events > 0 else (production_time_sec / 60)
         stability_index = (production_time_sec / total_runtime_sec * 100) if total_runtime_sec > 0 else (100.0 if stop_events == 0 else 0.0)
         df["run_group"] = df["stop_event"].cumsum()
-        run_durations = df[df["stop_flag"] == 0].groupby("run_group")["ct_diff_sec"].sum().div(60).reset_index(name="duration_min")
+
+        # --- FIX: Filter out large inter-run gaps before calculating stable run durations ---
+        df_for_runs = df[df['ct_diff_sec'] <= 28800].copy()
+        run_durations = df_for_runs[df_for_runs["stop_flag"] == 0].groupby("run_group")["ct_diff_sec"].sum().div(60).reset_index(name="duration_min")
+
         max_minutes = min(run_durations["duration_min"].max(), 240) if not run_durations.empty else 0
         upper_bound = int(np.ceil(max_minutes / 20.0) * 20)
         edges = list(range(0, upper_bound + 20, 20)) if upper_bound > 0 else [0, 20]
