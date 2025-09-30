@@ -985,7 +985,7 @@ else:
             fig_mt.add_trace(go.Scatter(x=hourly_summary['hour'], y=hourly_summary['mtbf_min'], name='MTBF (min)', mode='lines+markers', line=dict(color='green', width=4)), secondary_y=True)
             fig_mt.add_trace(go.Scatter(x=hourly_summary['hour'], y=hourly_summary['total_shots'], name='Total Shots', mode='lines+markers+text', text=hourly_summary['total_shots'], textposition='top center', line=dict(color='blue', dash='dot')), secondary_y=True)
             
-            fig_mt.update_layout(title_text="Hourly MTTR, MTBF & Shot Count Trend", yaxis_title="MTTR (min)", yaxis2_title="MTBF (min) / Shot Count", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+            fig_mt.update_layout(title_text="Hourly MTTR, MTBF & Shot Count Trend", yaxis_title="MTTR (min)", yaxis2_title="MTBF (min)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_mt, use_container_width=True)
 
             with st.expander("View MTTR/MTBF Data", expanded=False): st.dataframe(hourly_summary)
@@ -1063,7 +1063,7 @@ else:
             fig_mt.add_trace(go.Scatter(x=summary_df[x_col], y=summary_df['mtbf_min'], name='MTBF (min)', mode='lines+markers', line=dict(color='green', width=4)), secondary_y=True)
             fig_mt.add_trace(go.Scatter(x=summary_df[x_col], y=summary_df['total_shots'], name='Total Shots', mode='lines+markers+text', text=summary_df['total_shots'], textposition='top center', line=dict(color='blue', dash='dot')), secondary_y=True)
 
-            fig_mt.update_layout(title_text=f"{trend_level} MTTR, MTBF & Shot Count Trend", yaxis_title="MTTR (min)", yaxis2_title="MTBF (min) / Shot Count", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+            fig_mt.update_layout(title_text=f"{trend_level} MTTR, MTBF & Shot Count Trend", yaxis_title="MTTR (min)", yaxis2_title="MTBF (min)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_mt, use_container_width=True)
             with st.expander("View MTTR/MTBF Data", expanded=False): st.dataframe(summary_df)
 
@@ -1103,7 +1103,7 @@ else:
             st.subheader("Total Bucket Analysis")
             if not complete_runs.empty and "time_bucket" in complete_runs.columns:
                 b_counts = complete_runs["time_bucket"].value_counts().reindex(results["bucket_labels"], fill_value=0)
-                fig_b = px.bar(b_counts, title="Total Time Bucket Analysis", labels={"index": "Duration(min)", "value": "Occurrences"}, text_auto=True, color=b_counts.index, color_discrete_map=results["bucket_color_map"]).update_layout(legend_title_text='Duration')
+                fig_b = px.bar(b_counts, title="Total Bucket Analysis", labels={"index": "Duration(min)", "value": "Occurrences"}, text_auto=True, color=b_counts.index, color_discrete_map=results["bucket_color_map"]).update_layout(legend_title_text='Duration')
                 st.plotly_chart(fig_b, use_container_width=True)
                 with st.expander("View Bucket Data", expanded=False): st.dataframe(complete_runs)
             else: st.info("No complete runs.")
@@ -1146,7 +1146,7 @@ else:
             fig_mt.add_trace(go.Scatter(x=run_summary_df['RUN ID'], y=run_summary_df['MTBF (min)'], name='MTBF (min)', mode='lines+markers', line=dict(color='green', width=4)), secondary_y=True)
             fig_mt.add_trace(go.Scatter(x=run_summary_df['RUN ID'], y=run_summary_df['Total Shots'], name='Total Shots', mode='lines+markers+text', text=run_summary_df['Total Shots'], textposition='top center', line=dict(color='blue', dash='dot')), secondary_y=True)
 
-            fig_mt.update_layout(title_text="MTTR, MTBF & Shot Count per Run", yaxis_title="MTTR (min)", yaxis2_title="MTBF (min) / Shot Count", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+            fig_mt.update_layout(title_text="MTTR, MTBF & Shot Count per Run", yaxis_title="MTTR (min)", yaxis2_title="MTBF (min)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
             st.plotly_chart(fig_mt, use_container_width=True)
             with st.expander("View MTTR/MTBF Data", expanded=False): st.dataframe(run_summary_df)
 
