@@ -614,7 +614,7 @@ with st.sidebar.expander("ℹ️ About This Dashboard", expanded=False):
     - **Run Interval Threshold**: Defines the max hours between shots before a new Production Run is identified.
     """)
 
-analysis_level = st.sidebar.radio("Select Analysis Level", ["Daily", "Weekly", "Monthly", "Weekly (by Run)", "Monthly (by Run)"])
+analysis_level = st.sidebar.radio("Select Analysis Level", ["Daily", "Weekly", "Monthly", "Custom Period", "Weekly (by Run)", "Monthly (by Run)", "Custom Period (by Run)"])
 
 uploaded_file = st.sidebar.file_uploader("Upload Run Rate Excel", type=["xlsx", "xls"])
 
@@ -696,6 +696,28 @@ elif "Monthly" in analysis_level:
     else:
         df_view = df_processed[df_processed["month"] == selected_month]
     sub_header = f"Summary for {selected_month.strftime('%B %Y')}"
+elif "Custom Period" in analysis_level:
+    st.header(f"Custom Period Analysis {'(by Production Run)' if mode == 'by_run' else ''}")
+    
+    min_date = df_processed['date'].min()
+    max_date = df_processed['date'].max()
+
+    start_date = st.date_input("Start date", min_date, min_value=min_date, max_value=max_date)
+    end_date = st.date_input("End date", max_date, min_value=start_date, max_value=max_date)
+    
+    if start_date and end_date:
+        if mode == 'by_run':
+            # Find runs that are active within the selected date range
+            mask = (df_processed['date'] >= start_date) & (df_processed['date'] <= end_date)
+            runs_in_period = df_processed[mask]['run_label'].unique()
+            df_view = df_processed[df_processed['run_label'].isin(runs_in_period)]
+        else:
+            # Simple date range filter for aggregate mode
+            mask = (df_processed['date'] >= start_date) & (df_processed['date'] <= end_date)
+            df_view = df_processed[mask]
+            
+        sub_header = f"Summary for {start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')}"
+
 
 # --- Main calculation and rendering block ---
 if df_view.empty:
@@ -849,7 +871,7 @@ else:
                 d_df = trend_summary_df.copy()
                 d_df.rename(columns={'week': 'Week', 'stability_index': 'Stability (%)', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'stops': 'Stops'}, inplace=True)
                 st.dataframe(d_df.style.format({'Stability (%)': '{:.1f}', 'MTTR (min)': '{:.1f}', 'MTBF (min)': '{:.1f}'}), use_container_width=True)
-    elif analysis_level in ["Weekly (by Run)", "Monthly (by Run)"]:
+    elif analysis_level in ["Weekly (by Run)", "Monthly (by Run)", "Custom Period (by Run)"]:
         run_summary_df = calculate_run_summaries(df_view, tolerance) # Recalculate for display
         with st.expander("View Run Breakdown Table", expanded=False):
             if run_summary_df is not None and not run_summary_df.empty:
@@ -979,8 +1001,8 @@ else:
                     mttr_mtbf_summary = generate_mttr_mtbf_analysis(analysis_df, analysis_level)
                     st.markdown(mttr_mtbf_summary, unsafe_allow_html=True)
 
-    elif analysis_level in ["Weekly", "Monthly"]:
-        trend_level = "Daily" if "Weekly" in analysis_level else "Weekly"
+    elif analysis_level in ["Weekly", "Monthly", "Custom Period"]:
+        trend_level = "Daily" if "Weekly" in analysis_level else "Weekly" if "Monthly" in analysis_level else "Daily"
         st.header(f"{trend_level} Trends for {analysis_level.split(' ')[0]}")
         summary_df = trend_summary_df
         run_durations = results.get("run_durations", pd.DataFrame())
