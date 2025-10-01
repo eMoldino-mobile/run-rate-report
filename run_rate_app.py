@@ -767,8 +767,8 @@ else:
         col1.metric("MTTR", f"{results.get('mttr_min', 0):.1f} min")
         col2.metric("MTBF", f"{results.get('mtbf_min', 0):.1f} min")
         col3.metric("Total Run Duration", format_duration(total_d))
-        col4.metric("Production Time", format_duration(prod_t), f"{prod_p:.1f}%")
-        col5.metric("Downtime", format_duration(down_t), f"{down_p:.1f}%", delta_color="inverse")
+        col4.metric("Production Time", f"{format_duration(prod_t)} ({prod_p:.1f}%)")
+        col5.metric("Downtime", f"{format_duration(down_t)} ({down_p:.1f}%)")
     
     with st.container(border=True):
         c1, c2 = st.columns(2)
@@ -783,8 +783,8 @@ else:
         n_p = (n_s / t_s * 100) if t_s > 0 else 0
         s_p = (s_s / t_s * 100) if t_s > 0 else 0
         c1.metric("Total Shots", f"{t_s:,}")
-        c2.metric("Normal Shots", f"{n_s:,}", f"{n_p:.1f}%")
-        c3.metric("Stop Count", f"{results.get('stop_events', 0)}", f"{s_p:.1f}% Stopped Shots", delta_color="inverse")
+        c2.metric("Normal Shots", f"{n_s:,} ({n_p:.1f}%)")
+        c3.metric("Stop Count", f"{results.get('stop_events', 0)}")
 
     with st.container(border=True):
         c1, c2, c3 = st.columns(3)
@@ -858,19 +858,18 @@ else:
 
 
     # --- Breakdown Tables for Weekly/Monthly Views ---
-    if analysis_level == "Weekly":
+    if analysis_level in ["Weekly", "Monthly", "Custom Period"]:
         with st.expander("View Daily Breakdown Table", expanded=False):
             if trend_summary_df is not None and not trend_summary_df.empty:
                 d_df = trend_summary_df.copy()
-                d_df['date'] = pd.to_datetime(d_df['date']).dt.strftime('%A, %b %d')
-                d_df.rename(columns={'date': 'Day', 'stability_index': 'Stability (%)', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'stops': 'Stops'}, inplace=True)
+                if 'date' in d_df.columns:
+                    d_df['date'] = pd.to_datetime(d_df['date']).dt.strftime('%A, %b %d')
+                    d_df.rename(columns={'date': 'Day', 'stability_index': 'Stability (%)', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'stops': 'Stops'}, inplace=True)
+                elif 'week' in d_df.columns:
+                    d_df.rename(columns={'week': 'Week', 'stability_index': 'Stability (%)', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'stops': 'Stops'}, inplace=True)
+                
                 st.dataframe(d_df.style.format({'Stability (%)': '{:.1f}', 'MTTR (min)': '{:.1f}', 'MTBF (min)': '{:.1f}'}), use_container_width=True)
-    elif analysis_level == "Monthly":
-        with st.expander("View Weekly Breakdown Table", expanded=False):
-            if trend_summary_df is not None and not trend_summary_df.empty:
-                d_df = trend_summary_df.copy()
-                d_df.rename(columns={'week': 'Week', 'stability_index': 'Stability (%)', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'stops': 'Stops'}, inplace=True)
-                st.dataframe(d_df.style.format({'Stability (%)': '{:.1f}', 'MTTR (min)': '{:.1f}', 'MTBF (min)': '{:.1f}'}), use_container_width=True)
+
     elif analysis_level in ["Weekly (by Run)", "Monthly (by Run)", "Custom Period (by Run)"]:
         run_summary_df = calculate_run_summaries(df_view, tolerance) # Recalculate for display
         with st.expander("View Run Breakdown Table", expanded=False):
@@ -1103,7 +1102,7 @@ else:
             st.subheader("Total Bucket Analysis")
             if not complete_runs.empty and "time_bucket" in complete_runs.columns:
                 b_counts = complete_runs["time_bucket"].value_counts().reindex(results["bucket_labels"], fill_value=0)
-                fig_b = px.bar(b_counts, title="Total Bucket Analysis", labels={"index": "Duration(min)", "value": "Occurrences"}, text_auto=True, color=b_counts.index, color_discrete_map=results["bucket_color_map"]).update_layout(legend_title_text='Duration')
+                fig_b = px.bar(b_counts, title="Total Time Bucket Analysis", labels={"index": "Duration(min)", "value": "Occurrences"}, text_auto=True, color=b_counts.index, color_discrete_map=results["bucket_color_map"]).update_layout(legend_title_text='Duration')
                 st.plotly_chart(fig_b, use_container_width=True)
                 with st.expander("View Bucket Data", expanded=False): st.dataframe(complete_runs)
             else: st.info("No complete runs.")
