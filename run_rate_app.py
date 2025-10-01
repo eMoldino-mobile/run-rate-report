@@ -80,6 +80,20 @@ class RunRateCalculator:
         )
         return hourly_summary
 
+    def _calculate_stop_durations(self, df):
+        stop_durations = []
+        stop_start_time = None
+        for i in range(len(df)):
+            if df.loc[i, "stop_event"]:
+                stop_start_time = df.loc[i, "shot_time"]
+            elif stop_start_time is not None and df.loc[i, "stop_flag"] == 0:
+                stop_end_time = df.loc[i, "shot_time"]
+                duration_sec = (stop_end_time - stop_start_time).total_seconds()
+                if duration_sec <= 28800:  # filter out absurd long gaps
+                    stop_durations.append(duration_sec)
+                stop_start_time = None
+        return pd.Series(stop_durations)
+
     def _calculate_all_metrics(self) -> dict:
         df = self._prepare_data()
         if df.empty or "ACTUAL CT" not in df.columns:
@@ -119,10 +133,13 @@ class RunRateCalculator:
         stop_events = df["stop_event"].sum()
         normal_shots = total_shots - df["stop_flag"].sum()
         efficiency = normal_shots / total_shots if total_shots > 0 else 0
-        downtime_per_event_sec = df.loc[df["stop_event"], "ct_diff_sec"]
-        mttr_min = (downtime_per_event_sec.mean() / 60) if stop_events > 0 else 0
+        
+        # --- CORRECTED DOWNTIME AND MTTR CALCULATION ---
+        downtime_per_event_sec = self._calculate_stop_durations(df)
+        downtime_sec = downtime_per_event_sec.sum()
+        mttr_min = (downtime_per_event_sec.mean() / 60) if not downtime_per_event_sec.empty else 0
+
         total_runtime_sec = (df["shot_time"].max() - df["shot_time"].min()).total_seconds() if total_shots > 1 else 0
-        downtime_sec = df.loc[df["stop_flag"] == 1, "ct_diff_sec"].sum()
         production_time_sec = total_runtime_sec - downtime_sec
         mtbf_min = (production_time_sec / 60 / stop_events) if stop_events > 0 else (production_time_sec / 60)
         stability_index = (production_time_sec / total_runtime_sec * 100) if total_runtime_sec > 0 else (100.0 if stop_events == 0 else 0.0)
@@ -765,8 +782,8 @@ def render_dashboard():
             col1.metric("MTTR", f"{results.get('mttr_min', 0):.1f} min")
             col2.metric("MTBF", f"{results.get('mtbf_min', 0):.1f} min")
             col3.metric("Total Run Duration", format_duration(total_d))
-            col4.metric("Production Time", format_duration(prod_t), f"{prod_p:.1f}%", delta_color="off")
-            col5.metric("Downtime", format_duration(down_t), f"{down_p:.1f}%", delta_color="off")
+            col4.metric("Production Time", f"{format_duration(prod_t)} ({prod_p:.1f}%)", delta_color="off")
+            col5.metric("Downtime", f"{format_duration(down_t)} ({down_p:.1f}%)", delta_color="off")
         
         with st.container(border=True):
             c1, c2 = st.columns(2)
@@ -1147,7 +1164,6 @@ def render_dashboard():
                 fig_mt.update_layout(title_text="MTTR, MTBF & Shot Count per Run", yaxis_title="MTTR (min)", yaxis2_title="MTBF (min)", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
                 st.plotly_chart(fig_mt, use_container_width=True)
                 with st.expander("View MTTR/MTBF Data", expanded=False): st.dataframe(run_summary_df)
-
 
                 # --- NEW SECTION ---
                 if detailed_view:
