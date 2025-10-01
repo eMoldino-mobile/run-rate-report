@@ -1229,6 +1229,7 @@ def render_risk_tower():
     st.dataframe(df.style.apply(style_risk, axis=1), use_container_width=True, hide_index=True)
 
 
+
 # --- Main App Structure with Tabs ---
 tab1, tab2 = st.tabs(["Run Rate Dashboard", "Risk Tower"])
 
@@ -1237,4 +1238,7 @@ with tab1:
 
 with tab2:
     render_risk_tower()
+    
+    
+    
 
