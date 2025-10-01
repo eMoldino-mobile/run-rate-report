@@ -193,22 +193,6 @@ class RunRateCalculator:
         return final_results
 
 # --- UI Helper and Plotting Functions ---
-def custom_metric(label, value, sub_value="", background_color=""):
-    sub_value_html = ""
-    if sub_value:
-        sub_value_html = f"""
-        <div style="background-color: {background_color}; border-radius: 0.5rem; padding: 0.1rem 0.5rem; display: inline-block; font-size: 0.8rem; color: #262730; font-weight: bold;">
-            {sub_value}
-        </div>
-        """
-    st.markdown(f"""
-    <div style="background-color: #0E1117; border: 1px solid #262730; border-radius: 0.5rem; padding: 1rem; margin-bottom: 1rem;">
-        <div style="font-size: 0.8rem; color: #FAFAFA;">{label}</div>
-        <div style="font-size: 1.5rem; color: #FAFAFA; font-weight: bold;">{value}</div>
-        {sub_value_html}
-    </div>
-    """, unsafe_allow_html=True)
-
 def create_gauge(value, title, steps=None):
     gauge_config = {'axis': {'range': [0, 100]}}
     if steps:
@@ -411,9 +395,9 @@ def generate_detailed_analysis(analysis_df, overall_stability, overall_mttr, ove
         worst_period_label = format_period(worst_performer['period'], analysis_level)
 
         best_worst_analysis = (f"The best performance was during <strong>{best_period_label}</strong> (Stability: {best_performer['stability']:.1f}%), "
-                               f"while the worst was during <strong>{worst_period_label}</strong> (Stability: {worst_performer['stability']:.1f}%). "
-                               f"The key difference was the impact of stoppages: the worst period had {int(worst_performer['stops'])} stops with an average duration of {worst_performer.get('mttr', 0):.1f} min, "
-                               f"compared to {int(best_performer['stops'])} stops during the best period.")
+                                f"while the worst was during <strong>{worst_period_label}</strong> (Stability: {worst_performer['stability']:.1f}%). "
+                                f"The key difference was the impact of stoppages: the worst period had {int(worst_performer['stops'])} stops with an average duration of {worst_performer.get('mttr', 0):.1f} min, "
+                                f"compared to {int(best_performer['stops'])} stops during the best period.")
 
     # --- 4. Automated Pattern Detection ---
     pattern_insight = ""
@@ -532,12 +516,12 @@ def generate_mttr_mtbf_analysis(analysis_df, analysis_level):
         highest_stops_period_row = analysis_df.loc[analysis_df['stops'].idxmax()]
         period_label = format_period(highest_stops_period_row['period'], analysis_level)
         example_insight = (f"For example, the period with the most interruptions was <strong>{period_label}</strong>, which recorded <strong>{int(highest_stops_period_row['stops'])} stops</strong>. "
-                           f"Prioritizing the root cause of these frequent events is recommended.")
+                            f"Prioritizing the root cause of these frequent events is recommended.")
     elif primary_driver_is_duration:
         highest_mttr_period_row = analysis_df.loc[analysis_df['mttr'].idxmax()]
         period_label = format_period(highest_mttr_period_row['period'], analysis_level)
         example_insight = (f"The period with the longest downtimes was <strong>{period_label}</strong>, where the average repair time was <strong>{highest_mttr_period_row['mttr']:.1f} minutes</strong>. "
-                           f"Investigating the cause of these prolonged stops is the top priority.")
+                            f"Investigating the cause of these prolonged stops is the top priority.")
     else: # If both are drivers, or correlations are close
         highest_mttr_period_row = analysis_df.loc[analysis_df['mttr'].idxmax()]
         period_label = format_period(highest_mttr_period_row['period'], analysis_level)
@@ -780,7 +764,7 @@ def render_dashboard():
         elif "by Run" in analysis_level:
             trend_summary_df = calculate_run_summaries(df_view, tolerance)
             if not trend_summary_df.empty:
-                 trend_summary_df.rename(columns={'run_label': 'RUN ID', 'stability_index': 'STABILITY %', 'stops': 'STOPS', 'mttr_min': 'MTTR (min)', 'total_shots': 'Total Shots'}, inplace=True)
+                trend_summary_df.rename(columns={'run_label': 'RUN ID', 'stability_index': 'STABILITY %', 'stops': 'STOPS', 'mttr_min': 'MTTR (min)', 'total_shots': 'Total Shots'}, inplace=True)
         elif analysis_level == "Daily":
             trend_summary_df = results.get('hourly_summary', pd.DataFrame())
 
@@ -798,9 +782,11 @@ def render_dashboard():
             with col3:
                 st.metric("Total Run Duration", format_duration(total_d))
             with col4:
-                custom_metric("Production Time", f"{format_duration(prod_t)}", f"{prod_p:.1f}%", PASTEL_COLORS['green'])
+                st.metric("Production Time", f"{format_duration(prod_t)}")
+                st.markdown(f'<span style="background-color: {PASTEL_COLORS["green"]}; color: #0E1117; padding: 3px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: bold;">{prod_p:.1f}%</span>', unsafe_allow_html=True)
             with col5:
-                custom_metric("Downtime", f"{format_duration(down_t)}", f"{down_p:.1f}%", PASTEL_COLORS['red'])
+                st.metric("Downtime", f"{format_duration(down_t)}")
+                st.markdown(f'<span style="background-color: {PASTEL_COLORS["red"]}; color: #0E1117; padding: 3px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: bold;">{down_p:.1f}%</span>', unsafe_allow_html=True)
         
         with st.container(border=True):
             c1, c2 = st.columns(2)
@@ -817,9 +803,11 @@ def render_dashboard():
             with c1:
                 st.metric("Total Shots", f"{t_s:,}")
             with c2:
-                custom_metric("Normal Shots", f"{n_s:,}", f"{n_p:.1f}%", PASTEL_COLORS['green'])
+                st.metric("Normal Shots", f"{n_s:,}")
+                st.markdown(f'<span style="background-color: {PASTEL_COLORS["green"]}; color: #0E1117; padding: 3px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: bold;">{n_p:.1f}% of Total</span>', unsafe_allow_html=True)
             with c3:
-                custom_metric("Stop Count", f"{results.get('stop_events', 0)}", f"{s_p:.1f}% Stopped Shots", PASTEL_COLORS['red'])
+                st.metric("Stop Events", f"{results.get('stop_events', 0)}")
+                st.markdown(f'<span style="background-color: {PASTEL_COLORS["red"]}; color: #0E1117; padding: 3px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: bold;">{s_p:.1f}% Stopped Shots</span>', unsafe_allow_html=True)
 
         with st.container(border=True):
             c1, c2, c3 = st.columns(3)
@@ -883,7 +871,7 @@ def render_dashboard():
                         <p style="color: #FAFAFA;"><strong>Performance Variance:</strong> {insights['best_worst']}</p>
                     """
                     if insights['patterns']:
-                         analysis_html += f"<p style='color: #FAFAFA;'><strong>Identified Patterns:</strong> {insights['patterns']}</p>"
+                        analysis_html += f"<p style='color: #FAFAFA;'><strong>Identified Patterns:</strong> {insights['patterns']}</p>"
                     
                     analysis_html += f"""
                         <p style="margin-top: 1rem; color: #FAFAFA; background-color: #262730; padding: 1rem; border-radius: 0.5rem;"><strong>Key Recommendation:</strong> {insights['recommendation']}</p>
@@ -962,7 +950,7 @@ def render_dashboard():
                         }),
                         use_container_width=True
                     )
-            
+                
         # --- Plot main chart and trends ---
         time_agg = 'hourly' if analysis_level == 'Daily' else 'daily' if 'Weekly' in analysis_level else 'weekly'
         plot_shot_bar_chart(results['processed_df'], results.get('lower_limit'), results.get('upper_limit'), results.get('mode_ct'), time_agg=time_agg)
