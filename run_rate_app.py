@@ -218,7 +218,7 @@ def custom_metric(label, value, sub_value="", background_color=""):
         </div>
         """
     st.markdown(f"""
-    <div style="background-color: #262730; border-radius: 0.5rem; padding: 1rem; margin-bottom: 1rem;">
+    <div style="background-color: #0E1117; border: 1px solid #262730; border-radius: 0.5rem; padding: 1rem; margin-bottom: 1rem;">
         <div style="font-size: 0.8rem; color: #FAFAFA;">{label}</div>
         <div style="font-size: 1.5rem; color: #FAFAFA; font-weight: bold;">{value}</div>
         {sub_value_html}
