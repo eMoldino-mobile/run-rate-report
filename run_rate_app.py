@@ -1119,6 +1119,7 @@ else:
             run_group_to_label_map = processed_df.drop_duplicates('run_group')[['run_group', 'run_label']].set_index('run_group')['run_label']
             complete_runs['run_label'] = complete_runs['run_group'].map(run_group_to_label_map)
             
+            
             pivot_df = pd.crosstab(index=complete_runs['run_label'], columns=complete_runs['time_bucket'].astype('category').cat.set_categories(results["bucket_labels"]))
             all_runs = run_summary_df['RUN ID']
             pivot_df = pivot_df.reindex(all_runs, fill_value=0)
