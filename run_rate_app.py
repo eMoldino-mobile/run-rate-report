@@ -100,7 +100,8 @@ class RunRateCalculator:
         
         for i in range(len(df)):
             if df.loc[i, "stop_event"]:
-                stop_start_time = df.loc[i, "shot_time"]
+                # --- FIX: Downtime starts from the PREVIOUS shot's timestamp ---
+                stop_start_time = df.loc[i - 1, "shot_time"] if i > 0 else df.loc[i, "shot_time"]
             elif stop_start_time is not None and df.loc[i, "stop_flag"] == 0:
                 stop_end_time = df.loc[i, "shot_time"]
                 duration_sec = (stop_end_time - stop_start_time).total_seconds()
@@ -208,6 +209,21 @@ class RunRateCalculator:
         return final_results
 
 # --- UI Helper and Plotting Functions ---
+def custom_metric(label, value, sub_value="", background_color=""):
+    sub_value_html = ""
+    if sub_value:
+        sub_value_html = f"""
+        <div style="background-color: {background_color}; border-radius: 0.5rem; padding: 0.1rem 0.5rem; display: inline-block; font-size: 0.8rem; color: #262730; font-weight: bold;">
+            {sub_value}
+        </div>
+        """
+    st.markdown(f"""
+    <div style="background-color: #262730; border-radius: 0.5rem; padding: 1rem; margin-bottom: 1rem;">
+        <div style="font-size: 0.8rem; color: #FAFAFA;">{label}</div>
+        <div style="font-size: 1.5rem; color: #FAFAFA; font-weight: bold;">{value}</div>
+        {sub_value_html}
+    </div>
+    """, unsafe_allow_html=True)
 
 def create_gauge(value, title, steps=None):
     gauge_config = {'axis': {'range': [0, 100]}}
@@ -790,12 +806,17 @@ def render_dashboard():
             total_d = results.get('total_runtime_sec', 0); prod_t = results.get('production_time_sec', 0); down_t = results.get('downtime_sec', 0)
             prod_p = (prod_t / total_d * 100) if total_d > 0 else 0
             down_p = (down_t / total_d * 100) if total_d > 0 else 0
-            col1.metric("MTTR", f"{results.get('mttr_min', 0):.1f} min")
-            col2.metric("MTBF", f"{results.get('mtbf_min', 0):.1f} min")
-            col3.metric("Total Run Duration", format_duration(total_d))
-            col4.metric("Production Time", f"{format_duration(prod_t)}", help=f"{prod_p:.1f}%")
-            col5.metric("Downtime", f"{format_duration(down_t)}", help=f"{down_p:.1f}%")
-
+            
+            with col1:
+                st.metric("MTTR", f"{results.get('mttr_min', 0):.1f} min")
+            with col2:
+                st.metric("MTBF", f"{results.get('mtbf_min', 0):.1f} min")
+            with col3:
+                st.metric("Total Run Duration", format_duration(total_d))
+            with col4:
+                custom_metric("Production Time", f"{format_duration(prod_t)}", f"{prod_p:.1f}%", PASTEL_COLORS['green'])
+            with col5:
+                custom_metric("Downtime", f"{format_duration(down_t)}", f"{down_p:.1f}%", PASTEL_COLORS['red'])
         
         with st.container(border=True):
             c1, c2 = st.columns(2)
@@ -809,10 +830,12 @@ def render_dashboard():
             s_s = t_s - n_s
             n_p = (n_s / t_s * 100) if t_s > 0 else 0
             s_p = (s_s / t_s * 100) if t_s > 0 else 0
-            c1.metric("Total Shots", f"{t_s:,}")
-            c2.metric("Normal Shots", f"{n_s:,}", f"{n_p:.1f}%", delta_color="off")
-            c3.metric("Stop Count", f"{results.get('stop_events', 0)}", f"{s_p:.1f}% Stopped Shots", delta_color="off")
-
+            with c1:
+                st.metric("Total Shots", f"{t_s:,}")
+            with c2:
+                custom_metric("Normal Shots", f"{n_s:,}", f"{n_p:.1f}%", PASTEL_COLORS['green'])
+            with c3:
+                custom_metric("Stop Count", f"{results.get('stop_events', 0)}", f"{s_p:.1f}% Stopped Shots", PASTEL_COLORS['red'])
 
         with st.container(border=True):
             c1, c2, c3 = st.columns(3)
