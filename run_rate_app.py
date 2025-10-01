@@ -60,29 +60,34 @@ class RunRateCalculator:
             return pd.DataFrame()
 
         df['hour'] = df['shot_time'].dt.hour
+        
         # Correctly calculate total downtime per hour for MTTR
-        hourly_downtime = self._calculate_stop_durations(df).groupby(df['shot_time'].dt.hour).sum()
+        stop_durations_sec = self._calculate_stop_durations(df)
+        if not stop_durations_sec.empty:
+            hourly_downtime_sec = stop_durations_sec.groupby(stop_durations_sec.index.hour).sum()
+        else:
+            hourly_downtime_sec = pd.Series(dtype='float64')
         
         hourly_groups = df.groupby('hour')
         stops = hourly_groups['stop_event'].sum()
-        uptime_min = df[df['stop_flag'] == 0].groupby('hour')['ct_diff_sec'].sum() / 60
+        uptime_min = df[(df['stop_flag'] == 0) & (df['ct_diff_sec'] <= 28800)].groupby('hour')['ct_diff_sec'].sum() / 60
         shots = hourly_groups.size().rename('total_shots')
 
         hourly_summary = pd.DataFrame(index=range(24))
         hourly_summary['hour'] = hourly_summary.index
-        hourly_summary = hourly_summary.join(stops.rename('stops')).join(shots).join(uptime_min.rename('uptime_min')).fillna(0)
-        hourly_summary['total_downtime_sec'] = hourly_downtime / 60
-        hourly_summary = hourly_summary.fillna(0)
         
-        hourly_summary['mttr_min'] = hourly_summary['total_downtime_sec'] / hourly_summary['stops'].replace(0, np.nan)
+        hourly_summary = hourly_summary.join(stops.rename('stops')).join(shots).join(uptime_min.rename('uptime_min')).fillna(0)
+        hourly_summary = hourly_summary.join(hourly_downtime_sec.rename('total_downtime_sec')).fillna(0)
+        
+        hourly_summary['mttr_min'] = (hourly_summary['total_downtime_sec'] / 60) / hourly_summary['stops'].replace(0, np.nan)
         hourly_summary['mtbf_min'] = hourly_summary['uptime_min'] / hourly_summary['stops'].replace(0, np.nan)
         hourly_summary['mtbf_min'] = hourly_summary['mtbf_min'].fillna(hourly_summary['uptime_min'])
         
-        effective_runtime = hourly_summary['uptime_min'] + (hourly_summary['total_downtime_sec'] / 60)
+        effective_runtime_min = hourly_summary['uptime_min'] + (hourly_summary['total_downtime_sec'] / 60)
         
         hourly_summary['stability_index'] = np.where(
-            effective_runtime > 0,
-            (hourly_summary['uptime_min'] / effective_runtime) * 100,
+            effective_runtime_min > 0,
+            (hourly_summary['uptime_min'] / effective_runtime_min) * 100,
             np.where(hourly_summary['stops'] == 0, 100.0, 0.0)
         )
         return hourly_summary.fillna(0)
@@ -752,8 +757,8 @@ def render_dashboard():
         with col1:
             st.subheader(sub_header)
         with col2:
-            st.sidebar.download_button(
-                label="📥 Export Current View to Excel",
+            st.download_button(
+                label="📥 Export to Excel",
                 data=create_excel_export(
                     df_view, 
                     results, 
@@ -762,7 +767,8 @@ def render_dashboard():
                     analysis_level
                 ),
                 file_name=f"Run_Rate_Analysis_{tool_id}_{analysis_level.replace(' ', '_')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
             )
 
         # --- Pre-calculate summary df for Analysis section and Breakdown tables ---
@@ -787,8 +793,9 @@ def render_dashboard():
             col1.metric("MTTR", f"{results.get('mttr_min', 0):.1f} min")
             col2.metric("MTBF", f"{results.get('mtbf_min', 0):.1f} min")
             col3.metric("Total Run Duration", format_duration(total_d))
-            col4.metric("Production Time", format_duration(prod_t), f"{prod_p:.1f}%", delta_color="off")
-            col5.metric("Downtime", format_duration(down_t), f"{down_p:.1f}%", delta_color="off")
+            col4.metric("Production Time", f"{format_duration(prod_t)}", help=f"{prod_p:.1f}%")
+            col5.metric("Downtime", f"{format_duration(down_t)}", help=f"{down_p:.1f}%")
+
         
         with st.container(border=True):
             c1, c2 = st.columns(2)
