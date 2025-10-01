@@ -61,15 +61,9 @@ class RunRateCalculator:
 
         df['hour'] = df['shot_time'].dt.hour
         
-        # Correctly calculate total downtime per hour for MTTR
-        stop_durations_sec = self._calculate_stop_durations(df)
-        if not stop_durations_sec.empty:
-            hourly_downtime_sec = stop_durations_sec.groupby(stop_durations_sec.index.hour).sum()
-        else:
-            hourly_downtime_sec = pd.Series(dtype='float64')
-        
         hourly_groups = df.groupby('hour')
         stops = hourly_groups['stop_event'].sum()
+        total_downtime_sec = hourly_groups.apply(lambda x: x[x['stop_flag'] == 1]['ct_diff_sec'].sum())
         uptime_min = df[(df['stop_flag'] == 0) & (df['ct_diff_sec'] <= 28800)].groupby('hour')['ct_diff_sec'].sum() / 60
         shots = hourly_groups.size().rename('total_shots')
 
@@ -77,7 +71,7 @@ class RunRateCalculator:
         hourly_summary['hour'] = hourly_summary.index
         
         hourly_summary = hourly_summary.join(stops.rename('stops')).join(shots).join(uptime_min.rename('uptime_min')).fillna(0)
-        hourly_summary = hourly_summary.join(hourly_downtime_sec.rename('total_downtime_sec')).fillna(0)
+        hourly_summary = hourly_summary.join(total_downtime_sec.rename('total_downtime_sec')).fillna(0)
         
         hourly_summary['mttr_min'] = (hourly_summary['total_downtime_sec'] / 60) / hourly_summary['stops'].replace(0, np.nan)
         hourly_summary['mtbf_min'] = hourly_summary['uptime_min'] / hourly_summary['stops'].replace(0, np.nan)
@@ -92,7 +86,6 @@ class RunRateCalculator:
         )
         return hourly_summary.fillna(0)
 
-
     def _calculate_stop_durations(self, df):
         stop_durations = []
         stop_start_times = []
@@ -100,12 +93,11 @@ class RunRateCalculator:
         
         for i in range(len(df)):
             if df.loc[i, "stop_event"]:
-                # --- FIX: Downtime starts from the PREVIOUS shot's timestamp ---
                 stop_start_time = df.loc[i - 1, "shot_time"] if i > 0 else df.loc[i, "shot_time"]
             elif stop_start_time is not None and df.loc[i, "stop_flag"] == 0:
                 stop_end_time = df.loc[i, "shot_time"]
                 duration_sec = (stop_end_time - stop_start_time).total_seconds()
-                if duration_sec <= 28800:  # filter out absurd long gaps
+                if duration_sec <= 28800:
                     stop_durations.append(duration_sec)
                     stop_start_times.append(stop_start_time)
                 stop_start_time = None
@@ -116,7 +108,6 @@ class RunRateCalculator:
         if df.empty or "ACTUAL CT" not in df.columns:
             return {}
 
-        # --- Dynamic Mode CT and Tolerance Limit Calculation ---
         if self.analysis_mode == 'by_run' and 'run_id' in df.columns:
             run_modes = df.groupby('run_id')['ACTUAL CT'].apply(lambda x: x.mode().iloc[0] if not x.mode().empty else 0)
             df['mode_ct'] = df['run_id'].map(run_modes)
@@ -132,25 +123,19 @@ class RunRateCalculator:
             upper_limit = mode_ct * (1 + self.tolerance)
             mode_ct_display = mode_ct
 
-        # --- Stop Detection ---
         stop_condition = (((df["ct_diff_sec"] < lower_limit) | (df["ct_diff_sec"] > upper_limit)) & (df["ct_diff_sec"] <= 28800))
         df["stop_flag"] = np.where(stop_condition, 1, 0)
         df.loc[0, "stop_flag"] = 0
         df["stop_event"] = (df["stop_flag"] == 1) & (df["stop_flag"].shift(1, fill_value=0) == 0)
         
-        # --- Metrics Calculation ---
         total_shots = len(df)
         stop_events = df["stop_event"].sum()
         
-        # --- CORRECTED DOWNTIME AND MTTR CALCULATION ---
-        downtime_per_event_sec = self._calculate_stop_durations(df)
-        downtime_sec = downtime_per_event_sec.sum()
-        mttr_min = (downtime_per_event_sec.mean() / 60) if not downtime_per_event_sec.empty else 0
+        downtime_sec = df.loc[df['stop_flag'] == 1, 'ct_diff_sec'].sum()
+        mttr_min = (downtime_sec / 60 / stop_events) if stop_events > 0 else 0
 
-        # --- CORRECTED PRODUCTION TIME (UPTIME) CALCULATION ---
         production_time_sec = df[(df['stop_flag'] == 0) & (df['ct_diff_sec'] <= 28800)]['ct_diff_sec'].sum()
 
-        # --- CORRECTED MTBF and STABILITY ---
         mtbf_min = (production_time_sec / 60 / stop_events) if stop_events > 0 else (production_time_sec / 60)
         effective_runtime_sec = production_time_sec + downtime_sec
         stability_index = (production_time_sec / effective_runtime_sec * 100) if effective_runtime_sec > 0 else (100.0 if stop_events == 0 else 0.0)
@@ -160,7 +145,6 @@ class RunRateCalculator:
         efficiency = normal_shots / total_shots if total_shots > 0 else 0
         df["run_group"] = df["stop_event"].cumsum()
 
-        # --- Bucket Analysis ---
         df_for_runs = df[df['ct_diff_sec'] <= 28800].copy()
         run_durations = df_for_runs[df_for_runs["stop_flag"] == 0].groupby("run_group")["ct_diff_sec"].sum().div(60).reset_index(name="duration_min")
 
@@ -1137,7 +1121,6 @@ def render_dashboard():
             if not run_summary_df.empty:
                 run_summary_df.rename(columns={'run_label': 'RUN ID', 'stability_index': 'STABILITY %', 'stops': 'STOPS', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'total_shots': 'Total Shots'}, inplace=True)
 
-            
             
             run_durations = results.get("run_durations", pd.DataFrame())
             processed_df = results.get('processed_df', pd.DataFrame())
