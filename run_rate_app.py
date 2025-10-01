@@ -1148,6 +1148,7 @@ def render_dashboard():
                 st.plotly_chart(fig_mt, use_container_width=True)
                 with st.expander("View MTTR/MTBF Data", expanded=False): st.dataframe(run_summary_df)
 
+
                 # --- NEW SECTION ---
                 if detailed_view:
                     with st.expander("🤖 View MTTR/MTBF Correlation Analysis", expanded=False):
