@@ -730,19 +730,17 @@ def render_dashboard():
         with col1:
             st.subheader(sub_header)
         with col2:
-            excel_data = create_excel_export(
-                df_view, 
-                results, 
-                tolerance, 
-                run_interval_hours, 
-                analysis_level
-            )
-            st.download_button(
-                label="📥 Export to Excel",
-                data=excel_data,
+            st.sidebar.download_button(
+                label="📥 Export Current View to Excel",
+                data=create_excel_export(
+                    df_view, 
+                    results, 
+                    tolerance, 
+                    run_interval_hours, 
+                    analysis_level
+                ),
                 file_name=f"Run_Rate_Analysis_{tool_id}_{analysis_level.replace(' ', '_')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
         # --- Pre-calculate summary df for Analysis section and Breakdown tables ---
