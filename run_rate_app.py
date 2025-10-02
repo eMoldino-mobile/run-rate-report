@@ -1037,7 +1037,8 @@ def calculate_scrap_by_week(df_all_tools):
         (df['ct_diff_sec'] >= 140) & (df['ct_diff_sec'] <= 209),
     ]
     choices = [6, 5, 4, 3, 2, 1]
-    df['calculated_scrap'] = np.select(conditions, choices, default=0)
+    df['calculated_scrap_parts'] = np.select(conditions, choices, default=0)
+    df['is_scrap_shot'] = np.where(df['calculated_scrap_parts'] > 0, 1, 0)
     
     # --- Perform weekly summary ---
     df['year'] = df['shot_time'].dt.isocalendar().year
@@ -1045,11 +1046,12 @@ def calculate_scrap_by_week(df_all_tools):
     df['year_week'] = df['year'].astype(str) + '-W' + df['week'].astype(str).str.zfill(2)
 
     summary = df.groupby(['year_week', id_col]).agg(
-        total_scrap=('calculated_scrap', 'sum'),
-        total_shots=('shot_time', 'size')
+        total_scrap_parts=('calculated_scrap_parts', 'sum'),
+        total_shots=('shot_time', 'size'),
+        scrap_shots=('is_scrap_shot', 'sum')
     ).reset_index()
     
-    summary['scrap_rate'] = (summary['total_scrap'] / summary['total_shots']) * 100
+    summary['scrap_rate'] = (summary['scrap_shots'] / summary['total_shots']) * 100
     return summary, "Calculated Scrap"
 
 
@@ -1065,18 +1067,39 @@ def render_scrap_analysis(df_all_tools):
         
     id_col = "TOOLING ID" if "TOOLING ID" in df_all_tools.columns else "EQUIPMENT CODE"
     
-    st.subheader("Weekly Scrap Counts per Tool")
-    scrap_pivot = scrap_summary.pivot_table(index=id_col, columns='year_week', values='total_scrap', aggfunc='sum').fillna(0)
-    st.dataframe(scrap_pivot.style.format("{:,.0f}"), use_container_width=True)
+    st.subheader("Weekly Scrap Summary per Tool")
+    
+    # Create a display dataframe with user-friendly column names
+    display_df = scrap_summary.rename(columns={
+        'year_week': 'Week',
+        id_col: 'Tool ID',
+        'total_shots': 'Total Shots',
+        'scrap_shots': 'Scrap Shots',
+        'total_scrap_parts': 'Total Scrap Parts',
+        'scrap_rate': 'Scrap Rate (%)'
+    })
+    
+    # Reorder columns for better presentation
+    display_df = display_df[['Week', 'Tool ID', 'Total Shots', 'Scrap Shots', 'Total Scrap Parts', 'Scrap Rate (%)']]
+    
+    st.dataframe(display_df.style.format({
+        'Total Shots': '{:,.0f}',
+        'Scrap Shots': '{:,.0f}',
+        'Total Scrap Parts': '{:,.0f}',
+        'Scrap Rate (%)': '{:.2f}%'
+    }), use_container_width=True, hide_index=True)
+
 
     st.subheader("Weekly Scrap Count Trend")
-    fig_scrap_trend = px.bar(scrap_summary, x='year_week', y='total_scrap', color=id_col,
+    # This bar chart still shows total scrap parts, which is correct
+    fig_scrap_trend = px.bar(scrap_summary, x='year_week', y='total_scrap_parts', color=id_col,
                              title='Total Scrap Parts per Week',
-                             labels={'year_week': 'Week', 'total_scrap': 'Total Scrap Parts', id_col: 'Tool ID'},
+                             labels={'year_week': 'Week', 'total_scrap_parts': 'Total Scrap Parts', id_col: 'Tool ID'},
                              barmode='stack')
     st.plotly_chart(fig_scrap_trend, use_container_width=True)
 
     st.subheader("Weekly Scrap Rate (%) Trend")
+    # Pivot for the line chart now uses the correct scrap_rate (based on shots)
     scrap_rate_pivot = scrap_summary.pivot_table(index='year_week', columns=id_col, values='scrap_rate', aggfunc='mean').fillna(0)
     fig_rate_trend = px.line(scrap_rate_pivot, x=scrap_rate_pivot.index, y=scrap_rate_pivot.columns,
                              title='Scrap Rate (%) per Week',
