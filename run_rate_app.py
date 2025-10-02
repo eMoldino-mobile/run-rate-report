@@ -1010,11 +1010,10 @@ def calculate_scrap_by_week(df_all_tools):
     
     # --- Prepare data with correct ct_diff_sec for each tool ---
     df_list = []
+    # Process each tool's data individually to get correct ct_diff_sec
     for tool_id in df_all_tools[id_col].unique():
         df_tool = df_all_tools[df_all_tools[id_col] == tool_id].copy()
-        # Use the preparation logic from the calculator to get ct_diff_sec
-        # We create a temporary calculator instance; tolerance doesn't matter here.
-        temp_calc = RunRateCalculator(df_tool, 0.05)
+        temp_calc = RunRateCalculator(df_tool, 0.05) # Tolerance here is arbitrary, just for preparation
         prepared_df = temp_calc.results.get("processed_df")
         if prepared_df is not None and not prepared_df.empty:
             df_list.append(prepared_df)
@@ -1024,33 +1023,61 @@ def calculate_scrap_by_week(df_all_tools):
     
     df = pd.concat(df_list, ignore_index=True)
 
-    if 'ct_diff_sec' not in df.columns:
+    if 'ct_diff_sec' not in df.columns or 'shot_time' not in df.columns:
         return pd.DataFrame(), "Calculation Error"
 
-    # --- Apply scrap rules based on cycle time ---
-    conditions = [
-        (df['ct_diff_sec'] > 3600),
-        (df['ct_diff_sec'] >= 2400) & (df['ct_diff_sec'] <= 3599),
-        (df['ct_diff_sec'] >= 1200) & (df['ct_diff_sec'] <= 2399),
-        (df['ct_diff_sec'] >= 600) & (df['ct_diff_sec'] <= 1199),
-        (df['ct_diff_sec'] >= 210) & (df['ct_diff_sec'] <= 599),
-        (df['ct_diff_sec'] >= 140) & (df['ct_diff_sec'] <= 209),
-    ]
-    choices = [6, 5, 4, 3, 2, 1]
-    df['calculated_scrap_parts'] = np.select(conditions, choices, default=0)
-    df['is_scrap_shot'] = np.where(df['calculated_scrap_parts'] > 0, 1, 0)
+    # --- Function to apply the new carry-over scrap logic ---
+    def apply_scrap_logic(tool_df):
+        tool_df = tool_df.sort_values('shot_time').reset_index(drop=True)
+        
+        # Determine the scrap trigger count for each shot based on its own cycle time
+        conditions = [
+            (tool_df['ct_diff_sec'] > 3600),
+            (tool_df['ct_diff_sec'] >= 2400),
+            (tool_df['ct_diff_sec'] >= 1200),
+            (tool_df['ct_diff_sec'] >= 600),
+            (tool_df['ct_diff_sec'] >= 210),
+            (tool_df['ct_diff_sec'] >= 140),
+        ]
+        # This is the number of shots to be marked as scrap, starting from the current one
+        choices = [6, 5, 4, 3, 2, 1]
+        tool_df['scrap_trigger'] = np.select(conditions, choices, default=0)
+
+        # Propagate the scrap state forward using a countdown
+        scrap_countdown = 0
+        is_scrap_shot = []
+        
+        for trigger in tool_df['scrap_trigger']:
+            # The new countdown is the max of the remaining countdown from the previous shot, or the new trigger from the current shot
+            scrap_countdown = max(scrap_countdown, trigger)
+            
+            if scrap_countdown > 0:
+                is_scrap_shot.append(1)
+                scrap_countdown -= 1 # Decrement for the next shot in the sequence
+            else:
+                is_scrap_shot.append(0)
+                
+        tool_df['is_scrap_shot'] = is_scrap_shot
+        # With the new logic, 1 scrap shot equals 1 scrap part.
+        tool_df['calculated_scrap_parts'] = tool_df['is_scrap_shot']
+
+        return tool_df
+
+    # Apply the logic to each tool group and combine the results
+    df_with_scrap = df.groupby(id_col).apply(apply_scrap_logic).reset_index(drop=True)
     
     # --- Perform weekly summary ---
-    df['year'] = df['shot_time'].dt.isocalendar().year
-    df['week'] = df['shot_time'].dt.isocalendar().week
-    df['year_week'] = df['year'].astype(str) + '-W' + df['week'].astype(str).str.zfill(2)
+    df_with_scrap['year'] = df_with_scrap['shot_time'].dt.isocalendar().year
+    df_with_scrap['week'] = df_with_scrap['shot_time'].dt.isocalendar().week
+    df_with_scrap['year_week'] = df_with_scrap['year'].astype(str) + '-W' + df_with_scrap['week'].astype(str).str.zfill(2)
 
-    summary = df.groupby(['year_week', id_col]).agg(
+    summary = df_with_scrap.groupby(['year_week', id_col]).agg(
         total_scrap_parts=('calculated_scrap_parts', 'sum'),
         total_shots=('shot_time', 'size'),
         scrap_shots=('is_scrap_shot', 'sum')
     ).reset_index()
     
+    # Scrap rate is now correctly calculated as scrap shots / total shots
     summary['scrap_rate'] = (summary['scrap_shots'] / summary['total_shots']) * 100
     return summary, "Calculated Scrap"
 
