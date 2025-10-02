@@ -533,8 +533,35 @@ def create_excel_export(df_view, results, tolerance, run_interval_hours, analysi
             ws_calc.write_row(row_num, 0, row_data)
     return output_buffer.getvalue()
 
-def render_dashboard(df_tool, tool_id_selection, analysis_level, tolerance, run_interval_hours, detailed_view):
-    st.title(f"Run Rate Dashboard: {tool_id_selection}")
+def render_dashboard(df_tool, tool_id_selection):
+    st.sidebar.title("Dashboard Controls ⚙️")
+
+    with st.sidebar.expander("ℹ️ About This Dashboard", expanded=False):
+        st.markdown("""
+        ### Run Rate Analysis
+        - **Efficiency (%)**: Normal Shots ÷ Total Shots
+        - **MTTR (min)**: Average downtime per stop.
+        - **MTBF (min)**: Average uptime between stops.
+        - **Stability Index (%)**: Uptime ÷ (Uptime + Downtime)
+        - **Bucket Analysis**: Groups run durations into 20-min intervals.
+        ---
+        ### Analysis Levels
+        - **Daily**: Hourly trends for one day.
+        - **Weekly / Monthly**: Aggregated data, with daily/weekly trend charts.
+        - **Weekly / Monthly (by Run)**: A more precise analysis where the tolerance for stops is calculated from the Mode CT of each individual production run. A new run is identified after a stoppage longer than the selected 'Run Interval Threshold'.
+        ---
+        ### Sliders
+        - **Tolerance Band**: Defines the acceptable CT range around the Mode CT.
+        - **Run Interval Threshold**: Defines the max hours between shots before a new Production Run is identified.
+        """)
+
+    analysis_level = st.sidebar.radio("Select Analysis Level", ["Daily", "Weekly", "Monthly", "Custom Period", "Weekly (by Run)", "Monthly (by Run)", "Custom Period (by Run)"])
+
+    st.sidebar.markdown("---")
+    tolerance = st.sidebar.slider("Tolerance Band (% of Mode CT)", 0.01, 0.20, 0.05, 0.01, help="Defines the ±% around Mode CT.")
+    run_interval_hours = st.sidebar.slider("Run Interval Threshold (hours)", 1, 24, 8, 1, help="Defines the max hours between shots before a new Production Run is identified.")
+    st.sidebar.markdown("---")
+    detailed_view = st.sidebar.toggle("Show Detailed Analysis", value=True)
 
     @st.cache_data(show_spinner="Performing initial data processing...")
     def get_processed_data(df, interval_hours):
@@ -554,6 +581,8 @@ def render_dashboard(df_tool, tool_id_selection, analysis_level, tolerance, run_
     df_processed = get_processed_data(df_tool, run_interval_hours)
     if df_processed.empty:
         st.error(f"Could not process data for {tool_id_selection}. Check file format or data range."); st.stop()
+
+    st.title(f"Run Rate Dashboard: {tool_id_selection}")
 
     mode = 'by_run' if '(by Run)' in analysis_level else 'aggregate'
     df_view = pd.DataFrame()
@@ -1004,138 +1033,8 @@ def render_risk_tower(df_all_tools):
 
     st.dataframe(risk_df.style.apply(style_risk, axis=1).format({'Risk Score': '{:.0f}'}), use_container_width=True, hide_index=True)
 
-@st.cache_data(show_spinner="Analyzing scrap data...")
-def calculate_scrap_by_week(df_all_tools):
-    id_col = "TOOLING ID" if "TOOLING ID" in df_all_tools.columns else "EQUIPMENT CODE"
-    
-    # --- Prepare data with correct ct_diff_sec for each tool ---
-    df_list = []
-    # Process each tool's data individually to get correct ct_diff_sec
-    for tool_id in df_all_tools[id_col].unique():
-        df_tool = df_all_tools[df_all_tools[id_col] == tool_id].copy()
-        temp_calc = RunRateCalculator(df_tool, 0.05) # Tolerance here is arbitrary, just for preparation
-        prepared_df = temp_calc.results.get("processed_df")
-        if prepared_df is not None and not prepared_df.empty:
-            df_list.append(prepared_df)
-
-    if not df_list:
-        return pd.DataFrame(), "Calculation Error"
-    
-    df = pd.concat(df_list, ignore_index=True)
-
-    if 'ct_diff_sec' not in df.columns or 'shot_time' not in df.columns:
-        return pd.DataFrame(), "Calculation Error"
-
-    # --- Function to apply the new carry-over scrap logic ---
-    def apply_scrap_logic(tool_df):
-        tool_df = tool_df.sort_values('shot_time').reset_index(drop=True)
-        
-        # Determine the scrap trigger count for each shot based on its own cycle time
-        conditions = [
-            (tool_df['ct_diff_sec'] > 3600),
-            (tool_df['ct_diff_sec'] >= 2400),
-            (tool_df['ct_diff_sec'] >= 1200),
-            (tool_df['ct_diff_sec'] >= 600),
-            (tool_df['ct_diff_sec'] >= 210),
-            (tool_df['ct_diff_sec'] >= 140),
-        ]
-        # This is the number of shots to be marked as scrap, starting from the current one
-        choices = [6, 5, 4, 3, 2, 1]
-        tool_df['scrap_trigger'] = np.select(conditions, choices, default=0)
-
-        # Propagate the scrap state forward using a countdown
-        scrap_countdown = 0
-        is_scrap_shot = []
-        
-        for trigger in tool_df['scrap_trigger']:
-            # The new countdown is the max of the remaining countdown from the previous shot, or the new trigger from the current shot
-            scrap_countdown = max(scrap_countdown, trigger)
-            
-            if scrap_countdown > 0:
-                is_scrap_shot.append(1)
-                scrap_countdown -= 1 # Decrement for the next shot in the sequence
-            else:
-                is_scrap_shot.append(0)
-                
-        tool_df['is_scrap_shot'] = is_scrap_shot
-        # With the new logic, 1 scrap shot equals 1 scrap part.
-        tool_df['calculated_scrap_parts'] = tool_df['is_scrap_shot']
-
-        return tool_df
-
-    # Apply the logic to each tool group and combine the results
-    df_with_scrap = df.groupby(id_col).apply(apply_scrap_logic).reset_index(drop=True)
-    
-    # --- Perform weekly summary ---
-    df_with_scrap['year'] = df_with_scrap['shot_time'].dt.isocalendar().year
-    df_with_scrap['week'] = df_with_scrap['shot_time'].dt.isocalendar().week
-    df_with_scrap['year_week'] = df_with_scrap['year'].astype(str) + '-W' + df_with_scrap['week'].astype(str).str.zfill(2)
-
-    summary = df_with_scrap.groupby(['year_week', id_col]).agg(
-        total_scrap_parts=('calculated_scrap_parts', 'sum'),
-        total_shots=('shot_time', 'size'),
-        scrap_shots=('is_scrap_shot', 'sum')
-    ).reset_index()
-    
-    # Scrap rate is now correctly calculated as scrap shots / total shots
-    summary['scrap_rate'] = (summary['scrap_shots'] / summary['total_shots']) * 100
-    return summary, "Calculated Scrap"
-
-
-def render_scrap_analysis(df_all_tools):
-    st.title("Run Rate Scrap Analysis")
-    st.info("This dashboard summarizes the total scrap parts and scrap rate for each tool on a weekly basis, calculated automatically from cycle times.")
-
-    scrap_summary, scrap_col_name = calculate_scrap_by_week(df_all_tools)
-
-    if scrap_col_name == "Calculation Error" or scrap_summary.empty:
-        st.warning("Could not calculate scrap data. Please ensure the uploaded file(s) contain the necessary date/time and 'ACTUAL CT' columns.")
-        return
-        
-    id_col = "TOOLING ID" if "TOOLING ID" in df_all_tools.columns else "EQUIPMENT CODE"
-    
-    st.subheader("Weekly Scrap Summary per Tool")
-    
-    # Create a display dataframe with user-friendly column names
-    display_df = scrap_summary.rename(columns={
-        'year_week': 'Week',
-        id_col: 'Tool ID',
-        'total_shots': 'Total Shots',
-        'scrap_shots': 'Scrap Shots',
-        'total_scrap_parts': 'Total Scrap Parts',
-        'scrap_rate': 'Scrap Rate (%)'
-    })
-    
-    # Reorder columns for better presentation
-    display_df = display_df[['Week', 'Tool ID', 'Total Shots', 'Scrap Shots', 'Total Scrap Parts', 'Scrap Rate (%)']]
-    
-    st.dataframe(display_df.style.format({
-        'Total Shots': '{:,.0f}',
-        'Scrap Shots': '{:,.0f}',
-        'Total Scrap Parts': '{:,.0f}',
-        'Scrap Rate (%)': '{:.2f}%'
-    }), use_container_width=True, hide_index=True)
-
-
-    st.subheader("Weekly Scrap Count Trend")
-    # This bar chart still shows total scrap parts, which is correct
-    fig_scrap_trend = px.bar(scrap_summary, x='year_week', y='total_scrap_parts', color=id_col,
-                             title='Total Scrap Parts per Week',
-                             labels={'year_week': 'Week', 'total_scrap_parts': 'Total Scrap Parts', id_col: 'Tool ID'},
-                             barmode='stack')
-    st.plotly_chart(fig_scrap_trend, use_container_width=True)
-
-    st.subheader("Weekly Scrap Rate (%) Trend")
-    # Pivot for the line chart now uses the correct scrap_rate (based on shots)
-    scrap_rate_pivot = scrap_summary.pivot_table(index='year_week', columns=id_col, values='scrap_rate', aggfunc='mean').fillna(0)
-    fig_rate_trend = px.line(scrap_rate_pivot, x=scrap_rate_pivot.index, y=scrap_rate_pivot.columns,
-                             title='Scrap Rate (%) per Week',
-                             labels={'year_week': 'Week', 'value': 'Scrap Rate (%)', 'variable': 'Tool ID'})
-    st.plotly_chart(fig_rate_trend, use_container_width=True)
-
-
 # --- Main App Structure ---
-st.sidebar.title("File Upload & Controls")
+st.sidebar.title("File Upload")
 uploaded_files = st.sidebar.file_uploader("Upload one or more Run Rate Excel files", type=["xlsx", "xls"], accept_multiple_files=True)
 
 if not uploaded_files:
@@ -1147,6 +1046,7 @@ def load_all_data(files):
     df_list = []
     for file in files:
         df = pd.read_excel(file)
+        # Ensure 'shot_time' is parsed correctly across all files
         if {"YEAR", "MONTH", "DAY", "TIME"}.issubset(df.columns):
             datetime_str = df["YEAR"].astype(str) + "-" + df["MONTH"].astype(str) + "-" + df["DAY"].astype(str) + " " + df['TIME'].astype(str)
             df["shot_time"] = pd.to_datetime(datetime_str, errors="coerce")
@@ -1166,45 +1066,21 @@ if id_col not in df_all_tools.columns:
     st.error(f"Files must contain 'TOOLING ID' or 'EQUIPMENT CODE'.")
     st.stop()
 
-with st.sidebar.expander("ℹ️ About This Dashboard", expanded=False):
-    st.markdown("""
-    ### Run Rate Analysis
-    - **Efficiency (%)**: Normal Shots ÷ Total Shots
-    - **MTTR (min)**: Average downtime per stop.
-    - **MTBF (min)**: Average uptime between stops.
-    - **Stability Index (%)**: Uptime ÷ (Uptime + Downtime)
-    - **Bucket Analysis**: Groups run durations into 20-min intervals.
-    ---
-    ### Analysis Levels
-    - **Daily**: Hourly trends for one day.
-    - **Weekly / Monthly**: Aggregated data, with daily/weekly trend charts.
-    - **Weekly / Monthly (by Run)**: A more precise analysis where the tolerance for stops is calculated from the Mode CT of each individual production run. A new run is identified after a stoppage longer than the selected 'Run Interval Threshold'.
-    ---
-    ### Sliders
-    - **Tolerance Band**: Defines the acceptable CT range around the Mode CT.
-    - **Run Interval Threshold**: Defines the max hours between shots before a new Production Run is identified.
-    """)
-
+# Add a selectbox for Tool ID for the main dashboard
 tool_ids = ["All Tools (Aggregated)"] + sorted(df_all_tools[id_col].unique().tolist())
 tool_id_selection = st.sidebar.selectbox(f"Select {id_col} for Dashboard Analysis", tool_ids)
-analysis_level = st.sidebar.radio("Select Analysis Level", ["Daily", "Weekly", "Monthly", "Custom Period", "Weekly (by Run)", "Monthly (by Run)", "Custom Period (by Run)"])
-tolerance = st.sidebar.slider("Tolerance Band (% of Mode CT)", 0.01, 0.20, 0.05, 0.01, help="Defines the ±% around Mode CT.")
-run_interval_hours = st.sidebar.slider("Run Interval Threshold (hours)", 1, 24, 8, 1, help="Defines the max hours between shots before a new Production Run is identified.")
-detailed_view = st.sidebar.toggle("Show Detailed Analysis", value=True)
 
 if tool_id_selection == "All Tools (Aggregated)":
     df_for_dashboard = df_all_tools
 else:
     df_for_dashboard = df_all_tools[df_all_tools[id_col] == tool_id_selection]
 
-tab1, tab2, tab3 = st.tabs(["Run Rate Dashboard", "Risk Tower", "Run Rate Scrap"])
+
+tab1, tab2 = st.tabs(["Run Rate Dashboard", "Risk Tower"])
 
 with tab1:
-    render_dashboard(df_for_dashboard, tool_id_selection, analysis_level, tolerance, run_interval_hours, detailed_view)
+    render_dashboard(df_for_dashboard, tool_id_selection)
 
 with tab2:
     render_risk_tower(df_all_tools)
-
-with tab3:
-    render_scrap_analysis(df_all_tools)
 
