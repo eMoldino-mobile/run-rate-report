@@ -533,35 +533,8 @@ def create_excel_export(df_view, results, tolerance, run_interval_hours, analysi
             ws_calc.write_row(row_num, 0, row_data)
     return output_buffer.getvalue()
 
-def render_dashboard(df_tool, tool_id_selection):
-    st.sidebar.title("Dashboard Controls ⚙️")
-
-    with st.sidebar.expander("ℹ️ About This Dashboard", expanded=False):
-        st.markdown("""
-        ### Run Rate Analysis
-        - **Efficiency (%)**: Normal Shots ÷ Total Shots
-        - **MTTR (min)**: Average downtime per stop.
-        - **MTBF (min)**: Average uptime between stops.
-        - **Stability Index (%)**: Uptime ÷ (Uptime + Downtime)
-        - **Bucket Analysis**: Groups run durations into 20-min intervals.
-        ---
-        ### Analysis Levels
-        - **Daily**: Hourly trends for one day.
-        - **Weekly / Monthly**: Aggregated data, with daily/weekly trend charts.
-        - **Weekly / Monthly (by Run)**: A more precise analysis where the tolerance for stops is calculated from the Mode CT of each individual production run. A new run is identified after a stoppage longer than the selected 'Run Interval Threshold'.
-        ---
-        ### Sliders
-        - **Tolerance Band**: Defines the acceptable CT range around the Mode CT.
-        - **Run Interval Threshold**: Defines the max hours between shots before a new Production Run is identified.
-        """)
-
-    analysis_level = st.sidebar.radio("Select Analysis Level", ["Daily", "Weekly", "Monthly", "Custom Period", "Weekly (by Run)", "Monthly (by Run)", "Custom Period (by Run)"])
-
-    st.sidebar.markdown("---")
-    tolerance = st.sidebar.slider("Tolerance Band (% of Mode CT)", 0.01, 0.20, 0.05, 0.01, help="Defines the ±% around Mode CT.")
-    run_interval_hours = st.sidebar.slider("Run Interval Threshold (hours)", 1, 24, 8, 1, help="Defines the max hours between shots before a new Production Run is identified.")
-    st.sidebar.markdown("---")
-    detailed_view = st.sidebar.toggle("Show Detailed Analysis", value=True)
+def render_dashboard(df_tool, tool_id_selection, analysis_level, tolerance, run_interval_hours, detailed_view):
+    st.title(f"Run Rate Dashboard: {tool_id_selection}")
 
     @st.cache_data(show_spinner="Performing initial data processing...")
     def get_processed_data(df, interval_hours):
@@ -581,8 +554,6 @@ def render_dashboard(df_tool, tool_id_selection):
     df_processed = get_processed_data(df_tool, run_interval_hours)
     if df_processed.empty:
         st.error(f"Could not process data for {tool_id_selection}. Check file format or data range."); st.stop()
-
-    st.title(f"Run Rate Dashboard: {tool_id_selection}")
 
     mode = 'by_run' if '(by Run)' in analysis_level else 'aggregate'
     df_view = pd.DataFrame()
@@ -937,6 +908,102 @@ def render_dashboard(df_tool, tool_id_selection):
                         analysis_df = run_summary_df.copy().rename(columns={'RUN ID': 'period', 'STABILITY %': 'stability', 'STOPS': 'stops', 'MTTR (min)': 'mttr'})
                         st.markdown(generate_mttr_mtbf_analysis(analysis_df, analysis_level), unsafe_allow_html=True)
 
+@st.cache_data(show_spinner="Analyzing tool performance for Risk Tower...")
+def calculate_risk_scores(df_all_tools):
+    """Analyzes data for all tools over the last 4 weeks to generate risk scores."""
+    id_col = "TOOLING ID" if "TOOLING ID" in df_all_tools.columns else "EQUIPMENT CODE"
+    
+    # Prepare data once
+    calc_prepare = RunRateCalculator(df_all_tools, tolerance=0.05)
+    df_prepared = calc_prepare.results.get("processed_df")
+    if df_prepared is None or df_prepared.empty:
+        return pd.DataFrame()
+
+    end_date = df_prepared['shot_time'].max()
+    start_date = end_date - timedelta(weeks=4)
+    df_period = df_prepared[(df_prepared['shot_time'] >= start_date) & (df_prepared['shot_time'] <= end_date)]
+
+    if df_period.empty:
+        return pd.DataFrame()
+
+    risk_data = []
+    tool_ids = df_period[id_col].unique()
+    
+    # Pre-calculate overall stats to avoid repeated groupby
+    overall_mttr_mean = df_period.groupby(id_col).apply(lambda x: RunRateCalculator(x, 0.05).results.get('mttr_min',0)).mean()
+    overall_mtbf_mean = df_period.groupby(id_col).apply(lambda x: RunRateCalculator(x, 0.05).results.get('mtbf_min',0)).mean()
+
+
+    for tool_id in tool_ids:
+        df_tool = df_period[df_period[id_col] == tool_id].copy()
+        if len(df_tool) < 10: continue
+
+        calc = RunRateCalculator(df_tool, tolerance=0.05)
+        res = calc.results
+        stability = res.get('stability_index', 0)
+        mttr = res.get('mttr_min', 0)
+        mtbf = res.get('mtbf_min', 0)
+        
+        df_tool['week'] = df_tool['shot_time'].dt.isocalendar().week
+        weekly_stabilities = []
+        for week in sorted(df_tool['week'].unique()):
+            df_week = df_tool[df_tool['week'] == week]
+            if not df_week.empty:
+                week_calc = RunRateCalculator(df_week, 0.05)
+                weekly_stabilities.append(week_calc.results.get('stability_index', 0))
+        
+        trend = "Stable"
+        if len(weekly_stabilities) > 1:
+            if weekly_stabilities[-1] < weekly_stabilities[0] * 0.95:
+                trend = "Declining"
+
+        risk_score = stability * 0.8
+        if trend == "Declining":
+            risk_score -= 20
+        
+        primary_factor = "Low Stability"
+        details = f"Overall stability is {stability:.1f}%."
+        if trend == "Declining":
+            primary_factor = "Declining Trend"
+            details = "Stability shows a consistent downward trend."
+        elif stability < 70 and mttr > (overall_mttr_mean * 1.2):
+             primary_factor = "High MTTR"
+             details = f"Average stop duration (MTTR) of {mttr:.1f} min is a key concern."
+        elif stability < 70 and mtbf < (overall_mtbf_mean * 0.8):
+             primary_factor = "Frequent Stops"
+             details = f"Frequent stops (MTBF of {mtbf:.1f} min) are impacting stability."
+
+        risk_data.append({
+            'Tool ID': tool_id, 'Risk Score': max(0, risk_score),
+            'Primary Risk Factor': primary_factor,
+            'Weekly Stability': ' → '.join([f'{s:.0f}%' for s in weekly_stabilities]),
+            'Details': details
+        })
+
+    if not risk_data:
+        return pd.DataFrame()
+        
+    return pd.DataFrame(risk_data).sort_values('Risk Score', ascending=True).reset_index(drop=True)
+
+def render_risk_tower(df_all_tools):
+    st.title("Run Rate Risk Tower")
+    st.info("This tower analyzes performance over the last 4 weeks, identifying tools that require attention. Tools with the lowest scores are at the highest risk.")
+    
+    risk_df = calculate_risk_scores(df_all_tools)
+
+    if risk_df.empty:
+        st.warning("Not enough data across multiple tools in the last 4 weeks to generate a risk tower.")
+        return
+
+    def style_risk(row):
+        score = row['Risk Score']
+        if score > 70: color = PASTEL_COLORS['green']
+        elif score > 50: color = PASTEL_COLORS['orange']
+        else: color = PASTEL_COLORS['red']
+        return [f'background-color: {color}' for _ in row]
+
+    st.dataframe(risk_df.style.apply(style_risk, axis=1).format({'Risk Score': '{:.0f}'}), use_container_width=True, hide_index=True)
+
 @st.cache_data(show_spinner="Analyzing scrap data...")
 def calculate_scrap_by_week(df_all_tools):
     id_col = "TOOLING ID" if "TOOLING ID" in df_all_tools.columns else "EQUIPMENT CODE"
@@ -953,6 +1020,9 @@ def calculate_scrap_by_week(df_all_tools):
         return pd.DataFrame(), None # Return None to indicate no scrap column
 
     df = df_all_tools.copy()
+    if 'shot_time' not in df.columns:
+        return pd.DataFrame(), scrap_col_found
+
     df = df.dropna(subset=['shot_time', scrap_col_found])
     df[scrap_col_found] = pd.to_numeric(df[scrap_col_found], errors='coerce').fillna(0)
 
@@ -1004,7 +1074,7 @@ def render_scrap_analysis(df_all_tools):
 
 
 # --- Main App Structure ---
-st.sidebar.title("File Upload")
+st.sidebar.title("File Upload & Controls")
 uploaded_files = st.sidebar.file_uploader("Upload one or more Run Rate Excel files", type=["xlsx", "xls"], accept_multiple_files=True)
 
 if not uploaded_files:
@@ -1016,7 +1086,6 @@ def load_all_data(files):
     df_list = []
     for file in files:
         df = pd.read_excel(file)
-        # Ensure 'shot_time' is parsed correctly across all files
         if {"YEAR", "MONTH", "DAY", "TIME"}.issubset(df.columns):
             datetime_str = df["YEAR"].astype(str) + "-" + df["MONTH"].astype(str) + "-" + df["DAY"].astype(str) + " " + df['TIME'].astype(str)
             df["shot_time"] = pd.to_datetime(datetime_str, errors="coerce")
@@ -1036,20 +1105,41 @@ if id_col not in df_all_tools.columns:
     st.error(f"Files must contain 'TOOLING ID' or 'EQUIPMENT CODE'.")
     st.stop()
 
-# Add a selectbox for Tool ID for the main dashboard
+with st.sidebar.expander("ℹ️ About This Dashboard", expanded=False):
+    st.markdown("""
+    ### Run Rate Analysis
+    - **Efficiency (%)**: Normal Shots ÷ Total Shots
+    - **MTTR (min)**: Average downtime per stop.
+    - **MTBF (min)**: Average uptime between stops.
+    - **Stability Index (%)**: Uptime ÷ (Uptime + Downtime)
+    - **Bucket Analysis**: Groups run durations into 20-min intervals.
+    ---
+    ### Analysis Levels
+    - **Daily**: Hourly trends for one day.
+    - **Weekly / Monthly**: Aggregated data, with daily/weekly trend charts.
+    - **Weekly / Monthly (by Run)**: A more precise analysis where the tolerance for stops is calculated from the Mode CT of each individual production run. A new run is identified after a stoppage longer than the selected 'Run Interval Threshold'.
+    ---
+    ### Sliders
+    - **Tolerance Band**: Defines the acceptable CT range around the Mode CT.
+    - **Run Interval Threshold**: Defines the max hours between shots before a new Production Run is identified.
+    """)
+
 tool_ids = ["All Tools (Aggregated)"] + sorted(df_all_tools[id_col].unique().tolist())
 tool_id_selection = st.sidebar.selectbox(f"Select {id_col} for Dashboard Analysis", tool_ids)
+analysis_level = st.sidebar.radio("Select Analysis Level", ["Daily", "Weekly", "Monthly", "Custom Period", "Weekly (by Run)", "Monthly (by Run)", "Custom Period (by Run)"])
+tolerance = st.sidebar.slider("Tolerance Band (% of Mode CT)", 0.01, 0.20, 0.05, 0.01, help="Defines the ±% around Mode CT.")
+run_interval_hours = st.sidebar.slider("Run Interval Threshold (hours)", 1, 24, 8, 1, help="Defines the max hours between shots before a new Production Run is identified.")
+detailed_view = st.sidebar.toggle("Show Detailed Analysis", value=True)
 
 if tool_id_selection == "All Tools (Aggregated)":
     df_for_dashboard = df_all_tools
 else:
     df_for_dashboard = df_all_tools[df_all_tools[id_col] == tool_id_selection]
 
-
 tab1, tab2, tab3 = st.tabs(["Run Rate Dashboard", "Risk Tower", "Run Rate Scrap"])
 
 with tab1:
-    render_dashboard(df_for_dashboard, tool_id_selection)
+    render_dashboard(df_for_dashboard, tool_id_selection, analysis_level, tolerance, run_interval_hours, detailed_view)
 
 with tab2:
     render_risk_tower(df_all_tools)
