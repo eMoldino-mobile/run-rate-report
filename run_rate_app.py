@@ -1008,50 +1008,61 @@ def render_risk_tower(df_all_tools):
 def calculate_scrap_by_week(df_all_tools):
     id_col = "TOOLING ID" if "TOOLING ID" in df_all_tools.columns else "EQUIPMENT CODE"
     
-    # Find a scrap column (case-insensitive)
-    scrap_col_found = None
-    possible_scrap_cols = ['SCRAP', 'SCRAP COUNT', 'REJECTS', 'SCRAP QTY']
-    for col in df_all_tools.columns:
-        if col.upper() in [c.upper() for c in possible_scrap_cols]:
-            scrap_col_found = col
-            break
+    # --- Prepare data with correct ct_diff_sec for each tool ---
+    df_list = []
+    for tool_id in df_all_tools[id_col].unique():
+        df_tool = df_all_tools[df_all_tools[id_col] == tool_id].copy()
+        # Use the preparation logic from the calculator to get ct_diff_sec
+        # We create a temporary calculator instance; tolerance doesn't matter here.
+        temp_calc = RunRateCalculator(df_tool, 0.05)
+        prepared_df = temp_calc.results.get("processed_df")
+        if prepared_df is not None and not prepared_df.empty:
+            df_list.append(prepared_df)
 
-    if not scrap_col_found:
-        return pd.DataFrame(), None # Return None to indicate no scrap column
+    if not df_list:
+        return pd.DataFrame(), "Calculation Error"
+    
+    df = pd.concat(df_list, ignore_index=True)
 
-    df = df_all_tools.copy()
-    if 'shot_time' not in df.columns:
-        return pd.DataFrame(), scrap_col_found
+    if 'ct_diff_sec' not in df.columns:
+        return pd.DataFrame(), "Calculation Error"
 
-    df = df.dropna(subset=['shot_time', scrap_col_found])
-    df[scrap_col_found] = pd.to_numeric(df[scrap_col_found], errors='coerce').fillna(0)
-
+    # --- Apply scrap rules based on cycle time ---
+    conditions = [
+        (df['ct_diff_sec'] > 3600),
+        (df['ct_diff_sec'] >= 2400) & (df['ct_diff_sec'] <= 3599),
+        (df['ct_diff_sec'] >= 1200) & (df['ct_diff_sec'] <= 2399),
+        (df['ct_diff_sec'] >= 600) & (df['ct_diff_sec'] <= 1199),
+        (df['ct_diff_sec'] >= 210) & (df['ct_diff_sec'] <= 599),
+        (df['ct_diff_sec'] >= 140) & (df['ct_diff_sec'] <= 209),
+    ]
+    choices = [6, 5, 4, 3, 2, 1]
+    df['calculated_scrap'] = np.select(conditions, choices, default=0)
+    
+    # --- Perform weekly summary ---
     df['year'] = df['shot_time'].dt.isocalendar().year
     df['week'] = df['shot_time'].dt.isocalendar().week
     df['year_week'] = df['year'].astype(str) + '-W' + df['week'].astype(str).str.zfill(2)
 
     summary = df.groupby(['year_week', id_col]).agg(
-        total_scrap=(scrap_col_found, 'sum'),
+        total_scrap=('calculated_scrap', 'sum'),
         total_shots=('shot_time', 'size')
     ).reset_index()
     
     summary['scrap_rate'] = (summary['total_scrap'] / summary['total_shots']) * 100
-    return summary, scrap_col_found
+    return summary, "Calculated Scrap"
+
 
 def render_scrap_analysis(df_all_tools):
     st.title("Run Rate Scrap Analysis")
-    st.info("This dashboard summarizes the total scrap parts and scrap rate for each tool on a weekly basis.")
+    st.info("This dashboard summarizes the total scrap parts and scrap rate for each tool on a weekly basis, calculated automatically from cycle times.")
 
     scrap_summary, scrap_col_name = calculate_scrap_by_week(df_all_tools)
 
-    if scrap_col_name is None:
-        st.warning("Could not find a scrap data column in the uploaded file(s). Please ensure a column named 'Scrap', 'Scrap Count', or 'Rejects' exists.")
+    if scrap_col_name == "Calculation Error" or scrap_summary.empty:
+        st.warning("Could not calculate scrap data. Please ensure the uploaded file(s) contain the necessary date/time and 'ACTUAL CT' columns.")
         return
         
-    if scrap_summary.empty:
-        st.warning("No scrap data available for the selected period.")
-        return
-
     id_col = "TOOLING ID" if "TOOLING ID" in df_all_tools.columns else "EQUIPMENT CODE"
     
     st.subheader("Weekly Scrap Counts per Tool")
