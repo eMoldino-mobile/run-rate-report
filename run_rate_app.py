@@ -937,101 +937,71 @@ def render_dashboard(df_tool, tool_id_selection):
                         analysis_df = run_summary_df.copy().rename(columns={'RUN ID': 'period', 'STABILITY %': 'stability', 'STOPS': 'stops', 'MTTR (min)': 'mttr'})
                         st.markdown(generate_mttr_mtbf_analysis(analysis_df, analysis_level), unsafe_allow_html=True)
 
-@st.cache_data(show_spinner="Analyzing tool performance for Risk Tower...")
-def calculate_risk_scores(df_all_tools):
-    """Analyzes data for all tools over the last 4 weeks to generate risk scores."""
+@st.cache_data(show_spinner="Analyzing scrap data...")
+def calculate_scrap_by_week(df_all_tools):
     id_col = "TOOLING ID" if "TOOLING ID" in df_all_tools.columns else "EQUIPMENT CODE"
     
-    # Prepare data once
-    calc_prepare = RunRateCalculator(df_all_tools, tolerance=0.05)
-    df_prepared = calc_prepare.results.get("processed_df")
-    if df_prepared is None or df_prepared.empty:
-        return pd.DataFrame()
+    # Find a scrap column (case-insensitive)
+    scrap_col_found = None
+    possible_scrap_cols = ['SCRAP', 'SCRAP COUNT', 'REJECTS', 'SCRAP QTY']
+    for col in df_all_tools.columns:
+        if col.upper() in [c.upper() for c in possible_scrap_cols]:
+            scrap_col_found = col
+            break
 
-    end_date = df_prepared['shot_time'].max()
-    start_date = end_date - timedelta(weeks=4)
-    df_period = df_prepared[(df_prepared['shot_time'] >= start_date) & (df_prepared['shot_time'] <= end_date)]
+    if not scrap_col_found:
+        return pd.DataFrame(), None # Return None to indicate no scrap column
 
-    if df_period.empty:
-        return pd.DataFrame()
+    df = df_all_tools.copy()
+    df = df.dropna(subset=['shot_time', scrap_col_found])
+    df[scrap_col_found] = pd.to_numeric(df[scrap_col_found], errors='coerce').fillna(0)
 
-    risk_data = []
-    tool_ids = df_period[id_col].unique()
+    df['year'] = df['shot_time'].dt.isocalendar().year
+    df['week'] = df['shot_time'].dt.isocalendar().week
+    df['year_week'] = df['year'].astype(str) + '-W' + df['week'].astype(str).str.zfill(2)
+
+    summary = df.groupby(['year_week', id_col]).agg(
+        total_scrap=(scrap_col_found, 'sum'),
+        total_shots=('shot_time', 'size')
+    ).reset_index()
     
-    # Pre-calculate overall stats to avoid repeated groupby
-    overall_mttr_mean = df_period.groupby(id_col).apply(lambda x: RunRateCalculator(x, 0.05).results.get('mttr_min',0)).mean()
-    overall_mtbf_mean = df_period.groupby(id_col).apply(lambda x: RunRateCalculator(x, 0.05).results.get('mtbf_min',0)).mean()
+    summary['scrap_rate'] = (summary['total_scrap'] / summary['total_shots']) * 100
+    return summary, scrap_col_found
 
+def render_scrap_analysis(df_all_tools):
+    st.title("Run Rate Scrap Analysis")
+    st.info("This dashboard summarizes the total scrap parts and scrap rate for each tool on a weekly basis.")
 
-    for tool_id in tool_ids:
-        df_tool = df_period[df_period[id_col] == tool_id].copy()
-        if len(df_tool) < 10: continue
+    scrap_summary, scrap_col_name = calculate_scrap_by_week(df_all_tools)
 
-        calc = RunRateCalculator(df_tool, tolerance=0.05)
-        res = calc.results
-        stability = res.get('stability_index', 0)
-        mttr = res.get('mttr_min', 0)
-        mtbf = res.get('mtbf_min', 0)
+    if scrap_col_name is None:
+        st.warning("Could not find a scrap data column in the uploaded file(s). Please ensure a column named 'Scrap', 'Scrap Count', or 'Rejects' exists.")
+        return
         
-        df_tool['week'] = df_tool['shot_time'].dt.isocalendar().week
-        weekly_stabilities = []
-        for week in sorted(df_tool['week'].unique()):
-            df_week = df_tool[df_tool['week'] == week]
-            if not df_week.empty:
-                week_calc = RunRateCalculator(df_week, 0.05)
-                weekly_stabilities.append(week_calc.results.get('stability_index', 0))
-        
-        trend = "Stable"
-        if len(weekly_stabilities) > 1:
-            if weekly_stabilities[-1] < weekly_stabilities[0] * 0.95:
-                trend = "Declining"
-
-        risk_score = stability * 0.8
-        if trend == "Declining":
-            risk_score -= 20
-        
-        primary_factor = "Low Stability"
-        details = f"Overall stability is {stability:.1f}%."
-        if trend == "Declining":
-            primary_factor = "Declining Trend"
-            details = "Stability shows a consistent downward trend."
-        elif stability < 70 and mttr > (overall_mttr_mean * 1.2):
-             primary_factor = "High MTTR"
-             details = f"Average stop duration (MTTR) of {mttr:.1f} min is a key concern."
-        elif stability < 70 and mtbf < (overall_mtbf_mean * 0.8):
-             primary_factor = "Frequent Stops"
-             details = f"Frequent stops (MTBF of {mtbf:.1f} min) are impacting stability."
-
-        risk_data.append({
-            'Tool ID': tool_id, 'Risk Score': max(0, risk_score),
-            'Primary Risk Factor': primary_factor,
-            'Weekly Stability': ' → '.join([f'{s:.0f}%' for s in weekly_stabilities]),
-            'Details': details
-        })
-
-    if not risk_data:
-        return pd.DataFrame()
-        
-    return pd.DataFrame(risk_data).sort_values('Risk Score', ascending=True).reset_index(drop=True)
-
-def render_risk_tower(df_all_tools):
-    st.title("Run Rate Risk Tower")
-    st.info("This tower analyzes performance over the last 4 weeks, identifying tools that require attention. Tools with the lowest scores are at the highest risk.")
-    
-    risk_df = calculate_risk_scores(df_all_tools)
-
-    if risk_df.empty:
-        st.warning("Not enough data across multiple tools in the last 4 weeks to generate a risk tower.")
+    if scrap_summary.empty:
+        st.warning("No scrap data available for the selected period.")
         return
 
-    def style_risk(row):
-        score = row['Risk Score']
-        if score > 70: color = PASTEL_COLORS['green']
-        elif score > 50: color = PASTEL_COLORS['orange']
-        else: color = PASTEL_COLORS['red']
-        return [f'background-color: {color}' for _ in row]
+    id_col = "TOOLING ID" if "TOOLING ID" in df_all_tools.columns else "EQUIPMENT CODE"
+    
+    st.subheader("Weekly Scrap Counts per Tool")
+    scrap_pivot = scrap_summary.pivot_table(index=id_col, columns='year_week', values='total_scrap', aggfunc='sum').fillna(0)
+    st.dataframe(scrap_pivot.style.format("{:,.0f}"), use_container_width=True)
 
-    st.dataframe(risk_df.style.apply(style_risk, axis=1).format({'Risk Score': '{:.0f}'}), use_container_width=True, hide_index=True)
+    st.subheader("Weekly Scrap Count Trend")
+    fig_scrap_trend = px.bar(scrap_summary, x='year_week', y='total_scrap', color=id_col,
+                             title='Total Scrap Parts per Week',
+                             labels={'year_week': 'Week', 'total_scrap': 'Total Scrap Parts', id_col: 'Tool ID'},
+                             barmode='stack')
+    st.plotly_chart(fig_scrap_trend, use_container_width=True)
+
+    st.subheader("Weekly Scrap Rate (%) Trend")
+    scrap_rate_pivot = scrap_summary.pivot_table(index='year_week', columns=id_col, values='scrap_rate', aggfunc='mean').fillna(0)
+    fig_rate_trend = px.line(scrap_rate_pivot, x=scrap_rate_pivot.index, y=scrap_rate_pivot.columns,
+                             title='Scrap Rate (%) per Week',
+                             labels={'year_week': 'Week', 'value': 'Scrap Rate (%)', 'variable': 'Tool ID'})
+    st.plotly_chart(fig_rate_trend, use_container_width=True)
+
 
 # --- Main App Structure ---
 st.sidebar.title("File Upload")
@@ -1076,11 +1046,14 @@ else:
     df_for_dashboard = df_all_tools[df_all_tools[id_col] == tool_id_selection]
 
 
-tab1, tab2 = st.tabs(["Run Rate Dashboard", "Risk Tower"])
+tab1, tab2, tab3 = st.tabs(["Run Rate Dashboard", "Risk Tower", "Run Rate Scrap"])
 
 with tab1:
     render_dashboard(df_for_dashboard, tool_id_selection)
 
 with tab2:
     render_risk_tower(df_all_tools)
+
+with tab3:
+    render_scrap_analysis(df_all_tools)
 
