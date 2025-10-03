@@ -554,6 +554,7 @@ def render_dashboard(df_tool, tool_id_selection):
         - **Tolerance Band**: Defines the acceptable CT range around the Mode CT.
         - **Run Interval Threshold**: Defines the max hours between shots before a new Production Run is identified.
         """)
+        
 
     analysis_level = st.sidebar.radio("Select Analysis Level", ["Daily", "Weekly", "Monthly", "Custom Period", "Weekly (by Run)", "Monthly (by Run)", "Custom Period (by Run)"])
 
