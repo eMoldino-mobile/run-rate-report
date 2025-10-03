@@ -160,15 +160,26 @@ class RunRateCalculator:
         if not run_durations.empty:
             run_durations["time_bucket"] = pd.cut(run_durations["duration_min"], bins=edges, labels=labels, right=False, include_lowest=True)
         
-        reds, blues, greens = px.colors.sequential.Reds[4:8], px.colors.sequential.Blues[3:9], px.colors.sequential.Greens[4:9]
-        bucket_color_map = {}
+        # --- MODIFIED BLOCK START ---
+        # Define color palettes for gradients
+        reds, blues, greens = px.colors.sequential.Reds[3:7], px.colors.sequential.Blues[3:8], px.colors.sequential.Greens[3:8]
+        
+        # Categorize bucket labels to apply gradients
+        red_labels, blue_labels, green_labels = [], [], []
         for label in labels:
             try:
-                lower_bound = int(label.split("-")[0].replace('+', ''))
-                if lower_bound < 60: bucket_color_map[label] = reds[0]
-                elif 60 <= lower_bound < 160: bucket_color_map[label] = blues[0]
-                else: bucket_color_map[label] = greens[0]
+                lower_bound = int(label.split('-')[0].replace('+', ''))
+                if lower_bound < 60: red_labels.append(label)
+                elif 60 <= lower_bound < 160: blue_labels.append(label)
+                else: green_labels.append(label)
             except (ValueError, IndexError): continue
+            
+        # Assign gradient colors to each category
+        bucket_color_map = {}
+        for i, label in enumerate(red_labels): bucket_color_map[label] = reds[i % len(reds)]
+        for i, label in enumerate(blue_labels): bucket_color_map[label] = blues[i % len(blues)]
+        for i, label in enumerate(green_labels): bucket_color_map[label] = greens[i % len(greens)]
+        # --- MODIFIED BLOCK END ---
             
         hourly_summary = self._calculate_hourly_summary(df)
         
@@ -193,6 +204,7 @@ class RunRateCalculator:
             
         return final_results
 
+# ... (the rest of your code remains unchanged) ...
 # --- UI Helper and Plotting Functions ---
 def create_gauge(value, title, steps=None):
     gauge_config = {'axis': {'range': [0, 100]}}
@@ -252,7 +264,7 @@ def plot_trend_chart(df, x_col, y_col, title, x_title, y_title, y_range=[0, 101]
         for y0, y1, c in [(0, 50, PASTEL_COLORS['red']), (50, 70, PASTEL_COLORS['orange']), (70, 100, PASTEL_COLORS['green'])]:
             fig.add_shape(type="rect", xref="paper", x0=0, x1=1, y0=y0, y1=y1, fillcolor=c, opacity=0.2, line_width=0, layer="below")
     fig.update_layout(title=title, yaxis=dict(title=y_title, range=y_range), xaxis_title=x_title,
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     st.plotly_chart(fig, use_container_width=True)
 
 def format_minutes_to_dhm(total_minutes):
@@ -1084,4 +1096,3 @@ with tab1:
 
 with tab2:
     render_risk_tower(df_all_tools)
-
