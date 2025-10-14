@@ -986,7 +986,8 @@ def calculate_risk_scores(df_all_tools):
             'MTTR': res.get('mttr_min', 0),
             'MTBF': res.get('mtbf_min', 0),
             'Weekly Stability': ' → '.join([f'{s:.0f}%' for s in weekly_stabilities]),
-            'Trend': trend
+            'Trend': trend,
+            'Analysis Period': f"{start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"
         })
 
     if not initial_metrics:
@@ -1017,6 +1018,7 @@ def calculate_risk_scores(df_all_tools):
 
         final_risk_data.append({
             'Tool ID': row['Tool ID'],
+            'Analysis Period': row['Analysis Period'],
             'Risk Score': max(0, risk_score),
             'Primary Risk Factor': primary_factor,
             'Weekly Stability': row['Weekly Stability'],
@@ -1032,6 +1034,25 @@ def render_risk_tower(df_all_tools):
     st.title("Run Rate Risk Tower")
     st.info("This tower analyzes performance over the last 4 weeks, identifying tools that require attention. Tools with the lowest scores are at the highest risk.")
     
+    with st.expander("ℹ️ How the Risk Tower Works"):
+        st.markdown("""
+        The Risk Tower evaluates each tool based on its performance over its own most recent 4-week period of operation. Here’s how the metrics are calculated:
+
+        - **Analysis Period**: Shows the exact 4-week date range used for each tool's analysis, based on its latest available data.
+        - **Risk Score**: A performance indicator from 0-100.
+            - It starts with the tool's overall **Stability Index (%)** for the period.
+            - A **20-point penalty** is applied if the stability shows a declining trend from the first week to the last week of its analysis period.
+        - **Primary Risk Factor**: Identifies the main issue affecting performance, prioritized as follows:
+            1.  **Declining Trend**: If stability is worsening over time.
+            2.  **High MTTR**: If the average stop duration is significantly longer than the average of all tools.
+            3.  **Frequent Stops**: If the time between stops (MTBF) is significantly shorter than the average.
+            4.  **Low Stability**: If none of the above are true, but overall stability is low.
+        - **Color Coding**: Rows are colored based on the Risk Score:
+            - <span style='background-color:#ff6961; color: black; padding: 2px 5px; border-radius: 5px;'>Red (0-50)</span>: High Risk
+            - <span style='background-color:#ffb347; color: black; padding: 2px 5px; border-radius: 5px;'>Orange (51-70)</span>: Medium Risk
+            - <span style='background-color:#77dd77; color: black; padding: 2px 5px; border-radius: 5px;'>Green (>70)</span>: Low Risk
+        """, unsafe_allow_html=True)
+
     risk_df = calculate_risk_scores(df_all_tools)
 
     if risk_df.empty:
@@ -1105,11 +1126,11 @@ else:
     df_for_dashboard = df_all_tools[df_all_tools[id_col] == tool_id_selection]
 
 
-tab1, tab2 = st.tabs(["Run Rate Dashboard", "Risk Tower"])
+tab1, tab2 = st.tabs(["Risk Tower", "Run Rate Dashboard"])
 
 with tab1:
-    render_dashboard(df_for_dashboard, tool_id_selection)
+    render_risk_tower(df_all_tools)
 
 with tab2:
-    render_risk_tower(df_all_tools)
+    render_dashboard(df_for_dashboard, tool_id_selection)
 
