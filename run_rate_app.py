@@ -160,11 +160,8 @@ class RunRateCalculator:
         if not run_durations.empty:
             run_durations["time_bucket"] = pd.cut(run_durations["duration_min"], bins=edges, labels=labels, right=False, include_lowest=True)
         
-        # --- MODIFIED BLOCK START ---
-        # Define color palettes for gradients
         reds, blues, greens = px.colors.sequential.Reds[3:7], px.colors.sequential.Blues[3:8], px.colors.sequential.Greens[3:8]
         
-        # Categorize bucket labels to apply gradients
         red_labels, blue_labels, green_labels = [], [], []
         for label in labels:
             try:
@@ -174,12 +171,10 @@ class RunRateCalculator:
                 else: green_labels.append(label)
             except (ValueError, IndexError): continue
             
-        # Assign gradient colors to each category
         bucket_color_map = {}
         for i, label in enumerate(red_labels): bucket_color_map[label] = reds[i % len(reds)]
         for i, label in enumerate(blue_labels): bucket_color_map[label] = blues[i % len(blues)]
         for i, label in enumerate(green_labels): bucket_color_map[label] = greens[i % len(greens)]
-        # --- MODIFIED BLOCK END ---
             
         hourly_summary = self._calculate_hourly_summary(df)
         
@@ -204,7 +199,6 @@ class RunRateCalculator:
             
         return final_results
 
-# ... (the rest of your code remains unchanged) ...
 # --- UI Helper and Plotting Functions ---
 def create_gauge(value, title, steps=None):
     gauge_config = {'axis': {'range': [0, 100]}}
@@ -952,80 +946,87 @@ def render_dashboard(df_tool, tool_id_selection):
 
 @st.cache_data(show_spinner="Analyzing tool performance for Risk Tower...")
 def calculate_risk_scores(df_all_tools):
-    """Analyzes data for all tools over the last 4 weeks to generate risk scores."""
+    """Analyzes data for all tools, each within its own last 4-week window."""
     id_col = "tool_id"
-    
-    # Prepare data once
-    calc_prepare = RunRateCalculator(df_all_tools, tolerance=0.05)
-    df_prepared = calc_prepare.results.get("processed_df")
-    if df_prepared is None or df_prepared.empty:
-        return pd.DataFrame()
+    initial_metrics = []
 
-    end_date = df_prepared['shot_time'].max()
-    start_date = end_date - timedelta(weeks=4)
-    df_period = df_prepared[(df_prepared['shot_time'] >= start_date) & (df_prepared['shot_time'] <= end_date)]
+    # First pass: Calculate metrics for each tool based on its own 4-week window
+    for tool_id, df_tool in df_all_tools.groupby(id_col):
+        if df_tool.empty or len(df_tool) < 10:
+            continue
 
-    if df_period.empty:
-        return pd.DataFrame()
+        calc_prepare = RunRateCalculator(df_tool, tolerance=0.05)
+        df_prepared = calc_prepare.results.get("processed_df")
+        if df_prepared is None or df_prepared.empty:
+            continue
 
-    risk_data = []
-    tool_ids = df_period[id_col].unique()
-    
-    # Pre-calculate overall stats to avoid repeated groupby
-    overall_mttr_mean = df_period.groupby(id_col).apply(lambda x: RunRateCalculator(x, 0.05).results.get('mttr_min',0)).mean()
-    overall_mtbf_mean = df_period.groupby(id_col).apply(lambda x: RunRateCalculator(x, 0.05).results.get('mtbf_min',0)).mean()
+        end_date = df_prepared['shot_time'].max()
+        start_date = end_date - timedelta(weeks=4)
+        df_period = df_prepared[(df_prepared['shot_time'] >= start_date) & (df_prepared['shot_time'] <= end_date)]
 
+        if df_period.empty or len(df_period) < 10:
+            continue
 
-    for tool_id in tool_ids:
-        df_tool = df_period[df_period[id_col] == tool_id].copy()
-        if len(df_tool) < 10: continue
-
-        calc = RunRateCalculator(df_tool, tolerance=0.05)
+        calc = RunRateCalculator(df_period.copy(), tolerance=0.05)
         res = calc.results
-        stability = res.get('stability_index', 0)
-        mttr = res.get('mttr_min', 0)
-        mtbf = res.get('mtbf_min', 0)
         
-        df_tool['week'] = df_tool['shot_time'].dt.isocalendar().week
-        weekly_stabilities = []
-        for week in sorted(df_tool['week'].unique()):
-            df_week = df_tool[df_tool['week'] == week]
-            if not df_week.empty:
-                week_calc = RunRateCalculator(df_week, 0.05)
-                weekly_stabilities.append(week_calc.results.get('stability_index', 0))
+        df_period['week'] = df_period['shot_time'].dt.isocalendar().week
+        weekly_stabilities = [
+            RunRateCalculator(df_week, 0.05).results.get('stability_index', 0)
+            for _, df_week in df_period.groupby('week') if not df_week.empty
+        ]
         
         trend = "Stable"
-        if len(weekly_stabilities) > 1:
-            if weekly_stabilities[-1] < weekly_stabilities[0] * 0.95:
-                trend = "Declining"
+        if len(weekly_stabilities) > 1 and weekly_stabilities[-1] < weekly_stabilities[0] * 0.95:
+            trend = "Declining"
 
-        risk_score = stability * 0.8
-        if trend == "Declining":
+        initial_metrics.append({
+            'Tool ID': tool_id,
+            'Stability': res.get('stability_index', 0),
+            'MTTR': res.get('mttr_min', 0),
+            'MTBF': res.get('mtbf_min', 0),
+            'Weekly Stability': ' → '.join([f'{s:.0f}%' for s in weekly_stabilities]),
+            'Trend': trend
+        })
+
+    if not initial_metrics:
+        return pd.DataFrame()
+
+    # Second pass: Determine risk factors by comparing against the averages
+    metrics_df = pd.DataFrame(initial_metrics)
+    overall_mttr_mean = metrics_df['MTTR'].mean()
+    overall_mtbf_mean = metrics_df['MTBF'].mean()
+    
+    final_risk_data = []
+    for _, row in metrics_df.iterrows():
+        risk_score = row['Stability']
+        if row['Trend'] == "Declining":
             risk_score -= 20
         
         primary_factor = "Low Stability"
-        details = f"Overall stability is {stability:.1f}%."
-        if trend == "Declining":
+        details = f"Overall stability is {row['Stability']:.1f}%."
+        if row['Trend'] == "Declining":
             primary_factor = "Declining Trend"
             details = "Stability shows a consistent downward trend."
-        elif stability < 70 and mttr > (overall_mttr_mean * 1.2):
-             primary_factor = "High MTTR"
-             details = f"Average stop duration (MTTR) of {mttr:.1f} min is a key concern."
-        elif stability < 70 and mtbf < (overall_mtbf_mean * 0.8):
-             primary_factor = "Frequent Stops"
-             details = f"Frequent stops (MTBF of {mtbf:.1f} min) are impacting stability."
+        elif row['Stability'] < 70 and row['MTTR'] > (overall_mttr_mean * 1.2):
+            primary_factor = "High MTTR"
+            details = f"Average stop duration (MTTR) of {row['MTTR']:.1f} min is a key concern."
+        elif row['Stability'] < 70 and row['MTBF'] < (overall_mtbf_mean * 0.8):
+            primary_factor = "Frequent Stops"
+            details = f"Frequent stops (MTBF of {row['MTBF']:.1f} min) are impacting stability."
 
-        risk_data.append({
-            'Tool ID': tool_id, 'Risk Score': max(0, risk_score),
+        final_risk_data.append({
+            'Tool ID': row['Tool ID'],
+            'Risk Score': max(0, risk_score),
             'Primary Risk Factor': primary_factor,
-            'Weekly Stability': ' → '.join([f'{s:.0f}%' for s in weekly_stabilities]),
+            'Weekly Stability': row['Weekly Stability'],
             'Details': details
         })
 
-    if not risk_data:
+    if not final_risk_data:
         return pd.DataFrame()
         
-    return pd.DataFrame(risk_data).sort_values('Risk Score', ascending=True).reset_index(drop=True)
+    return pd.DataFrame(final_risk_data).sort_values('Risk Score', ascending=True).reset_index(drop=True)
 
 def render_risk_tower(df_all_tools):
     st.title("Run Rate Risk Tower")
