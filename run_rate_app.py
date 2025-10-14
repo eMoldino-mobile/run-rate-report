@@ -422,7 +422,7 @@ def generate_detailed_analysis(analysis_df, overall_stability, overall_mttr, ove
             recommendation = f"Performance is good, but could be improved by focusing on <strong>Mean Time To Repair (MTTR)</strong>. With an MTTR of <strong>{overall_mttr:.1f} minutes</strong>, streamlining the repair process for the infrequent but longer stops could yield significant gains."
     else:
         if overall_mtbf > 0 and overall_mttr > 0 and overall_mtbf < overall_mttr:
-            recommendation = f"Stability is poor and requires attention. The primary driver is a low <strong>Mean Time Between Failures (MTBF)</strong> of <strong>{overall_bf:.1f} minutes</strong>. The top priority should be investigating the root cause of frequent machine stoppages."
+            recommendation = f"Stability is poor and requires attention. The primary driver is a low <strong>Mean Time Between Failures (MTBF)</strong> of <strong>{overall_mtbf:.1f} minutes</strong>. The top priority should be investigating the root cause of frequent machine stoppages."
         else:
             recommendation = f"Stability is poor and requires attention. The primary driver is a high <strong>Mean Time To Repair (MTTR)</strong> of <strong>{overall_mttr:.1f} minutes</strong>. The top priority should be investigating why stops take a long time to resolve and streamlining the repair process."
 
@@ -1079,7 +1079,10 @@ if id_col not in df_all_tools.columns:
     st.error(f"Files must contain 'TOOLING ID' or 'EQUIPMENT CODE'.")
     st.stop()
 
-# FIX: Convert the ID column to a consistent string type to prevent sorting errors
+# FIX: Drop rows with missing Tool IDs to prevent 'nan' entries and ensure clean data
+df_all_tools.dropna(subset=[id_col], inplace=True)
+
+# FIX: Convert the ID column to a consistent string type for reliable sorting
 df_all_tools[id_col] = df_all_tools[id_col].astype(str)
 
 # Add a selectbox for Tool ID for the main dashboard
@@ -1099,3 +1102,4 @@ with tab1:
 
 with tab2:
     render_risk_tower(df_all_tools)
+
