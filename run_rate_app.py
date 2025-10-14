@@ -953,7 +953,7 @@ def render_dashboard(df_tool, tool_id_selection):
 @st.cache_data(show_spinner="Analyzing tool performance for Risk Tower...")
 def calculate_risk_scores(df_all_tools):
     """Analyzes data for all tools over the last 4 weeks to generate risk scores."""
-    id_col = "TOOLING ID" if "TOOLING ID" in df_all_tools.columns else "EQUIPMENT CODE"
+    id_col = "tool_id"
     
     # Prepare data once
     calc_prepare = RunRateCalculator(df_all_tools, tolerance=0.05)
@@ -1059,13 +1059,23 @@ def load_all_data(files):
     df_list = []
     for file in files:
         df = pd.read_excel(file)
+        
+        # Standardize the tool ID column name
+        if "TOOLING ID" in df.columns:
+            df.rename(columns={"TOOLING ID": "tool_id"}, inplace=True)
+        elif "EQUIPMENT CODE" in df.columns:
+            df.rename(columns={"EQUIPMENT CODE": "tool_id"}, inplace=True)
+
         # Ensure 'shot_time' is parsed correctly across all files
         if {"YEAR", "MONTH", "DAY", "TIME"}.issubset(df.columns):
             datetime_str = df["YEAR"].astype(str) + "-" + df["MONTH"].astype(str) + "-" + df["DAY"].astype(str) + " " + df['TIME'].astype(str)
             df["shot_time"] = pd.to_datetime(datetime_str, errors="coerce")
         elif "SHOT TIME" in df.columns:
             df["shot_time"] = pd.to_datetime(df["SHOT TIME"], errors="coerce")
-        df_list.append(df)
+        
+        # Only append dataframes that have the standardized tool_id column
+        if "tool_id" in df.columns:
+            df_list.append(df)
     
     if not df_list:
         return pd.DataFrame()
@@ -1074,20 +1084,19 @@ def load_all_data(files):
 
 df_all_tools = load_all_data(uploaded_files)
 
-id_col = "TOOLING ID" if "TOOLING ID" in df_all_tools.columns else "EQUIPMENT CODE"
+# The column is now standardized to 'tool_id'
+id_col = "tool_id"
 if id_col not in df_all_tools.columns:
-    st.error(f"Files must contain 'TOOLING ID' or 'EQUIPMENT CODE'.")
+    st.error(f"None of the uploaded files contain a 'TOOLING ID' or 'EQUIPMENT CODE' column.")
     st.stop()
 
-# FIX: Drop rows with missing Tool IDs to prevent 'nan' entries and ensure clean data
+# Data cleaning
 df_all_tools.dropna(subset=[id_col], inplace=True)
-
-# FIX: Convert the ID column to a consistent string type for reliable sorting
 df_all_tools[id_col] = df_all_tools[id_col].astype(str)
 
 # Add a selectbox for Tool ID for the main dashboard
 tool_ids = ["All Tools (Aggregated)"] + sorted(df_all_tools[id_col].unique().tolist())
-tool_id_selection = st.sidebar.selectbox(f"Select {id_col} for Dashboard Analysis", tool_ids)
+tool_id_selection = st.sidebar.selectbox("Select Tool ID for Dashboard Analysis", tool_ids)
 
 if tool_id_selection == "All Tools (Aggregated)":
     df_for_dashboard = df_all_tools
