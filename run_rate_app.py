@@ -116,18 +116,13 @@ class RunRateCalculator:
             upper_limit = mode_ct * (1 + self.tolerance)
             mode_ct_display = mode_ct
 
-        # Phase 1 Stop Check: Deviation from Mode CT (Abnormal Cycle)
-        df["stop_flag"] = np.where(
-            (df["ACTUAL CT"] < lower_limit) | (df["ACTUAL CT"] > upper_limit), 1, 0
-        )
+        # Define the two conditions for a stop, based on the formula reference guide.
+        is_abnormal_cycle = (df["ACTUAL CT"] < lower_limit) | (df["ACTUAL CT"] > upper_limit)
+        is_downtime_gap = (df["time_diff_sec"] - df["ACTUAL CT"].shift(1)) > 2
 
-        # Phase 2 Stop Check: Downtime gap based on timestamps
-        prev_actual_ct = df["ACTUAL CT"].shift(1)
-        mask_production = df["stop_flag"] == 0
-        
-        df.loc[mask_production, "stop_flag"] = np.where(
-            (df.loc[mask_production, "time_diff_sec"] - prev_actual_ct[mask_production]) > 2, 1, 0
-        )
+        # Combine the conditions with an OR. A stop occurs if either is true.
+        # .fillna(False) handles the first row where the gap check is not applicable.
+        df["stop_flag"] = np.where(is_abnormal_cycle | is_downtime_gap.fillna(False), 1, 0)
         
         # Safety for first record and create helper column
         if not df.empty:
