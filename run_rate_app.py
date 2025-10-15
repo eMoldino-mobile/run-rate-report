@@ -129,7 +129,7 @@ class RunRateCalculator:
         
         # Phase 2: Check for downtime gaps using the new adjustable tolerance.
         prev_actual_ct = df["ACTUAL CT"].shift(1)
-        is_downtime_gap = (df["time_diff_sec"] - prev_actual_ct) > self.downtime_gap_tolerance
+        is_downtime_gap = df["time_diff_sec"] > (prev_actual_ct + self.downtime_gap_tolerance)
 
         # A shot is flagged as a stop if EITHER condition is true.
         df["stop_flag"] = np.where(is_abnormal_cycle | is_downtime_gap.fillna(False), 1, 0)
@@ -1165,3 +1165,4 @@ with tab2:
         render_dashboard(df_for_dashboard, tool_id_for_dashboard_display)
     else:
         st.info("Select a specific Tool ID from the sidebar to view its dashboard.")
+
