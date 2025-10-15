@@ -42,18 +42,15 @@ class RunRateCalculator:
         df = df.dropna(subset=["shot_time"]).sort_values("shot_time").reset_index(drop=True)
         if df.empty: return pd.DataFrame()
 
-        if "ACTUAL CT" in df.columns:
-            time_diff_sec = df["shot_time"].diff().dt.total_seconds()
-            prev_actual_ct = df["ACTUAL CT"].shift(1)
-            rounding_buffer = 2.0
-            use_timestamp_diff = (prev_actual_ct == 999.9) | (time_diff_sec > (prev_actual_ct + rounding_buffer))
-            # This column is now used for the stop condition, but not for production time summing.
-            df["ct_diff_sec"] = np.where(use_timestamp_diff, time_diff_sec, df["ACTUAL CT"])
-        else:
-            df["ct_diff_sec"] = df["shot_time"].diff().dt.total_seconds()
+        # Always calculate the raw time difference between consecutive timestamps.
+        df["time_diff_sec"] = df["shot_time"].diff().dt.total_seconds()
 
-        if not df.empty and pd.isna(df.loc[0, "ct_diff_sec"]):
-            df.loc[0, "ct_diff_sec"] = df.loc[0, "ACTUAL CT"] if "ACTUAL CT" in df.columns else 0
+        # Handle the NaN for the first shot.
+        if not df.empty and pd.isna(df.loc[0, "time_diff_sec"]):
+            if "ACTUAL CT" in df.columns:
+                df.loc[0, "time_diff_sec"] = df.loc[0, "ACTUAL CT"]
+            else:
+                df.loc[0, "time_diff_sec"] = 0
         return df
 
     def _calculate_hourly_summary(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -64,7 +61,7 @@ class RunRateCalculator:
         
         hourly_groups = df.groupby('hour')
         stops = hourly_groups['stop_event'].sum()
-        total_downtime_sec = hourly_groups.apply(lambda x: x[x['stop_flag'] == 1]['ct_diff_sec'].sum())
+        total_downtime_sec = hourly_groups.apply(lambda x: x[x['stop_flag'] == 1]['adj_ct_sec'].sum())
         uptime_min = df[df['stop_flag'] == 0].groupby('hour')['ACTUAL CT'].sum() / 60
         shots = hourly_groups.size().rename('total_shots')
 
@@ -126,17 +123,31 @@ class RunRateCalculator:
             upper_limit = mode_ct * (1 + self.tolerance)
             mode_ct_display = mode_ct
 
-        stop_condition = ((df["ct_diff_sec"] < lower_limit) | (df["ct_diff_sec"] > upper_limit)) & (df["ct_diff_sec"] <= 28800)
-        df["stop_flag"] = np.where(stop_condition, 1, 0)
+        # --- New Two-Phase Stop Detection Logic ---
+        # Phase 1: Check for abnormal cycle times based on deviation from Mode CT.
+        is_abnormal_cycle = (df["ACTUAL CT"] < lower_limit) | (df["ACTUAL CT"] > upper_limit)
+        
+        # Phase 2: Check for downtime gaps based on timestamp differences.
+        prev_actual_ct = df["ACTUAL CT"].shift(1)
+        is_downtime_gap = (df["time_diff_sec"] - prev_actual_ct) > 2.0
+
+        # A shot is flagged as a stop if EITHER condition is true.
+        df["stop_flag"] = np.where(is_abnormal_cycle | is_downtime_gap.fillna(False), 1, 0)
+
         if not df.empty:
-            df.loc[0, "stop_flag"] = 0
+            df.loc[0, "stop_flag"] = 0 # The first shot can never be a stop.
+        
         df["stop_event"] = (df["stop_flag"] == 1) & (df["stop_flag"].shift(1, fill_value=0) == 0)
         
+        # This helper column determines the value to use for downtime calculations.
+        df["adj_ct_sec"] = np.where(df["stop_flag"] == 1, df["time_diff_sec"], df["ACTUAL CT"])
+        # --- End of New Logic ---
+
         total_shots = len(df)
         stop_events = df["stop_event"].sum()
         
-        # Downtime is the sum of time gaps for all flagged stop events.
-        downtime_sec = df.loc[df['stop_flag'] == 1, 'ct_diff_sec'].sum()
+        # Downtime is the sum of the adjusted cycle times for all flagged stop events.
+        downtime_sec = df.loc[df['stop_flag'] == 1, 'adj_ct_sec'].sum()
         mttr_min = (downtime_sec / 60 / stop_events) if stop_events > 0 else 0
 
         # Production time is the sum of ACTUAL CT for all non-stopped shots.
@@ -152,8 +163,8 @@ class RunRateCalculator:
         efficiency = normal_shots / total_shots if total_shots > 0 else 0
         df["run_group"] = df["stop_event"].cumsum()
 
-        df_for_runs = df[df['ct_diff_sec'] <= 28800].copy()
-        run_durations = df_for_runs[df_for_runs["stop_flag"] == 0].groupby("run_group")["ct_diff_sec"].sum().div(60).reset_index(name="duration_min")
+        df_for_runs = df[df['adj_ct_sec'] <= 28800].copy()
+        run_durations = df_for_runs[df_for_runs["stop_flag"] == 0].groupby("run_group")["ACTUAL CT"].sum().div(60).reset_index(name="duration_min")
 
         max_minutes = min(run_durations["duration_min"].max(), 240) if not run_durations.empty else 0
         upper_bound = int(np.ceil(max_minutes / 20.0) * 20)
@@ -243,7 +254,7 @@ def plot_shot_bar_chart(df, lower_limit, upper_limit, mode_ct, time_agg='hourly'
             fillcolor=PASTEL_COLORS['green'], opacity=0.2, layer="below", line_width=0
         )
 
-    fig.add_trace(go.Bar(x=df['plot_time'], y=df['ct_diff_sec'], marker_color=df['color'], name='Cycle Time'))
+    fig.add_trace(go.Bar(x=df['plot_time'], y=df['adj_ct_sec'], marker_color=df['color'], name='Cycle Time'))
     
     y_axis_cap_val = mode_ct if isinstance(mode_ct, (int, float)) else df['mode_ct'].mean() if 'mode_ct' in df else 50
     y_axis_cap = min(max(y_axis_cap_val * 2, 50), 500)
