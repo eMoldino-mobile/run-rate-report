@@ -1166,4 +1166,3 @@ with tab2:
     else:
         st.info("Select a specific Tool ID from the sidebar to view its dashboard.")
 " of the Canvas.
-
