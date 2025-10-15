@@ -141,7 +141,16 @@ class RunRateCalculator:
         effective_runtime_sec = production_time_sec + downtime_sec
         stability_index = (production_time_sec / effective_runtime_sec * 100) if effective_runtime_sec > 0 else (100.0 if stop_events == 0 else 0.0)
         
-        total_runtime_sec = (df["shot_time"].max() - df["shot_time"].min()).total_seconds() if total_shots > 1 else 0
+        total_runtime_sec = 0
+        if total_shots > 1:
+            start_time = df["shot_time"].min()
+            end_time = df["shot_time"].max()
+            last_shot_ct = df.iloc[-1]["ACTUAL CT"]
+            # Add the last cycle's time to the end time, unless it's an idle shot
+            if last_shot_ct < 999.9:
+                 end_time += pd.to_timedelta(last_shot_ct, unit='s')
+            total_runtime_sec = (end_time - start_time).total_seconds()
+
         normal_shots = total_shots - df["stop_flag"].sum()
         efficiency = normal_shots / total_shots if total_shots > 0 else 0
         df["run_group"] = df["stop_event"].cumsum()
@@ -1133,4 +1142,3 @@ with tab1:
 
 with tab2:
     render_dashboard(df_for_dashboard, tool_id_selection)
-
