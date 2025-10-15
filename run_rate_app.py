@@ -26,7 +26,7 @@ class RunRateCalculator:
     def __init__(self, df: pd.DataFrame, tolerance: float, analysis_mode='aggregate'):
         self.df_raw = df.copy()
         self.tolerance = tolerance
-        self.analysis_mode = analysis_mode # New mode: 'aggregate' or 'by_run'
+        self.analysis_mode = analysis_mode
         self.results = self._calculate_all_metrics()
 
     def _prepare_data(self) -> pd.DataFrame:
@@ -116,23 +116,25 @@ class RunRateCalculator:
             mode_ct_display = "Varies by Run"
         else:
             df_for_mode_calc = df[df["ACTUAL CT"] < 999.9].copy()
-            # Round ACTUAL CT before calculating mode to align with manual report methodology
             df_for_mode_calc['rounded_ct'] = df_for_mode_calc['ACTUAL CT'].round(0)
             mode_ct = df_for_mode_calc['rounded_ct'].mode().iloc[0] if not df_for_mode_calc['rounded_ct'].mode().empty else 0
             lower_limit = mode_ct * (1 - self.tolerance)
             upper_limit = mode_ct * (1 + self.tolerance)
             mode_ct_display = mode_ct
 
-        # --- New Two-Phase Stop Detection Logic ---
-        # Phase 1: Check for abnormal cycle times based on deviation from Mode CT.
+        # --- Restored Two-Phase Stop Detection Logic ---
+        # Phase 1: Check for abnormal cycle times. This catches shots that completed 
+        # but were too fast/slow (e.g., a machine-reported CT of 999s).
         is_abnormal_cycle = (df["ACTUAL CT"] < lower_limit) | (df["ACTUAL CT"] > upper_limit)
         
-        # Phase 2: Check for downtime gaps based on timestamp differences.
+        # Phase 2: Check for downtime gaps. This catches periods where the machine 
+        # was not running between shots, based on the time difference between timestamps.
         prev_actual_ct = df["ACTUAL CT"].shift(1)
-        is_downtime_gap = (df["time_diff_sec"] - prev_actual_ct) > 2.0
+        is_downtime_gap = (df["time_diff_sec"] - prev_actual_ct) > 2.0 # 2s tolerance for network/logging delays
 
         # A shot is flagged as a stop if EITHER condition is true.
         df["stop_flag"] = np.where(is_abnormal_cycle | is_downtime_gap.fillna(False), 1, 0)
+        # --- End of Restored Logic ---
 
         if not df.empty:
             df.loc[0, "stop_flag"] = 0 # The first shot can never be a stop.
@@ -141,12 +143,11 @@ class RunRateCalculator:
         
         # This helper column determines the value to use for downtime calculations.
         df["adj_ct_sec"] = np.where(df["stop_flag"] == 1, df["time_diff_sec"], df["ACTUAL CT"])
-        # --- End of New Logic ---
 
         total_shots = len(df)
         stop_events = df["stop_event"].sum()
         
-        # Downtime is the sum of the adjusted cycle times for all flagged stop events.
+        # Downtime is the sum of the adjusted cycle times for all flagged stop shots.
         downtime_sec = df.loc[df['stop_flag'] == 1, 'adj_ct_sec'].sum()
         mttr_min = (downtime_sec / 60 / stop_events) if stop_events > 0 else 0
 
@@ -595,7 +596,7 @@ def render_dashboard(df_tool, tool_id_selection):
             df_processed['week'] = df_processed['shot_time'].dt.isocalendar().week
             df_processed['date'] = df_processed['shot_time'].dt.date
             df_processed['month'] = df_processed['shot_time'].dt.to_period('M')
-            is_new_run = df_processed['ct_diff_sec'] > (interval_hours * 3600)
+            is_new_run = df_processed['time_diff_sec'] > (interval_hours * 3600)
             df_processed['run_id'] = is_new_run.cumsum()
             run_start_dates = df_processed.groupby('run_id')['shot_time'].min()
             run_labels = {run_id: f"{i+1:03d} ({date.strftime('%Y-%m-%d')})" for i, (run_id, date) in enumerate(run_start_dates.items())}
@@ -619,7 +620,7 @@ def render_dashboard(df_tool, tool_id_selection):
             st.stop()
         selected_date = st.selectbox("Select Date", options=available_dates, index=len(available_dates)-1, format_func=lambda d: pd.to_datetime(d).strftime('%d %b %Y'))
         df_view = df_processed[df_processed["date"] == selected_date]
-        sub_header = f"Summary for {selected_date.strftime('%d %b %Y')}"
+        sub_header = f"Summary for {pd.to_datetime(selected_date).strftime('%d %b %Y')}"
     elif "Weekly" in analysis_level:
         st.header(f"Weekly Analysis {'(by Production Run)' if mode == 'by_run' else ''}")
         available_weeks = sorted(df_processed["week"].unique())
@@ -781,10 +782,13 @@ def render_dashboard(df_tool, tool_id_selection):
                     d_df.rename(columns={'run_label':'RUN ID','mode_ct':'Mode CT (for the run)','lower_limit':'Lower limit CT (sec)','upper_limit':'Upper Limit CT (sec)','mttr_min':'MTTR (min)','mtbf_min':'MTBF (min)','stability_index':'STABILITY %','stops':'STOPS'}, inplace=True)
                     final_cols = ['RUN ID','Period (date/time from to)','Total shots','Normal shots (& %)','STOPS (&%)','Mode CT (for the run)','Lower limit CT (sec)','Upper Limit CT (sec)','Total Run duration (d/h/m)','Production Time (d/h/m) (& %)','Downtime (& %)','MTTR (min)','MTBF (min)','STABILITY %','STOPS']
                     st.dataframe(d_df[final_cols].style.format({'Mode CT (for the run)':'{:.2f}','Lower limit CT (sec)':'{:.2f}','Upper Limit CT (sec)':'{:.2f}','MTTR (min)':'{:.1f}','MTBF (min)':'{:.1f}','STABILITY %':'{:.1f}'}), use_container_width=True)
+        
         time_agg = 'hourly' if analysis_level == 'Daily' else 'daily' if 'Weekly' in analysis_level else 'weekly'
         plot_shot_bar_chart(results['processed_df'], results.get('lower_limit'), results.get('upper_limit'), results.get('mode_ct'), time_agg=time_agg)
+        
         with st.expander("View Shot Data Table", expanded=False):
-            st.dataframe(results['processed_df'][['shot_time', 'run_label', 'ACTUAL CT', 'ct_diff_sec', 'stop_flag', 'stop_event']])
+            st.dataframe(results['processed_df'][['shot_time', 'run_label', 'ACTUAL CT', 'time_diff_sec', 'stop_flag', 'stop_event']])
+        
         st.markdown("---")
         if analysis_level == "Daily":
             st.header("Hourly Analysis")
@@ -1097,24 +1101,27 @@ if not uploaded_files:
 def load_all_data(files):
     df_list = []
     for file in files:
-        df = pd.read_excel(file)
-        
-        # Standardize the tool ID column name
-        if "TOOLING ID" in df.columns:
-            df.rename(columns={"TOOLING ID": "tool_id"}, inplace=True)
-        elif "EQUIPMENT CODE" in df.columns:
-            df.rename(columns={"EQUIPMENT CODE": "tool_id"}, inplace=True)
+        try:
+            df = pd.read_excel(file)
+            
+            # Standardize the tool ID column name
+            if "TOOLING ID" in df.columns:
+                df.rename(columns={"TOOLING ID": "tool_id"}, inplace=True)
+            elif "EQUIPMENT CODE" in df.columns:
+                df.rename(columns={"EQUIPMENT CODE": "tool_id"}, inplace=True)
 
-        # Ensure 'shot_time' is parsed correctly across all files
-        if {"YEAR", "MONTH", "DAY", "TIME"}.issubset(df.columns):
-            datetime_str = df["YEAR"].astype(str) + "-" + df["MONTH"].astype(str) + "-" + df["DAY"].astype(str) + " " + df['TIME'].astype(str)
-            df["shot_time"] = pd.to_datetime(datetime_str, errors="coerce")
-        elif "SHOT TIME" in df.columns:
-            df["shot_time"] = pd.to_datetime(df["SHOT TIME"], errors="coerce")
-        
-        # Only append dataframes that have the standardized tool_id column
-        if "tool_id" in df.columns:
-            df_list.append(df)
+            # Ensure 'shot_time' is parsed correctly across all files
+            if {"YEAR", "MONTH", "DAY", "TIME"}.issubset(df.columns):
+                datetime_str = df["YEAR"].astype(str) + "-" + df["MONTH"].astype(str) + "-" + df["DAY"].astype(str) + " " + df['TIME'].astype(str)
+                df["shot_time"] = pd.to_datetime(datetime_str, errors="coerce")
+            elif "SHOT TIME" in df.columns:
+                df["shot_time"] = pd.to_datetime(df["SHOT TIME"], errors="coerce")
+            
+            # Only append dataframes that have the standardized tool_id column
+            if "tool_id" in df.columns:
+                df_list.append(df)
+        except Exception as e:
+            st.warning(f"Could not load file: {file.name}. Error: {e}")
     
     if not df_list:
         return pd.DataFrame()
@@ -1134,13 +1141,22 @@ df_all_tools.dropna(subset=[id_col], inplace=True)
 df_all_tools[id_col] = df_all_tools[id_col].astype(str)
 
 # Add a selectbox for Tool ID for the main dashboard
-tool_ids = ["All Tools (Aggregated)"] + sorted(df_all_tools[id_col].unique().tolist())
-tool_id_selection = st.sidebar.selectbox("Select Tool ID for Dashboard Analysis", tool_ids)
+tool_ids = ["All Tools (Risk Tower)"] + sorted(df_all_tools[id_col].unique().tolist())
+# Map "All Tools (Risk Tower)" to a specific tool for the dashboard view, e.g., the first one
+dashboard_tool_id_selection = st.sidebar.selectbox("Select Tool ID for Dashboard Analysis", tool_ids)
 
-if tool_id_selection == "All Tools (Aggregated)":
-    df_for_dashboard = df_all_tools
+if dashboard_tool_id_selection == "All Tools (Risk Tower)":
+    # Default to showing the first tool in the list for the dashboard if 'All' is selected
+    if len(tool_ids) > 1:
+        first_tool = tool_ids[1]
+        df_for_dashboard = df_all_tools[df_all_tools[id_col] == first_tool]
+        tool_id_for_dashboard_display = first_tool
+    else: # Handle case where there are no tools
+        df_for_dashboard = pd.DataFrame()
+        tool_id_for_dashboard_display = "No Tool Selected"
 else:
-    df_for_dashboard = df_all_tools[df_all_tools[id_col] == tool_id_selection]
+    df_for_dashboard = df_all_tools[df_all_tools[id_col] == dashboard_tool_id_selection]
+    tool_id_for_dashboard_display = dashboard_tool_id_selection
 
 
 tab1, tab2 = st.tabs(["Risk Tower", "Run Rate Dashboard"])
@@ -1149,5 +1165,8 @@ with tab1:
     render_risk_tower(df_all_tools)
 
 with tab2:
-    render_dashboard(df_for_dashboard, tool_id_selection)
+    if not df_for_dashboard.empty:
+        render_dashboard(df_for_dashboard, tool_id_for_dashboard_display)
+    else:
+        st.info("Select a specific Tool ID from the sidebar to view its dashboard.")
 
