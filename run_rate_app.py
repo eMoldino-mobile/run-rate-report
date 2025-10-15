@@ -157,15 +157,13 @@ class RunRateCalculator:
         # Downtime is the sum of time gaps for all flagged stops
         downtime_sec = df.loc[df['stop_flag'] == 1, 'adj_ct_sec'].sum()
         
-        # Production time is redefined as the remainder of total time, ensuring metrics add up
-        production_time_sec = total_runtime_sec - downtime_sec
-        if production_time_sec < 0:
-            production_time_sec = 0 # Safety check
+        # Production time is the sum of cycle times for all normal (non-stop) shots.
+        production_time_sec = df.loc[df['stop_flag'] == 0, 'ACTUAL CT'].sum()
 
         # The rest of the metrics derive from these consistent definitions
         mttr_min = (downtime_sec / 60 / stop_events) if stop_events > 0 else 0
         mtbf_min = (production_time_sec / 60 / stop_events) if stop_events > 0 else (production_time_sec / 60)
-        effective_runtime_sec = production_time_sec + downtime_sec # This now equals total_runtime_sec
+        effective_runtime_sec = production_time_sec + downtime_sec 
         stability_index = (production_time_sec / effective_runtime_sec * 100) if effective_runtime_sec > 0 else (100.0 if stop_events == 0 else 0.0)
 
         normal_shots = total_shots - df["stop_flag"].sum()
