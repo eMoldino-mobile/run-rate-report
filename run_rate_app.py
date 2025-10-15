@@ -143,13 +143,12 @@ class RunRateCalculator:
         total_shots = len(df)
         stop_events = df["stop_event"].sum()
         
-        # Calculate total_runtime_sec first to ensure it's the complete wall-clock time
+        # Total run duration is the complete wall-clock time from start to end
         total_runtime_sec = 0
         if total_shots > 1:
             start_time = df["shot_time"].min()
             end_time = df["shot_time"].max()
             last_shot_ct = df.iloc[-1]["ACTUAL CT"]
-            # Add the last cycle's time to the end time, unless it's an idle shot
             if last_shot_ct < 999.9:
                  end_time += pd.to_timedelta(last_shot_ct, unit='s')
             total_runtime_sec = (end_time - start_time).total_seconds()
@@ -157,13 +156,14 @@ class RunRateCalculator:
         # Production time is the sum of cycle times for all normal (non-stop) shots.
         production_time_sec = df.loc[df['stop_flag'] == 0, 'ACTUAL CT'].sum()
         
-        # Downtime is the remainder of the total duration, ensuring metrics add up.
+        # Downtime is now consistently defined as the total duration minus productive time.
         downtime_sec = total_runtime_sec - production_time_sec
-        if downtime_sec < 0: downtime_sec = 0 # Safety check to prevent negative downtime
+        if downtime_sec < 0: downtime_sec = 0 
 
         # The rest of the metrics derive from these consistent definitions
         mttr_min = (downtime_sec / 60 / stop_events) if stop_events > 0 else 0
         mtbf_min = (production_time_sec / 60 / stop_events) if stop_events > 0 else (production_time_sec / 60)
+        
         effective_runtime_sec = production_time_sec + downtime_sec 
         stability_index = (production_time_sec / effective_runtime_sec * 100) if effective_runtime_sec > 0 else (100.0 if stop_events == 0 else 0.0)
 
