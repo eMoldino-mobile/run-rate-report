@@ -116,42 +116,52 @@ class RunRateCalculator:
             upper_limit = mode_ct * (1 + self.tolerance)
             mode_ct_display = mode_ct
 
-        # Define the two conditions for a stop, based on the formula reference guide.
-        is_abnormal_cycle = (df["ACTUAL CT"] < lower_limit) | (df["ACTUAL CT"] > upper_limit)
-        is_downtime_gap = (df["time_diff_sec"] - df["ACTUAL CT"].shift(1)) > 2
+        # --- Advanced Stop Detection Logic (from Formula Reference) ---
 
-        # Combine the conditions with an OR. A stop occurs if either is true.
-        # .fillna(False) handles the first row where the gap check is not applicable.
-        df["stop_flag"] = np.where(is_abnormal_cycle | is_downtime_gap.fillna(False), 1, 0)
+        # Condition 1: Is the current cycle's CT abnormal?
+        is_abnormal_cycle = (df["ACTUAL CT"] < lower_limit) | (df["ACTUAL CT"] > upper_limit)
+
+        # Condition 2: Is there a downtime gap? This depends on the validity of the *previous* cycle.
+        prev_ct = df["ACTUAL CT"].shift(1)
         
-        # Safety for first record and create helper column
+        # A previous CT is invalid if it was an idle shot (999.9) or was itself abnormal.
+        prev_ct_is_invalid = (prev_ct == 999.9) | (prev_ct < lower_limit) | (prev_ct > upper_limit)
+
+        # Case 1 (if prev_ct was invalid): Compare time gap against the overall MODE cycle time.
+        case1_downtime = df["time_diff_sec"] > (mode_ct + 2.0)
+        
+        # Case 2 (if prev_ct was valid): Compare time gap against that specific PREVIOUS cycle time.
+        case2_downtime = df["time_diff_sec"] > (prev_ct + 2.0)
+        
+        # Use np.select to apply the correct logic for each row to determine if it's a downtime gap.
+        is_downtime_gap = np.select(
+            [prev_ct_is_invalid.fillna(True), ~prev_ct_is_invalid.fillna(True)],
+            [case1_downtime, case2_downtime],
+            default=False
+        )
+
+        # A stop is flagged if EITHER the current cycle is abnormal OR there was a downtime gap before it.
+        df["stop_flag"] = np.where(is_abnormal_cycle | is_downtime_gap, 1, 0)
+        
+        # --- End of Advanced Stop Detection Logic ---
+        
         if not df.empty:
-            df.loc[0, 'stop_flag'] = 0
+            df.loc[0, 'stop_flag'] = 0 # First shot cannot be a stop
             if pd.isna(df.loc[0, "time_diff_sec"]):
                 df.loc[0, "time_diff_sec"] = df.loc[0, "ACTUAL CT"]
 
-        # Create the adjusted CT column for downstream metrics
         df["adj_ct_sec"] = np.where(df["stop_flag"] == 1, df["time_diff_sec"], df["ACTUAL CT"])
-        
         df["stop_event"] = (df["stop_flag"] == 1) & (df["stop_flag"].shift(1, fill_value=0) == 0)
         
         total_shots = len(df)
         stop_events = df["stop_event"].sum()
 
-        # Production time is the sum of cycle times for all normal (non-stop) shots.
         production_time_sec = df.loc[df['stop_flag'] == 0, 'ACTUAL CT'].sum()
-        
-        # Downtime is the direct sum of the time gaps for all flagged stop events.
         downtime_sec = df.loc[df['stop_flag'] == 1, 'adj_ct_sec'].sum()
-
-        # Total Run Duration is now defined as the sum of its parts, ensuring consistency.
         total_runtime_sec = production_time_sec + downtime_sec
 
-        # The rest of the metrics derive from these consistent definitions
         mttr_min = (downtime_sec / 60 / stop_events) if stop_events > 0 else 0
         mtbf_min = (production_time_sec / 60 / stop_events) if stop_events > 0 else (production_time_sec / 60)
-        
-        # effective_runtime_sec is the same as total_runtime_sec in this new model
         stability_index = (production_time_sec / total_runtime_sec * 100) if total_runtime_sec > 0 else (100.0 if stop_events == 0 else 0.0)
 
         normal_shots = total_shots - df["stop_flag"].sum()
