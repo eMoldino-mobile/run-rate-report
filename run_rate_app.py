@@ -23,9 +23,10 @@ PASTEL_COLORS = {
 
 # --- Core Calculation Class ---
 class RunRateCalculator:
-    def __init__(self, df: pd.DataFrame, tolerance: float, analysis_mode='aggregate'):
+    def __init__(self, df: pd.DataFrame, tolerance: float, downtime_gap_tolerance: float, analysis_mode='aggregate'):
         self.df_raw = df.copy()
         self.tolerance = tolerance
+        self.downtime_gap_tolerance = downtime_gap_tolerance
         self.analysis_mode = analysis_mode
         self.results = self._calculate_all_metrics()
 
@@ -122,41 +123,34 @@ class RunRateCalculator:
             upper_limit = mode_ct * (1 + self.tolerance)
             mode_ct_display = mode_ct
 
-        # --- Restored Two-Phase Stop Detection Logic ---
-        # Phase 1: Check for abnormal cycle times. This catches shots that completed 
-        # but were too fast/slow (e.g., a machine-reported CT of 999s).
+        # --- Two-Phase Stop Detection Logic ---
+        # Phase 1: Check for abnormal cycle times.
         is_abnormal_cycle = (df["ACTUAL CT"] < lower_limit) | (df["ACTUAL CT"] > upper_limit)
         
-        # Phase 2: Check for downtime gaps. This catches periods where the machine 
-        # was not running between shots, based on the time difference between timestamps.
+        # Phase 2: Check for downtime gaps using the new adjustable tolerance.
         prev_actual_ct = df["ACTUAL CT"].shift(1)
-        is_downtime_gap = (df["time_diff_sec"] - prev_actual_ct) > 2.0 # 2s tolerance for network/logging delays
+        is_downtime_gap = (df["time_diff_sec"] - prev_actual_ct) > self.downtime_gap_tolerance
 
         # A shot is flagged as a stop if EITHER condition is true.
         df["stop_flag"] = np.where(is_abnormal_cycle | is_downtime_gap.fillna(False), 1, 0)
-        # --- End of Restored Logic ---
-
+        
         if not df.empty:
             df.loc[0, "stop_flag"] = 0 # The first shot can never be a stop.
         
         df["stop_event"] = (df["stop_flag"] == 1) & (df["stop_flag"].shift(1, fill_value=0) == 0)
         
-        # This helper column determines the value to use for downtime calculations.
         df["adj_ct_sec"] = np.where(df["stop_flag"] == 1, df["time_diff_sec"], df["ACTUAL CT"])
 
         total_shots = len(df)
         stop_events = df["stop_event"].sum()
         
-        # Downtime is the sum of the adjusted cycle times for all flagged stop shots.
         downtime_sec = df.loc[df['stop_flag'] == 1, 'adj_ct_sec'].sum()
         mttr_min = (downtime_sec / 60 / stop_events) if stop_events > 0 else 0
 
-        # Production time is the sum of ACTUAL CT for all non-stopped shots.
         production_time_sec = df.loc[df['stop_flag'] == 0, 'ACTUAL CT'].sum()
 
         mtbf_min = (production_time_sec / 60 / stop_events) if stop_events > 0 else (production_time_sec / 60)
         
-        # Total run duration is the sum of its parts for internal consistency.
         total_runtime_sec = production_time_sec + downtime_sec
         stability_index = (production_time_sec / total_runtime_sec * 100) if total_runtime_sec > 0 else (100.0 if stop_events == 0 else 0.0)
         
@@ -296,12 +290,12 @@ def format_duration(seconds):
     if pd.isna(seconds) or seconds < 0: return "N/A"
     return format_minutes_to_dhm(seconds / 60)
     
-def calculate_daily_summaries_for_week(df_week, tolerance, analysis_mode):
+def calculate_daily_summaries_for_week(df_week, tolerance, downtime_gap_tolerance, analysis_mode):
     daily_results_list = []
     for date in sorted(df_week['date'].unique()):
         df_day = df_week[df_week['date'] == date]
         if not df_day.empty:
-            calc = RunRateCalculator(df_day.copy(), tolerance, analysis_mode=analysis_mode)
+            calc = RunRateCalculator(df_day.copy(), tolerance, downtime_gap_tolerance, analysis_mode=analysis_mode)
             res = calc.results
             summary = {'date': date, 'stability_index': res.get('stability_index', np.nan),
                         'mttr_min': res.get('mttr_min', np.nan), 'mtbf_min': res.get('mtbf_min', np.nan),
@@ -309,12 +303,12 @@ def calculate_daily_summaries_for_week(df_week, tolerance, analysis_mode):
             daily_results_list.append(summary)
     return pd.DataFrame(daily_results_list) if daily_results_list else pd.DataFrame()
 
-def calculate_weekly_summaries_for_month(df_month, tolerance, analysis_mode):
+def calculate_weekly_summaries_for_month(df_month, tolerance, downtime_gap_tolerance, analysis_mode):
     weekly_results_list = []
     for week in sorted(df_month['week'].unique()):
         df_week = df_month[df_month['week'] == week]
         if not df_week.empty:
-            calc = RunRateCalculator(df_week.copy(), tolerance, analysis_mode=analysis_mode)
+            calc = RunRateCalculator(df_week.copy(), tolerance, downtime_gap_tolerance, analysis_mode=analysis_mode)
             res = calc.results
             summary = {'week': week, 'stability_index': res.get('stability_index', np.nan),
                         'mttr_min': res.get('mttr_min', np.nan), 'mtbf_min': res.get('mtbf_min', np.nan),
@@ -322,12 +316,12 @@ def calculate_weekly_summaries_for_month(df_month, tolerance, analysis_mode):
             weekly_results_list.append(summary)
     return pd.DataFrame(weekly_results_list) if weekly_results_list else pd.DataFrame()
 
-def calculate_run_summaries(df_period, tolerance):
+def calculate_run_summaries(df_period, tolerance, downtime_gap_tolerance):
     """Iterates through a period's data, calculates metrics for each run, and returns a summary DataFrame."""
     run_summary_list = []
     for run_label, df_run in df_period.groupby('run_label'):
         if not df_run.empty:
-            calc = RunRateCalculator(df_run.copy(), tolerance, analysis_mode='aggregate')
+            calc = RunRateCalculator(df_run.copy(), tolerance, downtime_gap_tolerance, analysis_mode='aggregate')
             res = calc.results
             
             total_shots = res.get('total_shots', 0)
@@ -584,13 +578,15 @@ def render_dashboard(df_tool, tool_id_selection):
 
     st.sidebar.markdown("---")
     tolerance = st.sidebar.slider("Tolerance Band (% of Mode CT)", 0.01, 0.20, 0.05, 0.01, help="Defines the ±% around Mode CT.")
+    downtime_gap_tolerance = st.sidebar.slider("Downtime Gap Tolerance (sec)", 0.0, 5.0, 2.0, 0.5, help="Defines the minimum idle time between shots to be considered a stop.")
     run_interval_hours = st.sidebar.slider("Run Interval Threshold (hours)", 1, 24, 8, 1, help="Defines the max hours between shots before a new Production Run is identified.")
     st.sidebar.markdown("---")
     detailed_view = st.sidebar.toggle("Show Detailed Analysis", value=True)
 
     @st.cache_data(show_spinner="Performing initial data processing...")
     def get_processed_data(df, interval_hours):
-        base_calc = RunRateCalculator(df, 0.01)
+        # Pass a default downtime tolerance for the initial cached run
+        base_calc = RunRateCalculator(df, 0.01, 2.0)
         df_processed = base_calc.results.get("processed_df", pd.DataFrame())
         if not df_processed.empty:
             df_processed['week'] = df_processed['shot_time'].dt.isocalendar().week
@@ -667,7 +663,7 @@ def render_dashboard(df_tool, tool_id_selection):
     if df_view.empty:
         st.warning(f"No data for the selected period.")
     else:
-        calc = RunRateCalculator(df_view.copy(), tolerance, analysis_mode=mode)
+        calc = RunRateCalculator(df_view.copy(), tolerance, downtime_gap_tolerance, analysis_mode=mode)
         results = calc.results
         
         col1, col2 = st.columns([3, 1])
@@ -683,11 +679,11 @@ def render_dashboard(df_tool, tool_id_selection):
             )
         trend_summary_df = None
         if analysis_level == "Weekly":
-            trend_summary_df = calculate_daily_summaries_for_week(df_view, tolerance, mode)
+            trend_summary_df = calculate_daily_summaries_for_week(df_view, tolerance, downtime_gap_tolerance, mode)
         elif analysis_level == "Monthly":
-            trend_summary_df = calculate_weekly_summaries_for_month(df_view, tolerance, mode)
+            trend_summary_df = calculate_weekly_summaries_for_month(df_view, tolerance, downtime_gap_tolerance, mode)
         elif "by Run" in analysis_level:
-            trend_summary_df = calculate_run_summaries(df_view, tolerance)
+            trend_summary_df = calculate_run_summaries(df_view, tolerance, downtime_gap_tolerance)
             if not trend_summary_df.empty:
                 trend_summary_df.rename(columns={'run_label': 'RUN ID', 'stability_index': 'STABILITY %', 'stops': 'STOPS', 'mttr_min': 'MTTR (min)', 'total_shots': 'Total Shots'}, inplace=True)
         elif analysis_level == "Daily":
@@ -768,7 +764,7 @@ def render_dashboard(df_tool, tool_id_selection):
                         d_df.rename(columns={'week': 'Week', 'stability_index': 'Stability (%)', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'stops': 'Stops'}, inplace=True)
                     st.dataframe(d_df.style.format({'Stability (%)': '{:.1f}', 'MTTR (min)': '{:.1f}', 'MTBF (min)': '{:.1f}'}), use_container_width=True)
         elif analysis_level in ["Weekly (by Run)", "Monthly (by Run)", "Custom Period (by Run)"]:
-            run_summary_df = calculate_run_summaries(df_view, tolerance)
+            run_summary_df = calculate_run_summaries(df_view, tolerance, downtime_gap_tolerance)
             with st.expander("View Run Breakdown Table", expanded=False):
                 if run_summary_df is not None and not run_summary_df.empty:
                     d_df = run_summary_df.copy()
@@ -906,7 +902,7 @@ def render_dashboard(df_tool, tool_id_selection):
                         st.markdown(generate_mttr_mtbf_analysis(analysis_df, analysis_level), unsafe_allow_html=True)
         elif "by Run" in analysis_level:
             st.header(f"Run-Based Analysis")
-            run_summary_df = calculate_run_summaries(df_view, tolerance)
+            run_summary_df = calculate_run_summaries(df_view, tolerance, downtime_gap_tolerance)
             if not run_summary_df.empty:
                 run_summary_df.rename(columns={'run_label': 'RUN ID', 'stability_index': 'STABILITY %', 'stops': 'STOPS', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'total_shots': 'Total Shots'}, inplace=True)
             run_durations = results.get("run_durations", pd.DataFrame())
@@ -976,7 +972,7 @@ def calculate_risk_scores(df_all_tools):
         if df_tool.empty or len(df_tool) < 10:
             continue
 
-        calc_prepare = RunRateCalculator(df_tool, tolerance=0.05)
+        calc_prepare = RunRateCalculator(df_tool, 0.05, 2.0)
         df_prepared = calc_prepare.results.get("processed_df")
         if df_prepared is None or df_prepared.empty:
             continue
@@ -988,12 +984,12 @@ def calculate_risk_scores(df_all_tools):
         if df_period.empty or len(df_period) < 10:
             continue
 
-        calc = RunRateCalculator(df_period.copy(), tolerance=0.05)
+        calc = RunRateCalculator(df_period.copy(), 0.05, 2.0)
         res = calc.results
         
         df_period['week'] = df_period['shot_time'].dt.isocalendar().week
         weekly_stabilities = [
-            RunRateCalculator(df_week, 0.05).results.get('stability_index', 0)
+            RunRateCalculator(df_week, 0.05, 2.0).results.get('stability_index', 0)
             for _, df_week in df_period.groupby('week') if not df_week.empty
         ]
         
@@ -1169,4 +1165,5 @@ with tab2:
         render_dashboard(df_for_dashboard, tool_id_for_dashboard_display)
     else:
         st.info("Select a specific Tool ID from the sidebar to view its dashboard.")
+" of the Canvas.
 
