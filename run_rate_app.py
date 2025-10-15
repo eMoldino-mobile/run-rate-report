@@ -42,17 +42,9 @@ class RunRateCalculator:
         df = df.dropna(subset=["shot_time"]).sort_values("shot_time").reset_index(drop=True)
         if df.empty: return pd.DataFrame()
 
-        if "ACTUAL CT" in df.columns:
-            time_diff_sec = df["shot_time"].diff().dt.total_seconds()
-            prev_actual_ct = df["ACTUAL CT"].shift(1)
-            rounding_buffer = 2.0
-            use_timestamp_diff = (prev_actual_ct == 999.9) | (time_diff_sec > (prev_actual_ct + rounding_buffer))
-            df["ct_diff_sec"] = np.where(use_timestamp_diff, time_diff_sec, prev_actual_ct)
-        else:
-            df["ct_diff_sec"] = df["shot_time"].diff().dt.total_seconds()
-
-        if not df.empty and pd.isna(df.loc[0, "ct_diff_sec"]):
-            df.loc[0, "ct_diff_sec"] = df.loc[0, "ACTUAL CT"] if "ACTUAL CT" in df.columns else 0
+        # Always compute the raw timestamp difference
+        df["time_diff_sec"] = df["shot_time"].diff().dt.total_seconds()
+        
         return df
 
     def _calculate_hourly_summary(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -63,8 +55,8 @@ class RunRateCalculator:
         
         hourly_groups = df.groupby('hour')
         stops = hourly_groups['stop_event'].sum()
-        total_downtime_sec = hourly_groups.apply(lambda x: x[x['stop_flag'] == 1]['ct_diff_sec'].sum())
-        uptime_min = df[(df['stop_flag'] == 0) & (df['ct_diff_sec'] <= 28800)].groupby('hour')['ct_diff_sec'].sum() / 60
+        total_downtime_sec = hourly_groups.apply(lambda x: x[x['stop_flag'] == 1]['adj_ct_sec'].sum())
+        uptime_min = df[(df['stop_flag'] == 0) & (df['adj_ct_sec'] <= 28800)].groupby('hour')['adj_ct_sec'].sum() / 60
         shots = hourly_groups.size().rename('total_shots')
 
         hourly_summary = pd.DataFrame(index=range(24))
@@ -108,8 +100,9 @@ class RunRateCalculator:
         if df.empty or "ACTUAL CT" not in df.columns:
             return {}
 
+        # Mode CT and Tolerance Band Calculation
         if self.analysis_mode == 'by_run' and 'run_id' in df.columns:
-            run_modes = df.groupby('run_id')['ACTUAL CT'].apply(lambda x: x.mode().iloc[0] if not x.mode().empty else 0)
+            run_modes = df.groupby('run_id')['ACTUAL CT'].apply(lambda x: x.mode().iloc[0] if not x.mode().empty else x.median())
             df['mode_ct'] = df['run_id'].map(run_modes)
             lower_limit = df['mode_ct'] * (1 - self.tolerance)
             upper_limit = df['mode_ct'] * (1 + self.tolerance)
@@ -117,25 +110,43 @@ class RunRateCalculator:
             df['upper_limit'] = upper_limit
             mode_ct_display = "Varies by Run"
         else:
-            df_for_mode_calc = df[df["ct_diff_sec"] <= 28800]
-            mode_ct = df_for_mode_calc["ACTUAL CT"].mode().iloc[0] if not df_for_mode_calc["ACTUAL CT"].mode().empty else 0
+            df_for_mode_calc = df[df["ACTUAL CT"] < 999.9]
+            mode_ct = df_for_mode_calc["ACTUAL CT"].mode().iloc[0] if not df_for_mode_calc["ACTUAL CT"].mode().empty else df_for_mode_calc["ACTUAL CT"].median()
             lower_limit = mode_ct * (1 - self.tolerance)
             upper_limit = mode_ct * (1 + self.tolerance)
             mode_ct_display = mode_ct
 
-        stop_condition = (((df["ct_diff_sec"] < lower_limit) | (df["ct_diff_sec"] > upper_limit)) & (df["ct_diff_sec"] <= 28800))
-        df["stop_flag"] = np.where(stop_condition, 1, 0)
+        # Phase 1 Stop Check: Deviation from Mode CT (Abnormal Cycle)
+        df["stop_flag"] = np.where(
+            (df["ACTUAL CT"] < lower_limit) | (df["ACTUAL CT"] > upper_limit), 1, 0
+        )
+
+        # Phase 2 Stop Check: Downtime gap based on timestamps
+        prev_actual_ct = df["ACTUAL CT"].shift(1)
+        mask_production = df["stop_flag"] == 0
+        
+        df.loc[mask_production, "stop_flag"] = np.where(
+            (df.loc[mask_production, "time_diff_sec"] - prev_actual_ct[mask_production]) > 2, 1, 0
+        )
+        
+        # Safety for first record and create helper column
         if not df.empty:
-            df.loc[0, "stop_flag"] = 0
+            df.loc[0, 'stop_flag'] = 0
+            if pd.isna(df.loc[0, "time_diff_sec"]):
+                df.loc[0, "time_diff_sec"] = df.loc[0, "ACTUAL CT"]
+
+        # Create the adjusted CT column for downstream metrics
+        df["adj_ct_sec"] = np.where(df["stop_flag"] == 1, df["time_diff_sec"], df["ACTUAL CT"])
+        
         df["stop_event"] = (df["stop_flag"] == 1) & (df["stop_flag"].shift(1, fill_value=0) == 0)
         
         total_shots = len(df)
         stop_events = df["stop_event"].sum()
         
-        downtime_sec = df.loc[df['stop_flag'] == 1, 'ct_diff_sec'].sum()
+        downtime_sec = df.loc[df['stop_flag'] == 1, 'adj_ct_sec'].sum()
         mttr_min = (downtime_sec / 60 / stop_events) if stop_events > 0 else 0
 
-        production_time_sec = df[(df['stop_flag'] == 0) & (df['ct_diff_sec'] <= 28800)]['ct_diff_sec'].sum()
+        production_time_sec = df.loc[(df['stop_flag'] == 0) & (df['adj_ct_sec'] <= 28800), 'adj_ct_sec'].sum()
 
         mtbf_min = (production_time_sec / 60 / stop_events) if stop_events > 0 else (production_time_sec / 60)
         effective_runtime_sec = production_time_sec + downtime_sec
@@ -155,8 +166,8 @@ class RunRateCalculator:
         efficiency = normal_shots / total_shots if total_shots > 0 else 0
         df["run_group"] = df["stop_event"].cumsum()
 
-        df_for_runs = df[df['ct_diff_sec'] <= 28800].copy()
-        run_durations = df_for_runs[df_for_runs["stop_flag"] == 0].groupby("run_group")["ct_diff_sec"].sum().div(60).reset_index(name="duration_min")
+        df_for_runs = df[df['adj_ct_sec'] <= 28800].copy()
+        run_durations = df_for_runs[df_for_runs["stop_flag"] == 0].groupby("run_group")["adj_ct_sec"].sum().div(60).reset_index(name="duration_min")
 
         max_minutes = min(run_durations["duration_min"].max(), 240) if not run_durations.empty else 0
         upper_bound = int(np.ceil(max_minutes / 20.0) * 20)
@@ -246,7 +257,7 @@ def plot_shot_bar_chart(df, lower_limit, upper_limit, mode_ct, time_agg='hourly'
             fillcolor=PASTEL_COLORS['green'], opacity=0.2, layer="below", line_width=0
         )
 
-    fig.add_trace(go.Bar(x=df['plot_time'], y=df['ct_diff_sec'], marker_color=df['color'], name='Cycle Time'))
+    fig.add_trace(go.Bar(x=df['plot_time'], y=df['adj_ct_sec'], marker_color=df['color'], name='Cycle Time'))
     
     y_axis_cap_val = mode_ct if isinstance(mode_ct, (int, float)) else df['mode_ct'].mean() if 'mode_ct' in df else 50
     y_axis_cap = min(max(y_axis_cap_val * 2, 50), 500)
@@ -581,13 +592,13 @@ def render_dashboard(df_tool, tool_id_selection):
 
     @st.cache_data(show_spinner="Performing initial data processing...")
     def get_processed_data(df, interval_hours):
-        base_calc = RunRateCalculator(df, 0.01)
+        base_calc = RunRateCalculator(df, 0.01, 'aggregate') # Use fixed tolerance for initial processing
         df_processed = base_calc.results.get("processed_df", pd.DataFrame())
         if not df_processed.empty:
             df_processed['week'] = df_processed['shot_time'].dt.isocalendar().week
             df_processed['date'] = df_processed['shot_time'].dt.date
             df_processed['month'] = df_processed['shot_time'].dt.to_period('M')
-            is_new_run = df_processed['ct_diff_sec'] > (interval_hours * 3600)
+            is_new_run = df_processed['time_diff_sec'] > (interval_hours * 3600)
             df_processed['run_id'] = is_new_run.cumsum()
             run_start_dates = df_processed.groupby('run_id')['shot_time'].min()
             run_labels = {run_id: f"{i+1:03d} ({date.strftime('%Y-%m-%d')})" for i, (run_id, date) in enumerate(run_start_dates.items())}
@@ -776,7 +787,7 @@ def render_dashboard(df_tool, tool_id_selection):
         time_agg = 'hourly' if analysis_level == 'Daily' else 'daily' if 'Weekly' in analysis_level else 'weekly'
         plot_shot_bar_chart(results['processed_df'], results.get('lower_limit'), results.get('upper_limit'), results.get('mode_ct'), time_agg=time_agg)
         with st.expander("View Shot Data Table", expanded=False):
-            st.dataframe(results['processed_df'][['shot_time', 'run_label', 'ACTUAL CT', 'ct_diff_sec', 'stop_flag', 'stop_event']])
+            st.dataframe(results['processed_df'][['shot_time', 'run_label', 'ACTUAL CT', 'time_diff_sec', 'adj_ct_sec', 'stop_flag', 'stop_event']])
         st.markdown("---")
         if analysis_level == "Daily":
             st.header("Hourly Analysis")
@@ -1142,3 +1153,4 @@ with tab1:
 
 with tab2:
     render_dashboard(df_for_dashboard, tool_id_selection)
+
