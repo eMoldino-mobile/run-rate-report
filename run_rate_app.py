@@ -142,30 +142,22 @@ class RunRateCalculator:
         
         total_shots = len(df)
         stop_events = df["stop_event"].sum()
-        
-        # Total run duration is the complete wall-clock time from start to end
-        total_runtime_sec = 0
-        if total_shots > 1:
-            start_time = df["shot_time"].min()
-            end_time = df["shot_time"].max()
-            last_shot_ct = df.iloc[-1]["ACTUAL CT"]
-            if last_shot_ct < 999.9:
-                 end_time += pd.to_timedelta(last_shot_ct, unit='s')
-            total_runtime_sec = (end_time - start_time).total_seconds()
 
         # Production time is the sum of cycle times for all normal (non-stop) shots.
         production_time_sec = df.loc[df['stop_flag'] == 0, 'ACTUAL CT'].sum()
         
-        # Downtime is now consistently defined as the total duration minus productive time.
-        downtime_sec = total_runtime_sec - production_time_sec
-        if downtime_sec < 0: downtime_sec = 0 
+        # Downtime is the direct sum of the time gaps for all flagged stop events.
+        downtime_sec = df.loc[df['stop_flag'] == 1, 'adj_ct_sec'].sum()
+
+        # Total Run Duration is now defined as the sum of its parts, ensuring consistency.
+        total_runtime_sec = production_time_sec + downtime_sec
 
         # The rest of the metrics derive from these consistent definitions
         mttr_min = (downtime_sec / 60 / stop_events) if stop_events > 0 else 0
         mtbf_min = (production_time_sec / 60 / stop_events) if stop_events > 0 else (production_time_sec / 60)
         
-        effective_runtime_sec = production_time_sec + downtime_sec 
-        stability_index = (production_time_sec / effective_runtime_sec * 100) if effective_runtime_sec > 0 else (100.0 if stop_events == 0 else 0.0)
+        # effective_runtime_sec is the same as total_runtime_sec in this new model
+        stability_index = (production_time_sec / total_runtime_sec * 100) if total_runtime_sec > 0 else (100.0 if stop_events == 0 else 0.0)
 
         normal_shots = total_shots - df["stop_flag"].sum()
         efficiency = normal_shots / total_shots if total_shots > 0 else 0
