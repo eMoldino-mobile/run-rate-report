@@ -1301,6 +1301,3 @@ with tab2:
         render_dashboard(df_for_dashboard, tool_id_for_dashboard_display)
     else:
         st.info("Select a specific Tool ID from the sidebar to view its dashboard.")
-"
-I would like to change 'run_label' to a simple format of "Run 001", "Run 002" etc. The date can be removed. I also want it to restart at 001 for each analysis level.
-
