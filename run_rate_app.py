@@ -428,7 +428,7 @@ def generate_detailed_analysis(analysis_df, overall_stability, overall_mttr, ove
             recommendation = f"Performance is good, but could be improved by focusing on <strong>Mean Time To Repair (MTTR)</strong>. With an MTTR of <strong>{overall_mttr:.1f} minutes</strong>, streamlining the repair process for the infrequent but longer stops could yield significant gains."
     else:
         if overall_mtbf > 0 and overall_mttr > 0 and overall_mtbf < overall_mttr:
-            recommendation = f"Stability is poor and requires attention. The primary driver is a low <strong>Mean Time Between Failures (MTBF)</strong> of <strong>{overall_bf:.1f} minutes</strong>. The top priority should be investigating the root cause of frequent machine stoppages."
+            recommendation = f"Stability is poor and requires attention. The primary driver is a low <strong>Mean Time Between Failures (MTBF)</strong> of <strong>{overall_mtbf:.1f} minutes</strong>. The top priority should be investigating the root cause of frequent machine stoppages."
         else:
             recommendation = f"Stability is poor and requires attention. The primary driver is a high <strong>Mean Time To Repair (MTTR)</strong> of <strong>{overall_mttr:.1f} minutes</strong>. The top priority should be investigating why stops take a long time to resolve and streamlining the repair process."
 
@@ -738,7 +738,7 @@ def render_dashboard(df_tool, tool_id_selection):
         elif "by Run" in analysis_level:
             trend_summary_df = calculate_run_summaries(df_view, tolerance, downtime_gap_tolerance)
             if not trend_summary_df.empty:
-                trend_summary_df.rename(columns={'run_label': 'RUN ID', 'stability_index': 'STABILITY %', 'stops': 'STOPS', 'mttr_min': 'MTTR (min)', 'total_shots': 'Total Shots'}, inplace=True)
+                trend_summary_df.rename(columns={'run_label': 'RUN ID', 'stability_index': 'STABILITY %', 'stops': 'STOPS', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'total_shots': 'Total Shots'}, inplace=True)
         elif analysis_level == "Daily":
             trend_summary_df = results.get('hourly_summary', pd.DataFrame())
         with st.container(border=True):
@@ -1216,3 +1216,4 @@ with tab2:
         render_dashboard(df_for_dashboard, tool_id_for_dashboard_display)
     else:
         st.info("Select a specific Tool ID from the sidebar to view its dashboard.")
+
