@@ -227,35 +227,79 @@ def plot_shot_bar_chart(df, lower_limit, upper_limit, mode_ct, time_agg='hourly'
         st.info("No shot data to display for this period."); return
     df = df.copy()
     df['color'] = np.where(df['stop_flag'] == 1, PASTEL_COLORS['red'], '#3498DB')
+    
+    # The plot_time for stop events should be the time of the previous shot, to show the gap.
     df['plot_time'] = df['shot_time']
     stop_indices = df[df['stop_flag'] == 1].index
     if not stop_indices.empty:
-        df.loc[stop_indices, 'plot_time'] = df['shot_time'].shift(1).loc[stop_indices]
+        # Ensure we don't try to shift from a non-existent index -1
+        valid_stop_indices = stop_indices[stop_indices > 0]
+        df.loc[valid_stop_indices, 'plot_time'] = df['shot_time'].shift(1).loc[valid_stop_indices]
+    
     fig = go.Figure()
 
+    # --- 1. Add Dummy Traces for a Custom Legend ---
+    fig.add_trace(go.Bar(x=[None], y=[None], name="Normal Shot", marker_color='#3498DB', showlegend=True))
+    fig.add_trace(go.Bar(x=[None], y=[None], name="Stopped Shot", marker_color=PASTEL_COLORS['red'], showlegend=True))
+    fig.add_trace(go.Scatter(x=[None], y=[None], mode='lines',
+                           line=dict(width=0),
+                           fill='tozeroy',
+                           fillcolor='rgba(119, 221, 119, 0.3)',  # Pastel green with opacity
+                           name='Tolerance Band', showlegend=True))
+    fig.add_trace(go.Scatter(x=[None], y=[None], mode='lines', name='New Run Start',
+                           line=dict(color='purple', dash='dash', width=2), showlegend=True))
+
+    # --- 2. Main Bar Chart Trace (without its own legend item) ---
+    fig.add_trace(go.Bar(x=df['plot_time'], y=df['adj_ct_sec'], marker_color=df['color'], name='Cycle Time', showlegend=False))
+
+    # --- 3. Draw Correctly Scoped Tolerance Bands ---
     if 'lower_limit' in df.columns and 'run_id' in df.columns:
+        # For 'by run' mode, draw a band for each run from its first to last actual shot time
         for run_id, group in df.groupby('run_id'):
+            if not group.empty:
+                fig.add_shape(
+                    type="rect", xref="x", yref="y",
+                    x0=group['shot_time'].min(), y0=group['lower_limit'].iloc[0],
+                    x1=group['shot_time'].max(), y1=group['upper_limit'].iloc[0],
+                    fillcolor=PASTEL_COLORS['green'], opacity=0.3, layer="below", line_width=0
+                )
+    else:
+        # For aggregate mode, draw one band for the entire period's shots
+        if not df.empty:
             fig.add_shape(
                 type="rect", xref="x", yref="y",
-                x0=group['plot_time'].min(), y0=group['lower_limit'].iloc[0],
-                x1=group['plot_time'].max(), y1=group['upper_limit'].iloc[0],
-                fillcolor=PASTEL_COLORS['green'], opacity=0.2, layer="below", line_width=0
+                x0=df['shot_time'].min(), y0=lower_limit,
+                x1=df['shot_time'].max(), y1=upper_limit,
+                fillcolor=PASTEL_COLORS['green'], opacity=0.3, layer="below", line_width=0
             )
-    else:
-        fig.add_shape(
-            type="rect", xref="x", yref="y",
-            x0=df['plot_time'].min(), y0=lower_limit,
-            x1=df['plot_time'].max(), y1=upper_limit,
-            fillcolor=PASTEL_COLORS['green'], opacity=0.2, layer="below", line_width=0
-        )
+            
+    # --- 4. Add Vertical Lines for New Run Starts ---
+    if 'run_label' in df.columns:
+        run_starts = df.groupby('run_label')['shot_time'].min().sort_values()
+        # Draw a line for each run start after the first one
+        for start_time in run_starts.iloc[1:]:
+            fig.add_vline(x=start_time, line_width=2, line_dash="dash", line_color="purple")
 
-    fig.add_trace(go.Bar(x=df['plot_time'], y=df['adj_ct_sec'], marker_color=df['color'], name='Cycle Time'))
-    
     y_axis_cap_val = mode_ct if isinstance(mode_ct, (int, float)) else df['mode_ct'].mean() if 'mode_ct' in df else 50
     y_axis_cap = min(max(y_axis_cap_val * 2, 50), 500)
     
-    fig.update_layout(title="Cycle Time per Shot vs. Tolerance", xaxis_title="Time", yaxis_title="Cycle Time (sec)",
-                        yaxis=dict(range=[0, y_axis_cap]), bargap=0.05, xaxis=dict(showgrid=True))
+    fig.update_layout(
+        title="Cycle Time per Shot vs. Tolerance",
+        xaxis_title="Time",
+        yaxis_title="Cycle Time (sec)",
+        yaxis=dict(range=[0, y_axis_cap]),
+        bargap=0.05,
+        xaxis=dict(showgrid=True),
+        showlegend=True,
+        legend=dict(
+            title="Legend",
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        )
+    )
     st.plotly_chart(fig, use_container_width=True)
 
 def plot_trend_chart(df, x_col, y_col, title, x_title, y_title, y_range=[0, 101], is_stability=False):
@@ -1257,4 +1301,6 @@ with tab2:
         render_dashboard(df_for_dashboard, tool_id_for_dashboard_display)
     else:
         st.info("Select a specific Tool ID from the sidebar to view its dashboard.")
+"
+I would like to change 'run_label' to a simple format of "Run 001", "Run 002" etc. The date can be removed. I also want it to restart at 001 for each analysis level.
 
