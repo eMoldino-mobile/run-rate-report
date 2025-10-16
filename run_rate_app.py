@@ -318,6 +318,64 @@ def plot_trend_chart(df, x_col, y_col, title, x_title, y_title, y_range=[0, 101]
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     st.plotly_chart(fig, use_container_width=True)
 
+def plot_mttr_mtbf_chart(df, x_col, mttr_col, mtbf_col, shots_col, title):
+    if df is None or df.empty or df[shots_col].sum() == 0:
+        return # Don't plot if no data
+
+    # Get data series
+    mttr = df[mttr_col]
+    mtbf = df[mtbf_col]
+    shots = df[shots_col]
+    x_axis = df[x_col]
+
+    # --- Scaling Logic ---
+    # Define ranges for left and right Y-axes, handle potential NaN/inf values
+    max_mttr = np.nanmax(mttr[np.isfinite(mttr)]) if not mttr.empty and any(np.isfinite(mttr)) else 0
+    max_mtbf = np.nanmax(mtbf[np.isfinite(mtbf)]) if not mtbf.empty and any(np.isfinite(mtbf)) else 0
+    y_range_mttr = [0, max_mttr * 1.15 if max_mttr > 0 else 10]
+    y_range_mtbf = [0, max_mtbf * 1.15 if max_mtbf > 0 else 10]
+    
+    # Scale the 'shots' data to fit within the MTBF axis range
+    shots_min, shots_max = shots.min(), shots.max()
+    
+    # Avoid division by zero if all shot counts are the same
+    if (shots_max - shots_min) == 0:
+        scaled_shots = pd.Series([y_range_mtbf[1] / 2 if y_range_mtbf[1] > 0 else 0.5] * len(shots), index=shots.index)
+    else:
+        # Scale to 90% of the axis height to avoid text labels going off-chart
+        scaled_shots = (shots - shots_min) / (shots_max - shots_min) * (y_range_mtbf[1] * 0.9)
+    
+    # Create figure
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    
+    # Add traces
+    fig.add_trace(go.Scatter(x=x_axis, y=mttr, name='MTTR (min)', mode='lines+markers', line=dict(color='red', width=4)), secondary_y=False)
+    fig.add_trace(go.Scatter(x=x_axis, y=mtbf, name='MTBF (min)', mode='lines+markers', line=dict(color='green', width=4)), secondary_y=True)
+    
+    # Add the SCALED shot trace, but with ORIGINAL text labels
+    fig.add_trace(go.Scatter(
+        x=x_axis, 
+        y=scaled_shots,  # Plot scaled data
+        name='Total Shots', 
+        mode='lines+markers+text', 
+        text=shots,  # Display original data
+        textposition='top center',
+        textfont=dict(color='blue'),
+        line=dict(color='blue', dash='dot')), 
+        secondary_y=True # Plot on the right axis
+    )
+    
+    fig.update_layout(
+        title_text=title, 
+        yaxis_title="MTTR (min)", 
+        yaxis2_title="MTBF (min)",
+        yaxis=dict(range=y_range_mttr),
+        yaxis2=dict(range=y_range_mtbf), # Enforce the MTBF range
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
 def format_minutes_to_dhm(total_minutes):
     if pd.isna(total_minutes) or total_minutes < 0: return "N/A"
     total_minutes = int(total_minutes)
@@ -942,26 +1000,14 @@ def render_dashboard(df_tool, tool_id_selection):
             st.subheader("Hourly MTTR & MTBF Trend")
             hourly_summary = results['hourly_summary']
             if not hourly_summary.empty and hourly_summary['stops'].sum() > 0:
-                # Calculate y-axis ranges
-                max_mttr = hourly_summary['mttr_min'].max()
-                max_mtbf = hourly_summary['mtbf_min'].max()
-                y_range_mttr = [0, max_mttr * 1.1]
-                y_range_mtbf = [0, max_mtbf * 1.1]
-
-                fig_mt = make_subplots(specs=[[{"secondary_y": True}]])
-                fig_mt.add_trace(go.Scatter(x=hourly_summary['hour'], y=hourly_summary['mttr_min'], name='MTTR (min)', mode='lines+markers', line=dict(color='red', width=4)), secondary_y=False)
-                fig_mt.add_trace(go.Scatter(x=hourly_summary['hour'], y=hourly_summary['mtbf_min'], name='MTBF (min)', mode='lines+markers', line=dict(color='green', width=4)), secondary_y=True)
-                fig_mt.add_trace(go.Scatter(x=hourly_summary['hour'], y=hourly_summary['total_shots'], name='Total Shots', mode='lines+markers+text', text=hourly_summary['total_shots'], textposition='top center', line=dict(color='blue', dash='dot')), secondary_y=True)
-                
-                fig_mt.update_layout(
-                    title_text="Hourly MTTR, MTBF & Shot Count Trend", 
-                    yaxis_title="MTTR (min)", 
-                    yaxis2_title="MTBF (min)",
-                    yaxis=dict(range=y_range_mttr),
-                    yaxis2=dict(range=y_range_mtbf),
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                plot_mttr_mtbf_chart(
+                    df=hourly_summary,
+                    x_col='hour',
+                    mttr_col='mttr_min',
+                    mtbf_col='mtbf_min',
+                    shots_col='total_shots',
+                    title="Hourly MTTR, MTBF & Shot Count Trend"
                 )
-                st.plotly_chart(fig_mt, use_container_width=True)
                 with st.expander("View MTTR/MTBF Data", expanded=False): st.dataframe(hourly_summary)
                 if detailed_view:
                     with st.expander("🤖 View MTTR/MTBF Correlation Analysis", expanded=False):
@@ -1017,26 +1063,14 @@ def render_dashboard(df_tool, tool_id_selection):
             st.subheader(f"{trend_level} MTTR & MTBF Trend")
             if summary_df is not None and not summary_df.empty and summary_df['stops'].sum() > 0:
                 x_col = 'date' if trend_level == "Daily" else 'week'
-                # Calculate y-axis ranges
-                max_mttr = summary_df['mttr_min'].max()
-                max_mtbf = summary_df['mtbf_min'].max()
-                y_range_mttr = [0, max_mttr * 1.1]
-                y_range_mtbf = [0, max_mtbf * 1.1]
-                
-                fig_mt = make_subplots(specs=[[{"secondary_y": True}]])
-                fig_mt.add_trace(go.Scatter(x=summary_df[x_col], y=summary_df['mttr_min'], name='MTTR (min)', mode='lines+markers', line=dict(color='red', width=4)), secondary_y=False)
-                fig_mt.add_trace(go.Scatter(x=summary_df[x_col], y=summary_df['mtbf_min'], name='MTBF (min)', mode='lines+markers', line=dict(color='green', width=4)), secondary_y=True)
-                fig_mt.add_trace(go.Scatter(x=summary_df[x_col], y=summary_df['total_shots'], name='Total Shots', mode='lines+markers+text', text=summary_df['total_shots'], textposition='top center', line=dict(color='blue', dash='dot')), secondary_y=True)
-                
-                fig_mt.update_layout(
-                    title_text=f"{trend_level} MTTR, MTBF & Shot Count Trend", 
-                    yaxis_title="MTTR (min)", 
-                    yaxis2_title="MTBF (min)",
-                    yaxis=dict(range=y_range_mttr),
-                    yaxis2=dict(range=y_range_mtbf),
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                plot_mttr_mtbf_chart(
+                    df=summary_df,
+                    x_col=x_col,
+                    mttr_col='mttr_min',
+                    mtbf_col='mtbf_min',
+                    shots_col='total_shots',
+                    title=f"{trend_level} MTTR, MTBF & Shot Count Trend"
                 )
-                st.plotly_chart(fig_mt, use_container_width=True)
                 with st.expander("View MTTR/MTBF Data", expanded=False): st.dataframe(summary_df)
                 if detailed_view:
                     with st.expander("🤖 View MTTR/MTBF Correlation Analysis", expanded=False):
@@ -1093,26 +1127,14 @@ def render_dashboard(df_tool, tool_id_selection):
                         st.markdown(generate_bucket_analysis(complete_runs, results["bucket_labels"]), unsafe_allow_html=True)
             st.subheader("MTTR & MTBF per Production Run")
             if run_summary_df is not None and not run_summary_df.empty and run_summary_df['STOPS'].sum() > 0:
-                # Calculate y-axis ranges
-                max_mttr = run_summary_df['MTTR (min)'].max()
-                max_mtbf = run_summary_df['MTBF (min)'].max()
-                y_range_mttr = [0, max_mttr * 1.1]
-                y_range_mtbf = [0, max_mtbf * 1.1]
-
-                fig_mt = make_subplots(specs=[[{"secondary_y": True}]])
-                fig_mt.add_trace(go.Scatter(x=run_summary_df['RUN ID'], y=run_summary_df['MTTR (min)'], name='MTTR (min)', mode='lines+markers', line=dict(color='red', width=4)), secondary_y=False)
-                fig_mt.add_trace(go.Scatter(x=run_summary_df['RUN ID'], y=run_summary_df['MTBF (min)'], name='MTBF (min)', mode='lines+markers', line=dict(color='green', width=4)), secondary_y=True)
-                fig_mt.add_trace(go.Scatter(x=run_summary_df['RUN ID'], y=run_summary_df['Total Shots'], name='Total Shots', mode='lines+markers+text', text=run_summary_df['Total Shots'], textposition='top center', line=dict(color='blue', dash='dot')), secondary_y=True)
-                
-                fig_mt.update_layout(
-                    title_text="MTTR, MTBF & Shot Count per Run", 
-                    yaxis_title="MTTR (min)", 
-                    yaxis2_title="MTBF (min)",
-                    yaxis=dict(range=y_range_mttr),
-                    yaxis2=dict(range=y_range_mtbf),
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                plot_mttr_mtbf_chart(
+                    df=run_summary_df,
+                    x_col='RUN ID',
+                    mttr_col='MTTR (min)',
+                    mtbf_col='MTBF (min)',
+                    shots_col='Total Shots',
+                    title="MTTR, MTBF & Shot Count per Run"
                 )
-                st.plotly_chart(fig_mt, use_container_width=True)
                 with st.expander("View MTTR/MTBF Data", expanded=False): st.dataframe(run_summary_df)
                 if detailed_view:
                     with st.expander("🤖 View MTTR/MTBF Correlation Analysis", expanded=False):
@@ -1324,4 +1346,5 @@ with tab2:
         render_dashboard(df_for_dashboard, tool_id_for_dashboard_display)
     else:
         st.info("Select a specific Tool ID from the sidebar to view its dashboard.")
+"
 
