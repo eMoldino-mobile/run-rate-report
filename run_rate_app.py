@@ -238,7 +238,11 @@ def plot_shot_bar_chart(df, lower_limit, upper_limit, mode_ct, time_agg='hourly'
     
     fig = go.Figure()
 
-    # --- 1. Add Dummy Traces for a Custom Legend ---
+    # --- 1. Main Bar Chart Trace (without its own legend item) ---
+    # Add this first to establish the axes correctly.
+    fig.add_trace(go.Bar(x=df['plot_time'], y=df['adj_ct_sec'], marker_color=df['color'], name='Cycle Time', showlegend=False))
+
+    # --- 2. Add Dummy Traces for a Custom Legend ---
     fig.add_trace(go.Bar(x=[None], y=[None], name="Normal Shot", marker_color='#3498DB', showlegend=True))
     fig.add_trace(go.Bar(x=[None], y=[None], name="Stopped Shot", marker_color=PASTEL_COLORS['red'], showlegend=True))
     fig.add_trace(go.Scatter(x=[None], y=[None], mode='lines',
@@ -248,9 +252,6 @@ def plot_shot_bar_chart(df, lower_limit, upper_limit, mode_ct, time_agg='hourly'
                            name='Tolerance Band', showlegend=True))
     fig.add_trace(go.Scatter(x=[None], y=[None], mode='lines', name='New Run Start',
                            line=dict(color='purple', dash='dash', width=2), showlegend=True))
-
-    # --- 2. Main Bar Chart Trace (without its own legend item) ---
-    fig.add_trace(go.Bar(x=df['plot_time'], y=df['adj_ct_sec'], marker_color=df['color'], name='Cycle Time', showlegend=False))
 
     # --- 3. Draw Correctly Scoped Tolerance Bands ---
     if 'lower_limit' in df.columns and 'run_id' in df.columns:
@@ -637,11 +638,9 @@ def render_dashboard(df_tool, tool_id_selection):
             df_processed['week'] = df_processed['shot_time'].dt.isocalendar().week
             df_processed['date'] = df_processed['shot_time'].dt.date
             df_processed['month'] = df_processed['shot_time'].dt.to_period('M')
+            # Only create the base run identifier here
             is_new_run = df_processed['time_diff_sec'] > (interval_hours * 3600)
             df_processed['run_id'] = is_new_run.cumsum()
-            run_start_dates = df_processed.groupby('run_id')['shot_time'].min()
-            run_labels = {run_id: f"{i+1:03d} ({date.strftime('%Y-%m-%d')})" for i, (run_id, date) in enumerate(run_start_dates.items())}
-            df_processed['run_label'] = df_processed['run_id'].map(run_labels)
         return df_processed
 
     df_processed = get_processed_data(df_tool, run_interval_hours)
@@ -650,9 +649,9 @@ def render_dashboard(df_tool, tool_id_selection):
     if 'by Run' in analysis_level:
         st.sidebar.markdown("---")
         if not df_processed.empty:
-            run_shot_counts = df_processed.groupby('run_label').size()
+            run_shot_counts = df_processed.groupby('run_id').size()
             if not run_shot_counts.empty:
-                max_shots = int(run_shot_counts.max())
+                max_shots = int(run_shot_counts.max()) if not run_shot_counts.empty else 1
                 default_value = min(10, max_shots) if max_shots > 1 else 1
                 min_shots_filter = st.sidebar.slider(
                     "Remove Runs with Fewer Than X Shots",
@@ -675,54 +674,32 @@ def render_dashboard(df_tool, tool_id_selection):
     mode = 'by_run' if 'by Run' in analysis_level else 'aggregate'
     df_view = pd.DataFrame()
 
-    if analysis_level == "Daily":
-        st.header("Daily Analysis")
+    if "Daily" in analysis_level:
+        st.header(f"Daily Analysis {'(by Production Run)' if mode == 'by_run' else ''}")
         available_dates = sorted(df_processed["date"].unique())
         if not available_dates:
-            st.warning("No data available for any date.")
-            st.stop()
+            st.warning("No data available for any date."); st.stop()
         selected_date = st.selectbox("Select Date", options=available_dates, index=len(available_dates)-1, format_func=lambda d: pd.to_datetime(d).strftime('%d %b %Y'))
         df_view = df_processed[df_processed["date"] == selected_date]
-        sub_header = f"Summary for {pd.to_datetime(selected_date).strftime('%d %b %Y')}"
-    
-    elif analysis_level == "Daily (by Run)":
-        st.header("Daily Analysis (by Production Run)")
-        available_dates = sorted(df_processed["date"].unique())
-        if not available_dates:
-            st.warning("No data available for any date.")
-            st.stop()
-        selected_date = st.selectbox("Select Date", options=available_dates, index=len(available_dates) - 1, format_func=lambda d: pd.to_datetime(d).strftime('%d %b %Y'))
-        runs_in_day = df_processed[df_processed['date'] == selected_date]['run_label'].unique()
-        df_view = df_processed[df_processed['run_label'].isin(runs_in_day)]
         sub_header = f"Summary for {pd.to_datetime(selected_date).strftime('%d %b %Y')}"
 
     elif "Weekly" in analysis_level:
         st.header(f"Weekly Analysis {'(by Production Run)' if mode == 'by_run' else ''}")
         available_weeks = sorted(df_processed["week"].unique())
         if not available_weeks:
-            st.warning("No data available for any week.")
-            st.stop()
+            st.warning("No data available for any week."); st.stop()
         year = df_processed['shot_time'].iloc[0].year
         selected_week = st.selectbox(f"Select Week (Year {year})", options=available_weeks, index=len(available_weeks)-1)
-        if mode == 'by_run':
-            runs_in_week = df_processed[df_processed['week'] == selected_week]['run_label'].unique()
-            df_view = df_processed[df_processed['run_label'].isin(runs_in_week)]
-        else:
-            df_view = df_processed[df_processed["week"] == selected_week]
+        df_view = df_processed[df_processed["week"] == selected_week]
         sub_header = f"Summary for Week {selected_week}"
 
     elif "Monthly" in analysis_level:
         st.header(f"Monthly Analysis {'(by Production Run)' if mode == 'by_run' else ''}")
         available_months = sorted(df_processed["month"].unique())
         if not available_months:
-            st.warning("No data available for any month.")
-            st.stop()
+            st.warning("No data available for any month."); st.stop()
         selected_month = st.selectbox(f"Select Month", options=available_months, index=len(available_months)-1, format_func=lambda p: p.strftime('%B %Y'))
-        if mode == 'by_run':
-            runs_in_month = df_processed[df_processed['month'] == selected_month]['run_label'].unique()
-            df_view = df_processed[df_processed['run_label'].isin(runs_in_month)]
-        else:
-            df_view = df_processed[df_processed["month"] == selected_month]
+        df_view = df_processed[df_processed["month"] == selected_month]
         sub_header = f"Summary for {selected_month.strftime('%B %Y')}"
 
     elif "Custom Period" in analysis_level:
@@ -732,14 +709,16 @@ def render_dashboard(df_tool, tool_id_selection):
         start_date = st.date_input("Start date", min_date, min_value=min_date, max_value=max_date)
         end_date = st.date_input("End date", max_date, min_value=start_date, max_value=max_date)
         if start_date and end_date:
-            if mode == 'by_run':
-                mask = (df_processed['date'] >= start_date) & (df_processed['date'] <= end_date)
-                runs_in_period = df_processed[mask]['run_label'].unique()
-                df_view = df_processed[df_processed['run_label'].isin(runs_in_period)]
-            else:
-                mask = (df_processed['date'] >= start_date) & (df_processed['date'] <= end_date)
-                df_view = df_processed[mask]
+            mask = (df_processed['date'] >= start_date) & (df_processed['date'] <= end_date)
+            df_view = df_processed[mask]
             sub_header = f"Summary for {start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')}"
+
+    if not df_view.empty:
+        df_view = df_view.copy()
+        if 'run_id' in df_view.columns:
+            unique_run_ids = df_view.sort_values('shot_time')['run_id'].unique()
+            run_label_map = {run_id: f"Run {i+1:03d}" for i, run_id in enumerate(unique_run_ids)}
+            df_view['run_label'] = df_view['run_id'].map(run_label_map)
 
     if 'by Run' in analysis_level and not df_view.empty:
         runs_before_filter = df_view['run_label'].nunique()
@@ -823,7 +802,7 @@ def render_dashboard(df_tool, tool_id_selection):
             trend_summary_df = calculate_run_summaries(df_view, tolerance, downtime_gap_tolerance)
             if not trend_summary_df.empty:
                 trend_summary_df.rename(columns={'run_label': 'RUN ID', 'stability_index': 'STABILITY %', 'stops': 'STOPS', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'total_shots': 'Total Shots'}, inplace=True)
-        elif analysis_level == "Daily":
+        elif "Daily" in analysis_level:
             trend_summary_df = results.get('hourly_summary', pd.DataFrame())
         
         with st.container(border=True):
@@ -917,14 +896,14 @@ def render_dashboard(df_tool, tool_id_selection):
                     final_cols = ['RUN ID','Period (date/time from to)','Total shots','Normal shots (& %)','STOPS (&%)','Mode CT (for the run)','Lower limit CT (sec)','Upper Limit CT (sec)','Total Run duration (d/h/m)','Production Time (d/h/m) (& %)','Downtime (& %)','MTTR (min)','MTBF (min)','STABILITY %']
                     st.dataframe(d_df[final_cols].style.format({'Mode CT (for the run)':'{:.2f}','Lower limit CT (sec)':'{:.2f}','Upper Limit CT (sec)':'{:.2f}','MTTR (min)':'{:.1f}','MTBF (min)':'{:.1f}','STABILITY %':'{:.1f}'}), use_container_width=True)
         
-        time_agg = 'hourly' if analysis_level == 'Daily' else 'daily' if 'Weekly' in analysis_level else 'weekly'
+        time_agg = 'hourly' if "Daily" in analysis_level else 'daily' if 'Weekly' in analysis_level else 'weekly'
         plot_shot_bar_chart(results['processed_df'], results.get('lower_limit'), results.get('upper_limit'), results.get('mode_ct'), time_agg=time_agg)
         
         with st.expander("View Shot Data Table", expanded=False):
             st.dataframe(results['processed_df'][['shot_time', 'run_label', 'ACTUAL CT', 'time_diff_sec', 'stop_flag', 'stop_event']])
         
         st.markdown("---")
-        if analysis_level == "Daily":
+        if "Daily" in analysis_level:
             st.header("Hourly Analysis")
             run_durations_day = results.get("run_durations", pd.DataFrame())
             processed_day_df = results.get('processed_df', pd.DataFrame())
@@ -945,8 +924,8 @@ def render_dashboard(df_tool, tool_id_selection):
                     with st.expander("View Bucket Data", expanded=False): st.dataframe(complete_runs)
                 else: st.info("No complete runs.")
             with c2:
-                plot_trend_chart(results['hourly_summary'], 'hour', 'stability_index', "Hourly Stability Trend", "Hour of Day", "Stability (%)", is_stability=True)
-                with st.expander("View Stability Data", expanded=False): st.dataframe(results['hourly_summary'])
+                plot_trend_chart(trend_summary_df, 'hour', 'stability_index', "Hourly Stability Trend", "Hour of Day", "Stability (%)", is_stability=True)
+                with st.expander("View Stability Data", expanded=False): st.dataframe(trend_summary_df)
             st.subheader("Hourly Bucket Trend")
             if not complete_runs.empty:
                 complete_runs['hour'] = complete_runs['run_end_time'].dt.hour
@@ -1301,3 +1280,4 @@ with tab2:
         render_dashboard(df_for_dashboard, tool_id_for_dashboard_display)
     else:
         st.info("Select a specific Tool ID from the sidebar to view its dashboard.")
+
