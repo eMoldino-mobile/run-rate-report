@@ -428,7 +428,7 @@ def generate_detailed_analysis(analysis_df, overall_stability, overall_mttr, ove
             recommendation = f"Performance is good, but could be improved by focusing on <strong>Mean Time To Repair (MTTR)</strong>. With an MTTR of <strong>{overall_mttr:.1f} minutes</strong>, streamlining the repair process for the infrequent but longer stops could yield significant gains."
     else:
         if overall_mtbf > 0 and overall_mttr > 0 and overall_mtbf < overall_mttr:
-            recommendation = f"Stability is poor and requires attention. The primary driver is a low <strong>Mean Time Between Failures (MTBF)</strong> of <strong>{overall_mtbf:.1f} minutes</strong>. The top priority should be investigating the root cause of frequent machine stoppages."
+            recommendation = f"Stability is poor and requires attention. The primary driver is a low <strong>Mean Time Between Failures (MTBF)</strong> of <strong>{overall_bf:.1f} minutes</strong>. The top priority should be investigating the root cause of frequent machine stoppages."
         else:
             recommendation = f"Stability is poor and requires attention. The primary driver is a high <strong>Mean Time To Repair (MTTR)</strong> of <strong>{overall_mttr:.1f} minutes</strong>. The top priority should be investigating why stops take a long time to resolve and streamlining the repair process."
 
@@ -566,26 +566,27 @@ def render_dashboard(df_tool, tool_id_selection):
         ### Analysis Levels
         - **Daily**: Hourly trends for one day.
         - **Weekly / Monthly**: Aggregated data, with daily/weekly trend charts.
-        - **Weekly / Monthly (by Run)**: A more precise analysis where the tolerance for stops is calculated from the Mode CT of each individual production run. A new run is identified after a stoppage longer than the selected 'Run Interval Threshold'.
+        - **Daily / Weekly / Monthly (by Run)**: A more precise analysis where the tolerance for stops is calculated from the Mode CT of each individual production run. A new run is identified after a stoppage longer than the selected 'Run Interval Threshold'.
         ---
         ### Sliders
         - **Tolerance Band**: Defines the acceptable CT range around the Mode CT.
         - **Run Interval Threshold**: Defines the max hours between shots before a new Production Run is identified.
+        - **Remove Runs...**: (Only in 'by Run' mode) Filters out runs with fewer shots than the selected value.
         """)
         
 
-    analysis_level = st.sidebar.radio("Select Analysis Level", ["Daily", "Weekly", "Monthly", "Custom Period", "Weekly (by Run)", "Monthly (by Run)", "Custom Period (by Run)"])
+    analysis_level = st.sidebar.radio(
+        "Select Analysis Level",
+        ["Daily", "Daily (by Run)", "Weekly", "Monthly", "Custom Period", "Weekly (by Run)", "Monthly (by Run)", "Custom Period (by Run)"]
+    )
 
     st.sidebar.markdown("---")
     tolerance = st.sidebar.slider("Tolerance Band (% of Mode CT)", 0.01, 0.20, 0.05, 0.01, help="Defines the ±% around Mode CT.")
     downtime_gap_tolerance = st.sidebar.slider("Downtime Gap Tolerance (sec)", 0.0, 5.0, 2.0, 0.5, help="Defines the minimum idle time between shots to be considered a stop.")
     run_interval_hours = st.sidebar.slider("Run Interval Threshold (hours)", 1, 24, 8, 1, help="Defines the max hours between shots before a new Production Run is identified.")
-    st.sidebar.markdown("---")
-    detailed_view = st.sidebar.toggle("Show Detailed Analysis", value=True)
-
+    
     @st.cache_data(show_spinner="Performing initial data processing...")
     def get_processed_data(df, interval_hours):
-        # Pass a default downtime tolerance for the initial cached run
         base_calc = RunRateCalculator(df, 0.01, 2.0)
         df_processed = base_calc.results.get("processed_df", pd.DataFrame())
         if not df_processed.empty:
@@ -600,12 +601,35 @@ def render_dashboard(df_tool, tool_id_selection):
         return df_processed
 
     df_processed = get_processed_data(df_tool, run_interval_hours)
+    
+    # --- NEW: Conditional slider for run filtering ---
+    min_shots_filter = 1 
+    if 'by Run' in analysis_level:
+        st.sidebar.markdown("---")
+        if not df_processed.empty:
+            run_shot_counts = df_processed.groupby('run_label').size()
+            if not run_shot_counts.empty:
+                max_shots = int(run_shot_counts.max())
+                default_value = min(10, max_shots) if max_shots > 1 else 1
+                min_shots_filter = st.sidebar.slider(
+                    "Remove Runs with Fewer Than X Shots",
+                    min_value=1,
+                    max_value=max_shots,
+                    value=default_value,
+                    step=1,
+                    help="Filters out smaller production runs to focus on more significant ones."
+                )
+    
+    st.sidebar.markdown("---")
+    detailed_view = st.sidebar.toggle("Show Detailed Analysis", value=True)
+
+
     if df_processed.empty:
         st.error(f"Could not process data for {tool_id_selection}. Check file format or data range."); st.stop()
 
     st.title(f"Run Rate Dashboard: {tool_id_selection}")
 
-    mode = 'by_run' if '(by Run)' in analysis_level else 'aggregate'
+    mode = 'by_run' if 'by Run' in analysis_level else 'aggregate'
     df_view = pd.DataFrame()
 
     if analysis_level == "Daily":
@@ -617,6 +641,18 @@ def render_dashboard(df_tool, tool_id_selection):
         selected_date = st.selectbox("Select Date", options=available_dates, index=len(available_dates)-1, format_func=lambda d: pd.to_datetime(d).strftime('%d %b %Y'))
         df_view = df_processed[df_processed["date"] == selected_date]
         sub_header = f"Summary for {pd.to_datetime(selected_date).strftime('%d %b %Y')}"
+    
+    elif analysis_level == "Daily (by Run)":
+        st.header("Daily Analysis (by Production Run)")
+        available_dates = sorted(df_processed["date"].unique())
+        if not available_dates:
+            st.warning("No data available for any date.")
+            st.stop()
+        selected_date = st.selectbox("Select Date", options=available_dates, index=len(available_dates) - 1, format_func=lambda d: pd.to_datetime(d).strftime('%d %b %Y'))
+        runs_in_day = df_processed[df_processed['date'] == selected_date]['run_label'].unique()
+        df_view = df_processed[df_processed['run_label'].isin(runs_in_day)]
+        sub_header = f"Summary for {pd.to_datetime(selected_date).strftime('%d %b %Y')}"
+
     elif "Weekly" in analysis_level:
         st.header(f"Weekly Analysis {'(by Production Run)' if mode == 'by_run' else ''}")
         available_weeks = sorted(df_processed["week"].unique())
@@ -631,6 +667,7 @@ def render_dashboard(df_tool, tool_id_selection):
         else:
             df_view = df_processed[df_processed["week"] == selected_week]
         sub_header = f"Summary for Week {selected_week}"
+
     elif "Monthly" in analysis_level:
         st.header(f"Monthly Analysis {'(by Production Run)' if mode == 'by_run' else ''}")
         available_months = sorted(df_processed["month"].unique())
@@ -644,6 +681,7 @@ def render_dashboard(df_tool, tool_id_selection):
         else:
             df_view = df_processed[df_processed["month"] == selected_month]
         sub_header = f"Summary for {selected_month.strftime('%B %Y')}"
+
     elif "Custom Period" in analysis_level:
         st.header(f"Custom Period Analysis {'(by Production Run)' if mode == 'by_run' else ''}")
         min_date = df_processed['date'].min()
@@ -660,8 +698,23 @@ def render_dashboard(df_tool, tool_id_selection):
                 df_view = df_processed[mask]
             sub_header = f"Summary for {start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')}"
 
+    # --- NEW: Apply the run shot count filter if a 'by Run' mode is active ---
+    if 'by Run' in analysis_level and not df_view.empty:
+        runs_before_filter = df_view['run_label'].nunique()
+        run_shot_counts_in_view = df_view.groupby('run_label')['run_label'].transform('count')
+        df_view = df_view[run_shot_counts_in_view >= min_shots_filter]
+        runs_after_filter = df_view['run_label'].nunique()
+
+        if runs_before_filter > 0:
+            st.sidebar.metric(
+                label="Runs Displayed",
+                value=f"{runs_after_filter} / {runs_before_filter}",
+                delta=f"-{runs_before_filter - runs_after_filter} filtered",
+                delta_color="off"
+            )
+
     if df_view.empty:
-        st.warning(f"No data for the selected period.")
+        st.warning(f"No data for the selected period (or all runs were filtered out).")
     else:
         calc = RunRateCalculator(df_view.copy(), tolerance, downtime_gap_tolerance, analysis_mode=mode)
         results = calc.results
@@ -763,7 +816,7 @@ def render_dashboard(df_tool, tool_id_selection):
                     elif 'week' in d_df.columns:
                         d_df.rename(columns={'week': 'Week', 'stability_index': 'Stability (%)', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'stops': 'Stops'}, inplace=True)
                     st.dataframe(d_df.style.format({'Stability (%)': '{:.1f}', 'MTTR (min)': '{:.1f}', 'MTBF (min)': '{:.1f}'}), use_container_width=True)
-        elif analysis_level in ["Weekly (by Run)", "Monthly (by Run)", "Custom Period (by Run)"]:
+        elif "by Run" in analysis_level:
             run_summary_df = calculate_run_summaries(df_view, tolerance, downtime_gap_tolerance)
             with st.expander("View Run Breakdown Table", expanded=False):
                 if run_summary_df is not None and not run_summary_df.empty:
@@ -776,7 +829,7 @@ def render_dashboard(df_tool, tool_id_selection):
                     d_df["Production Time (d/h/m) (& %)"] = d_df.apply(lambda r: f"{format_duration(r['production_time_sec'])} ({r['production_time_sec']/r['total_runtime_sec']*100:.1f}%)" if r['total_runtime_sec']>0 else "0m (0.0%)", axis=1)
                     d_df["Downtime (& %)"] = d_df.apply(lambda r: f"{format_duration(r['downtime_sec'])} ({r['downtime_sec']/r['total_runtime_sec']*100:.1f}%)" if r['total_runtime_sec']>0 else "0m (0.0%)", axis=1)
                     d_df.rename(columns={'run_label':'RUN ID','mode_ct':'Mode CT (for the run)','lower_limit':'Lower limit CT (sec)','upper_limit':'Upper Limit CT (sec)','mttr_min':'MTTR (min)','mtbf_min':'MTBF (min)','stability_index':'STABILITY %','stops':'STOPS'}, inplace=True)
-                    final_cols = ['RUN ID','Period (date/time from to)','Total shots','Normal shots (& %)','STOPS (&%)','Mode CT (for the run)','Lower limit CT (sec)','Upper Limit CT (sec)','Total Run duration (d/h/m)','Production Time (d/h/m) (& %)','Downtime (& %)','MTTR (min)','MTBF (min)','STABILITY %','STOPS']
+                    final_cols = ['RUN ID','Period (date/time from to)','Total shots','Normal shots (& %)','STOPS (&%)','Mode CT (for the run)','Lower limit CT (sec)','Upper Limit CT (sec)','Total Run duration (d/h/m)','Production Time (d/h/m) (& %)','Downtime (& %)','MTTR (min)','MTBF (min)','STABILITY %']
                     st.dataframe(d_df[final_cols].style.format({'Mode CT (for the run)':'{:.2f}','Lower limit CT (sec)':'{:.2f}','Upper Limit CT (sec)':'{:.2f}','MTTR (min)':'{:.1f}','MTBF (min)':'{:.1f}','STABILITY %':'{:.1f}'}), use_container_width=True)
         
         time_agg = 'hourly' if analysis_level == 'Daily' else 'daily' if 'Weekly' in analysis_level else 'weekly'
@@ -902,9 +955,7 @@ def render_dashboard(df_tool, tool_id_selection):
                         st.markdown(generate_mttr_mtbf_analysis(analysis_df, analysis_level), unsafe_allow_html=True)
         elif "by Run" in analysis_level:
             st.header(f"Run-Based Analysis")
-            run_summary_df = calculate_run_summaries(df_view, tolerance, downtime_gap_tolerance)
-            if not run_summary_df.empty:
-                run_summary_df.rename(columns={'run_label': 'RUN ID', 'stability_index': 'STABILITY %', 'stops': 'STOPS', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'total_shots': 'Total Shots'}, inplace=True)
+            run_summary_df = trend_summary_df 
             run_durations = results.get("run_durations", pd.DataFrame())
             processed_df = results.get('processed_df', pd.DataFrame())
             stop_events_df = processed_df.loc[processed_df['stop_event']].copy()
@@ -1165,4 +1216,3 @@ with tab2:
         render_dashboard(df_for_dashboard, tool_id_for_dashboard_display)
     else:
         st.info("Select a specific Tool ID from the sidebar to view its dashboard.")
-
