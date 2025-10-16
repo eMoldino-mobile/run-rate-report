@@ -1346,5 +1346,3 @@ with tab2:
         render_dashboard(df_for_dashboard, tool_id_for_dashboard_display)
     else:
         st.info("Select a specific Tool ID from the sidebar to view its dashboard.")
-"
-
