@@ -602,7 +602,6 @@ def render_dashboard(df_tool, tool_id_selection):
 
     df_processed = get_processed_data(df_tool, run_interval_hours)
     
-    # --- NEW: Conditional slider for run filtering ---
     min_shots_filter = 1 
     if 'by Run' in analysis_level:
         st.sidebar.markdown("---")
@@ -698,7 +697,6 @@ def render_dashboard(df_tool, tool_id_selection):
                 df_view = df_processed[mask]
             sub_header = f"Summary for {start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')}"
 
-    # --- NEW: Apply the run shot count filter if a 'by Run' mode is active ---
     if 'by Run' in analysis_level and not df_view.empty:
         runs_before_filter = df_view['run_label'].nunique()
         run_shot_counts_in_view = df_view.groupby('run_label')['run_label'].transform('count')
@@ -716,9 +714,51 @@ def render_dashboard(df_tool, tool_id_selection):
     if df_view.empty:
         st.warning(f"No data for the selected period (or all runs were filtered out).")
     else:
-        calc = RunRateCalculator(df_view.copy(), tolerance, downtime_gap_tolerance, analysis_mode=mode)
-        results = calc.results
-        
+        results = {}
+        summary_metrics = {}
+
+        if 'by Run' in analysis_level:
+            run_summary_df_for_totals = calculate_run_summaries(df_view, tolerance, downtime_gap_tolerance)
+            
+            if not run_summary_df_for_totals.empty:
+                total_runtime_sec = run_summary_df_for_totals['total_runtime_sec'].sum()
+                production_time_sec = run_summary_df_for_totals['production_time_sec'].sum()
+                downtime_sec = run_summary_df_for_totals['downtime_sec'].sum()
+                total_shots = run_summary_df_for_totals['total_shots'].sum()
+                normal_shots = run_summary_df_for_totals['normal_shots'].sum()
+                stop_events = run_summary_df_for_totals['stops'].sum()
+
+                mttr_min = (downtime_sec / 60 / stop_events) if stop_events > 0 else 0
+                mtbf_min = (production_time_sec / 60 / stop_events) if stop_events > 0 else (production_time_sec / 60)
+                stability_index = (production_time_sec / total_runtime_sec * 100) if total_runtime_sec > 0 else 100.0
+                efficiency = (normal_shots / total_shots) if total_shots > 0 else 0
+
+                summary_metrics = {
+                    'total_runtime_sec': total_runtime_sec,
+                    'production_time_sec': production_time_sec,
+                    'downtime_sec': downtime_sec,
+                    'total_shots': total_shots,
+                    'normal_shots': normal_shots,
+                    'stop_events': stop_events,
+                    'mttr_min': mttr_min,
+                    'mtbf_min': mtbf_min,
+                    'stability_index': stability_index,
+                    'efficiency': efficiency,
+                }
+                sub_header = sub_header.replace("Summary for", "Summary for (Combined Runs)")
+
+            calc = RunRateCalculator(df_view.copy(), tolerance, downtime_gap_tolerance, analysis_mode=mode)
+            results = calc.results
+            summary_metrics.update({
+                'min_lower_limit': results.get('min_lower_limit', 0), 'max_lower_limit': results.get('max_lower_limit', 0),
+                'min_mode_ct': results.get('min_mode_ct', 0), 'max_mode_ct': results.get('max_mode_ct', 0),
+                'min_upper_limit': results.get('min_upper_limit', 0), 'max_upper_limit': results.get('max_upper_limit', 0),
+            })
+        else:
+            calc = RunRateCalculator(df_view.copy(), tolerance, downtime_gap_tolerance, analysis_mode=mode)
+            results = calc.results
+            summary_metrics = results
+
         col1, col2 = st.columns([3, 1])
         with col1:
             st.subheader(sub_header)
@@ -741,13 +781,14 @@ def render_dashboard(df_tool, tool_id_selection):
                 trend_summary_df.rename(columns={'run_label': 'RUN ID', 'stability_index': 'STABILITY %', 'stops': 'STOPS', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'total_shots': 'Total Shots'}, inplace=True)
         elif analysis_level == "Daily":
             trend_summary_df = results.get('hourly_summary', pd.DataFrame())
+        
         with st.container(border=True):
             col1, col2, col3, col4, col5 = st.columns(5)
-            total_d = results.get('total_runtime_sec', 0); prod_t = results.get('production_time_sec', 0); down_t = results.get('downtime_sec', 0)
+            total_d = summary_metrics.get('total_runtime_sec', 0); prod_t = summary_metrics.get('production_time_sec', 0); down_t = summary_metrics.get('downtime_sec', 0)
             prod_p = (prod_t / total_d * 100) if total_d > 0 else 0
             down_p = (down_t / total_d * 100) if total_d > 0 else 0
-            with col1: st.metric("MTTR", f"{results.get('mttr_min', 0):.1f} min")
-            with col2: st.metric("MTBF", f"{results.get('mtbf_min', 0):.1f} min")
+            with col1: st.metric("MTTR", f"{summary_metrics.get('mttr_min', 0):.1f} min")
+            with col2: st.metric("MTBF", f"{summary_metrics.get('mtbf_min', 0):.1f} min")
             with col3: st.metric("Total Run Duration", format_duration(total_d))
             with col4:
                 st.metric("Production Time", f"{format_duration(prod_t)}")
@@ -757,12 +798,12 @@ def render_dashboard(df_tool, tool_id_selection):
                 st.markdown(f'<span style="background-color: {PASTEL_COLORS["red"]}; color: #0E1117; padding: 3px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: bold;">{down_p:.1f}%</span>', unsafe_allow_html=True)
         with st.container(border=True):
             c1, c2 = st.columns(2)
-            c1.plotly_chart(create_gauge(results.get('efficiency', 0) * 100, "Efficiency (%)"), use_container_width=True)
+            c1.plotly_chart(create_gauge(summary_metrics.get('efficiency', 0) * 100, "Efficiency (%)"), use_container_width=True)
             steps = [{'range': [0, 50], 'color': PASTEL_COLORS['red']}, {'range': [50, 70], 'color': PASTEL_COLORS['orange']},{'range': [70, 100], 'color': PASTEL_COLORS['green']}]
-            c2.plotly_chart(create_gauge(results.get('stability_index', 0), "Stability Index (%)", steps=steps), use_container_width=True)
+            c2.plotly_chart(create_gauge(summary_metrics.get('stability_index', 0), "Stability Index (%)", steps=steps), use_container_width=True)
         with st.container(border=True):
             c1,c2,c3 = st.columns(3)
-            t_s = results.get('total_shots', 0); n_s = results.get('normal_shots', 0)
+            t_s = summary_metrics.get('total_shots', 0); n_s = summary_metrics.get('normal_shots', 0)
             s_s = t_s - n_s
             n_p = (n_s / t_s * 100) if t_s > 0 else 0
             s_p = (s_s / t_s * 100) if t_s > 0 else 0
@@ -771,25 +812,25 @@ def render_dashboard(df_tool, tool_id_selection):
                 st.metric("Normal Shots", f"{n_s:,}")
                 st.markdown(f'<span style="background-color: {PASTEL_COLORS["green"]}; color: #0E1117; padding: 3px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: bold;">{n_p:.1f}% of Total</span>', unsafe_allow_html=True)
             with c3:
-                st.metric("Stop Events", f"{results.get('stop_events', 0)}")
+                st.metric("Stop Events", f"{summary_metrics.get('stop_events', 0)}")
                 st.markdown(f'<span style="background-color: {PASTEL_COLORS["red"]}; color: #0E1117; padding: 3px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: bold;">{s_p:.1f}% Stopped Shots</span>', unsafe_allow_html=True)
         with st.container(border=True):
             c1, c2, c3 = st.columns(3)
             if mode == 'by_run':
-                min_ll = results.get('min_lower_limit', 0); max_ll = results.get('max_lower_limit', 0)
+                min_ll = summary_metrics.get('min_lower_limit', 0); max_ll = summary_metrics.get('max_lower_limit', 0)
                 c1.metric("Lower Limit (sec)", f"{min_ll:.2f} – {max_ll:.2f}")
                 with c2:
-                    min_mc = results.get('min_mode_ct', 0); max_mc = results.get('max_mode_ct', 0)
+                    min_mc = summary_metrics.get('min_mode_ct', 0); max_mc = summary_metrics.get('max_mode_ct', 0)
                     with st.container(border=True): st.metric("Mode CT (sec)", f"{min_mc:.2f} – {max_mc:.2f}")
-                min_ul = results.get('min_upper_limit', 0); max_ul = results.get('max_upper_limit', 0)
+                min_ul = summary_metrics.get('min_upper_limit', 0); max_ul = summary_metrics.get('max_upper_limit', 0)
                 c3.metric("Upper Limit (sec)", f"{min_ul:.2f} – {max_ul:.2f}")
             else:
-                mode_val = results.get('mode_ct', 0)
+                mode_val = summary_metrics.get('mode_ct', 0)
                 mode_disp = f"{mode_val:.2f}" if isinstance(mode_val, (int,float)) else mode_val
-                c1.metric("Lower Limit (sec)", f"{results.get('lower_limit', 0):.2f}")
+                c1.metric("Lower Limit (sec)", f"{summary_metrics.get('lower_limit', 0):.2f}")
                 with c2:
                     with st.container(border=True): st.metric("Mode CT (sec)", mode_disp)
-                c3.metric("Upper Limit (sec)", f"{results.get('upper_limit', 0):.2f}")
+                c3.metric("Upper Limit (sec)", f"{summary_metrics.get('upper_limit', 0):.2f}")
         if detailed_view:
             st.markdown("---")
             with st.expander("🤖 View Automated Analysis Summary", expanded=False):
@@ -802,7 +843,7 @@ def render_dashboard(df_tool, tool_id_selection):
                     elif 'week' in analysis_df.columns: rename_map = {'week': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}
                     elif 'RUN ID' in analysis_df.columns: rename_map = {'RUN ID': 'period', 'STABILITY %': 'stability', 'STOPS': 'stops', 'MTTR (min)': 'mttr'}
                     analysis_df.rename(columns=rename_map, inplace=True)
-                insights = generate_detailed_analysis(analysis_df, results.get('stability_index', 0), results.get('mttr_min', 0), results.get('mtbf_min', 0), analysis_level)
+                insights = generate_detailed_analysis(analysis_df, summary_metrics.get('stability_index', 0), summary_metrics.get('mttr_min', 0), summary_metrics.get('mtbf_min', 0), analysis_level)
                 if "error" in insights: st.error(insights["error"])
                 else:
                     st.components.v1.html(f"""<div style="border:1px solid #333;border-radius:0.5rem;padding:1.5rem;margin-top:1rem;font-family:sans-serif;line-height:1.6;background-color:#0E1117;"><h4 style="margin-top:0;color:#FAFAFA;">Automated Analysis Summary</h4><p style="color:#FAFAFA;"><strong>Overall Assessment:</strong> {insights['overall']}</p><p style="color:#FAFAFA;"><strong>Predictive Trend:</strong> {insights['predictive']}</p><p style="color:#FAFAFA;"><strong>Performance Variance:</strong> {insights['best_worst']}</p> {'<p style="color:#FAFAFA;"><strong>Identified Patterns:</strong> ' + insights['patterns'] + '</p>' if insights['patterns'] else ''}<p style="margin-top:1rem;color:#FAFAFA;background-color:#262730;padding:1rem;border-radius:0.5rem;"><strong>Key Recommendation:</strong> {insights['recommendation']}</p></div>""", height=400, scrolling=True)
