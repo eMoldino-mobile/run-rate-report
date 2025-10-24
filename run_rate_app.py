@@ -24,7 +24,6 @@ PASTEL_COLORS = {
 
 # --- [UNIFIED] Core Calculation Class (Used for BOTH Dashboard & Export Prep) ---
 class RunRateCalculator:
-    # ... (Keep the RunRateCalculator class exactly as it was in the previous correct version) ...
     def __init__(self, df: pd.DataFrame, tolerance: float, downtime_gap_tolerance: float, analysis_mode='aggregate'):
         self.df_raw = df.copy()
         self.tolerance = tolerance
@@ -212,7 +211,6 @@ class RunRateCalculator:
 
                 reds, blues, greens = px.colors.sequential.Reds[3:7], px.colors.sequential.Blues[3:8], px.colors.sequential.Greens[3:8]
                 red_labels, blue_labels, green_labels = [], [], []
-                # --- [FIXED] Syntax Error ---
                 for label in labels:
                     try:
                         lower_bound = int(str(label).split('-')[0].replace('+', ''))
@@ -221,7 +219,6 @@ class RunRateCalculator:
                         else: green_labels.append(label)
                     except (ValueError, IndexError, TypeError):
                         continue # Skip bad labels
-                # --- End Fixed Block ---
 
                 for i, label in enumerate(red_labels): bucket_color_map[label] = reds[i % len(reds)]
                 for i, label in enumerate(blue_labels): bucket_color_map[label] = blues[i % len(blues)]
@@ -450,21 +447,36 @@ def generate_mttr_mtbf_analysis(analysis_df, analysis_level):
         elif abs(mttr_corr) > abs(stops_corr) * 1.5: primary_driver = "**duration of stops**"; primary_driver_dur = True
         else: primary_driver = "**frequency and duration**"
         corr_insight = f"Analysis suggests <strong>{primary_driver}</strong> most impacts stability."
+    
     example_insight = ""
-    # --- Corrected format_p function definition (Moved inside) ---
+    
+    # --- [FIXED] Function definition moved inside ---
     def format_p(p, l):
-         # --- [FIXED] More robust type checking ---
-        if isinstance(p, (pd.Timestamp, datetime)): return pd.to_datetime(p).strftime('%A, %b %d')
-        elif isinstance(p, date): return p.strftime('%A, %b %d')
-        elif l == "Monthly (by Run)" or l == "Weekly (by Run)" or l == "Custom Period (by Run)":
-             if isinstance(p, (int, np.integer)): return f"Week {p}"
-        elif l == "Daily": return f"{p}:00" # Hourly
-        return str(p) # Fallback (e.g., Run ID)
+        if isinstance(p, (pd.Timestamp, datetime)): # Check for datetime objects
+            return pd.to_datetime(p).strftime('%A, %b %d')
+        elif isinstance(p, date): # Check for date objects
+            return p.strftime('%A, %b %d')
+        elif l in ["Monthly (by Run)", "Weekly (by Run)", "Custom Period (by Run)"]:
+             if isinstance(p, (int, np.integer)): # Check if it's a week number
+                 return f"Week {p}"
+        elif l == "Daily": # Check for hourly
+             return f"{p}:00"
+        return str(p) # Fallback for Run IDs or other types
 
     if not analysis_df.empty:
-        if primary_driver_freq: highest_stops = analysis_df.loc[analysis_df['stops'].idxmax()]; p_label = format_p(highest_stops['period'], analysis_level); example_insight = f"E.g., <strong>{p_label}</strong> had most stops (<strong>{int(highest_stops['stops'])}</strong>). Prioritize root cause."
-        elif primary_driver_dur: highest_mttr = analysis_df.loc[analysis_df['mttr'].idxmax()]; p_label = format_p(highest_mttr['period'], analysis_level); example_insight = f"E.g., <strong>{p_label}</strong> had longest downtimes (avg <strong>{highest_mttr['mttr']:.1f} min</strong>). Investigate delays."
-        else: highest_mttr = analysis_df.loc[analysis_df['mttr'].idxmax()]; p_label = format_p(highest_mttr['period'], analysis_level); example_insight = (f"E.g., <strong>{p_label}</strong> had long downtimes (avg <strong>{highest_mttr['mttr']:.1f} min</strong>), showing duration impact.")
+        if primary_driver_freq: 
+            highest_stops = analysis_df.loc[analysis_df['stops'].idxmax()]
+            p_label = format_p(highest_stops['period'], analysis_level)
+            example_insight = f"E.g., <strong>{p_label}</strong> had most stops (<strong>{int(highest_stops['stops'])}</strong>). Prioritize root cause."
+        elif primary_driver_dur: 
+            highest_mttr = analysis_df.loc[analysis_df['mttr'].idxmax()]
+            p_label = format_p(highest_mttr['period'], analysis_level)
+            example_insight = f"E.g., <strong>{p_label}</strong> had longest downtimes (avg <strong>{highest_mttr['mttr']:.1f} min</strong>). Investigate delays."
+        else: 
+            highest_mttr = analysis_df.loc[analysis_df['mttr'].idxmax()]
+            p_label = format_p(highest_mttr['period'], analysis_level)
+            example_insight = (f"E.g., <strong>{p_label}</strong> had long downtimes (avg <strong>{highest_mttr['mttr']:.1f} min</strong>), showing duration impact.")
+            
     return f"<div style='line-height:1.6;'><p>{corr_insight}</p><p>{example_insight}</p></div>"
 
 # --- Excel Generation Function ---
@@ -855,7 +867,7 @@ def render_dashboard(df_tool, tool_id_selection):
                 else:
                     patterns_html = f'<p style="color:#FAFAFA;"><strong>Identified Patterns:</strong> {insights.get("patterns", "")}</p>' if insights.get("patterns") else ''
                     html_content = f"""<div style="border:1px solid #333;border-radius:0.5rem;padding:1.5rem;margin-top:1rem;font-family:sans-serif;line-height:1.6;background-color:#0E1117;"><h4 style="margin-top:0;color:#FAFAFA;">Automated Analysis Summary</h4><p style="color:#FAFAFA;"><strong>Overall Assessment:</strong> {insights.get("overall", "N/A")}</p><p style="color:#FAFAFA;"><strong>Predictive Trend:</strong> {insights.get("predictive", "N/A")}</p><p style="color:#FAFAFA;"><strong>Performance Variance:</strong> {insights.get("best_worst", "N/A")}</p>{patterns_html}<p style="margin-top:1rem;color:#FAFAFA;background-color:#262730;padding:1rem;border-radius:0.5rem;"><strong>Key Recommendation:</strong> {insights.get("recommendation", "N/A")}</p></div>"""
-                    # --- Corrected Call ---
+                    # --- [FIXED] Corrected Call ---
                     components.html(html_content, height=400, scrolling=True)
 
         # --- Breakdown Tables ---
@@ -865,17 +877,20 @@ def render_dashboard(df_tool, tool_id_selection):
             if 'date' in trend_summary_df.columns or 'week' in trend_summary_df.columns:
                 with st.expander("View Daily/Weekly Breakdown Table", expanded=False):
                     d_df = trend_summary_df.copy()
+                    # --- [FIXED] Table column rename ---
                     if 'date' in d_df.columns: d_df['date'] = pd.to_datetime(d_df['date']).dt.strftime('%A, %b %d'); d_df.rename(columns={'date': 'Day', 'stability_index': 'Stability (%)', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'stops': 'Stops'}, inplace=True)
                     elif 'week' in d_df.columns: d_df.rename(columns={'week': 'Week', 'stability_index': 'Stability (%)', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'stops': 'Stops'}, inplace=True)
+                    # --- [FIXED] Table style format ---
                     st.dataframe(d_df.style.format({'Stability (%)': '{:.1f}', 'MTTR (min)': '{:.1f}', 'MTBF (min)': '{:.1f}'}), use_container_width=True)
 
-        # --- [RESTORED] Run Breakdown Table for ALL 'by Run' modes ---
+        # --- [MODIFIED] Run Breakdown Table ---
+        # Now uses 'if' instead of 'elif' to show *in addition* to the one above
         if "by Run" in analysis_level:
-            # Use the already calculated run_summary_df_trends if available, else calculate
-            run_summary_df = trend_summary_df if trend_level == "Run" and trend_summary_df is not None else calculate_run_summaries(df_view, tolerance, downtime_gap_tolerance)
-            if run_summary_df is not None and not run_summary_df.empty:
+            # Calculate run summaries for the table
+            run_summary_df_table = calculate_run_summaries(df_view, tolerance, downtime_gap_tolerance)
+            if run_summary_df_table is not None and not run_summary_df_table.empty:
                  with st.expander("View Run Breakdown Table", expanded=False):
-                    d_df = run_summary_df.copy()
+                    d_df = run_summary_df_table.copy()
                     # Ensure start/end times are datetime objects before formatting
                     d_df['start_time'] = pd.to_datetime(d_df['start_time'], errors='coerce')
                     d_df['end_time'] = pd.to_datetime(d_df['end_time'], errors='coerce')
@@ -888,24 +903,24 @@ def render_dashboard(df_tool, tool_id_selection):
                     d_df["Total Duration"] = d_df['total_runtime_sec'].apply(format_duration)
                     d_df["Prod. Time (%)"] = d_df.apply(lambda r: f"{format_duration(r['production_time_sec'])} ({r['production_time_sec']/r['total_runtime_sec']*100:.1f}%)" if r['total_runtime_sec']>0 else "0m (0.0%)", axis=1)
                     d_df["Downtime (%)"] = d_df.apply(lambda r: f"{format_duration(r['downtime_sec'])} ({r['downtime_sec']/r['total_runtime_sec']*100:.1f}%)" if r['total_runtime_sec']>0 else "0m (0.0%)", axis=1)
-                    # Use original column names from calculate_run_summaries before potential rename for trends
                     d_df.rename(columns={'run_label':'Run ID','mode_ct':'Mode CT','lower_limit':'LL','upper_limit':'UL','mttr_min':'MTTR','mtbf_min':'MTBF','stability_index':'Stability %'}, inplace=True, errors='ignore')
-                    # Define columns based on renamed names for display consistency
                     cols = ['Run ID','Period','Total Shots','Normal Shots (%)','Stops (%)','Mode CT','LL','UL','Total Duration','Prod. Time (%)','Downtime (%)','MTTR','MTBF','Stability %']
-                    # Select only columns that actually exist after rename
                     cols_exist = [c for c in cols if c in d_df.columns]
                     st.dataframe(d_df[cols_exist].style.format({'Mode CT':'{:.2f}','LL':'{:.2f}','UL':'{:.2f}','MTTR':'{:.1f}','MTBF':'{:.1f}','Stability %':'{:.1f}'}), use_container_width=True)
-        # --- End Restored Block ---
+        # --- End Modified Block ---
 
 
         # --- Plots ---
         plot_shot_bar_chart(results['processed_df'], results.get('lower_limit'), results.get('upper_limit'), results.get('mode_ct'), time_agg=('hourly' if analysis_level == "Daily" else 'daily' if 'Weekly' in analysis_level else 'weekly'))
         with st.expander("View Shot Data Table", expanded=False):
              display_cols = ['shot_time', 'run_label', 'ACTUAL CT', 'time_diff_sec', 'stop_flag', 'stop_event']
-             # Check if 'run_label' exists, if not, remove it from display list
              if 'run_label' not in results['processed_df'].columns:
-                  if 'run_label' in display_cols: # Ensure it's in the list before removing
+                  if 'run_label' in display_cols:
                        display_cols.remove('run_label')
+             # Add check for ACTUAL CT
+             if 'ACTUAL CT' not in results['processed_df'].columns:
+                  if 'ACTUAL CT' in display_cols:
+                       display_cols.remove('ACTUAL CT')
              st.dataframe(results['processed_df'][display_cols])
 
 
@@ -957,8 +972,8 @@ def render_dashboard(df_tool, tool_id_selection):
             else: trend_level = "Run" # Fallback
 
             # Set up dataframes based on trend level
-            # Use run_summary_df_trends consistently
-            run_summary_df_trends = calculate_run_summaries(df_view, tolerance, downtime_gap_tolerance)
+            # We already calculated this for the breakdown table, reuse it
+            run_summary_df_trends = run_summary_df # df from the breakdown table section
             summary_df = trend_summary_df # This is daily/weekly summary if applicable
 
             if trend_level == "Run": st.header("Run-Based Analysis")
@@ -978,16 +993,18 @@ def render_dashboard(df_tool, tool_id_selection):
                 else:
                     st.info("No complete runs.")
             with c2: # Stability Trend
-                if trend_level == "Run":
+                # --- [MODIFIED] Use 'RUN ID' for x-axis ---
+                if trend_level == "Run": # This branch will now be used for by-Run trend
                      st.subheader("Stability per Production Run")
                      if run_summary_df_trends is not None and not run_summary_df_trends.empty:
+                          # Ensure columns are renamed for plotting
                           run_summary_df_trends.rename(columns={'run_label': 'RUN ID', 'stability_index': 'STABILITY %'}, inplace=True, errors='ignore')
                           plot_trend_chart(run_summary_df_trends,'RUN ID','STABILITY %',"Stability per Run","Run ID","Stability (%)",is_stability=True)
                           with st.expander("View Stability Data"):
                               st.dataframe(run_summary_df_trends)
                      else:
                           st.info(f"No runs to analyze.")
-                else:
+                else: # This branch is for Daily/Weekly trends
                      st.subheader(f"{trend_level} Stability Trend")
                      if summary_df is not None and not summary_df.empty:
                           x_col='date'if trend_level=="Daily"else'week';
@@ -1007,7 +1024,6 @@ def render_dashboard(df_tool, tool_id_selection):
                     if 'run_label' not in complete_runs:
                          if 'run_group' in processed_period_df.columns and 'run_label' in processed_period_df.columns: run_group_to_label_map=processed_period_df.drop_duplicates('run_group')[['run_group','run_label']].set_index('run_group')['run_label']; complete_runs['run_label']=complete_runs['run_group'].map(run_group_to_label_map)
                          else: complete_runs['run_label'] = 'Unknown'
-                    # Use run_summary_df_trends (calculated earlier) for run info
                     if run_summary_df_trends is not None and not run_summary_df_trends.empty and 'RUN ID' in run_summary_df_trends.columns:
                          valid_run_labels = run_summary_df_trends['RUN ID'].unique()
                          complete_runs_filtered = complete_runs[complete_runs['run_label'].isin(valid_run_labels)]
@@ -1033,7 +1049,6 @@ def render_dashboard(df_tool, tool_id_selection):
                      fig_bucket_trend.update_layout(barmode='stack', title_text=f'{trend_level} Distribution of Run Durations vs. Shot Count', xaxis_title=x_axis_title, yaxis_title='Number of Runs', yaxis2_title='Total Shots', legend_title_text='Run Duration (min)')
                      st.plotly_chart(fig_bucket_trend, use_container_width=True)
                      with st.expander("View Bucket Trend Data"): st.dataframe(pivot_df)
-                     # Corrected Indentation
                      if detailed_view:
                           with st.expander("🤖 View Bucket Trend Analysis"):
                                st.markdown(generate_bucket_analysis(complete_runs_filtered if trend_level=='Run' else complete_runs, results["bucket_labels"]), unsafe_allow_html=True)
@@ -1043,14 +1058,15 @@ def render_dashboard(df_tool, tool_id_selection):
             st.subheader(f"{trend_level} MTTR & MTBF Trend")
             trend_df_for_mttr = run_summary_df_trends if trend_level == "Run" else summary_df # Use correct df based on trend level
             if trend_df_for_mttr is not None and not trend_df_for_mttr.empty:
+                # --- [MODIFIED] Set x_col based on trend_level ---
                 x_col = 'RUN ID' if trend_level == "Run" else ('date' if trend_level == "Daily" else 'week')
                 mttr_col = 'MTTR (min)' if trend_level == "Run" else 'mttr_min'
                 mtbf_col = 'MTBF (min)' if trend_level == "Run" else 'mtbf_min'
                 shots_col = 'Total Shots' if trend_level == "Run" else 'total_shots'
                 stops_col = 'stops' # Default for daily/weekly summary_df
                 if trend_level == "Run": # Adjust if using run_summary_df_trends
-                     stops_col = 'STOPS' if 'STOPS' in trend_df_for_mttr.columns else 'stops'
-
+                     # Use the original column name from calculation, not the renamed one
+                     stops_col = 'stops' if 'stops' in trend_df_for_mttr.columns else 'STOPS'
 
                 if stops_col in trend_df_for_mttr.columns and trend_df_for_mttr[stops_col].sum() > 0:
                     plot_mttr_mtbf_chart(df=trend_df_for_mttr, x_col=x_col, mttr_col=mttr_col, mtbf_col=mtbf_col, shots_col=shots_col, title=f"{trend_level} MTTR, MTBF & Shot Count Trend")
@@ -1119,13 +1135,11 @@ def load_all_data(files):
     df_list = []
     required_time_cols_alt1 = {"YEAR", "MONTH", "DAY", "TIME"}
     required_time_cols_alt2 = {"SHOT TIME"}
-    required_id_cols = {"tool_id", "TOOLING ID", "EQUIPMENT CODE"}
-
+    
     for file in files:
-        df = None # Initialize df to None for each file
+        df = None
         try:
             df = pd.read_excel(file)
-            # Check for ID column before proceeding
             has_id = False
             if "TOOLING ID" in df.columns: df.rename(columns={"TOOLING ID": "tool_id"}, inplace=True); has_id=True
             elif "EQUIPMENT CODE" in df.columns: df.rename(columns={"EQUIPMENT CODE": "tool_id"}, inplace=True); has_id=True
@@ -1133,9 +1147,8 @@ def load_all_data(files):
 
             if not has_id:
                  st.warning(f"Skipping {file.name}: Missing required Tool ID column (TOOLING ID, EQUIPMENT CODE, or tool_id).")
-                 continue # Skip this file
+                 continue 
 
-            # Check for Time columns
             has_time = ("SHOT TIME" in df.columns) or (required_time_cols_alt1.issubset(df.columns))
 
             if has_time:
@@ -1145,10 +1158,7 @@ def load_all_data(files):
 
         except Exception as e:
             st.warning(f"Could not load or process file: {file.name}. Error: {e}")
-            # Optionally log the full traceback for debugging
-            # st.text(traceback.format_exc())
     if not df_list: return pd.DataFrame()
-    # Concatenate valid dataframes
     try:
          combined_df = pd.concat(df_list, ignore_index=True)
          return combined_df
@@ -1160,16 +1170,15 @@ def load_all_data(files):
 df_all_tools = load_all_data(uploaded_files)
 id_col = "tool_id" # Standardized name
 
-if df_all_tools.empty: # Check if empty after loading and potential skips
+if df_all_tools.empty: 
     st.error("No valid data loaded from the uploaded files. Please check file contents and required columns.")
     st.stop()
 
-# Ensure tool_id exists after concat (should be guaranteed by load_all_data checks)
 if id_col not in df_all_tools.columns:
     st.error("Tool ID column missing after combining files. This should not happen.")
     st.stop()
 
-df_all_tools.dropna(subset=[id_col], inplace=True) # Drop rows where tool_id might be NaN after concat
+df_all_tools.dropna(subset=[id_col], inplace=True) 
 df_all_tools[id_col] = df_all_tools[id_col].astype(str)
 unique_tool_ids = sorted(df_all_tools[id_col].unique().tolist())
 
@@ -1193,7 +1202,7 @@ else:
 
 # --- Tab Display ---
 tab1, tab2 = st.tabs(["Risk Tower", "Run Rate Dashboard"])
-with tab1: render_risk_tower(df_all_tools.copy()) # Pass a copy to avoid caching issues if df modified later
+with tab1: render_risk_tower(df_all_tools.copy()) 
 with tab2:
     if not df_for_dashboard.empty:
         render_dashboard(df_for_dashboard, tool_id_for_dashboard_display)
