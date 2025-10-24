@@ -878,8 +878,10 @@ def render_dashboard(df_tool, tool_id_selection):
             c1,c2=st.columns(2)
             with c1:
                 if not complete_runs.empty and"time_bucket"in complete_runs.columns:b_counts=complete_runs["time_bucket"].value_counts().reindex(results["bucket_labels"],fill_value=0);fig_b=px.bar(b_counts,title="Time Bucket Analysis (Completed Runs)",labels={"index":"Duration (min)","value":"Occurrences"},text_auto=True,color=b_counts.index,color_discrete_map=results["bucket_color_map"]).update_layout(legend_title_text='Duration');st.plotly_chart(fig_b,use_container_width=True);
-                with st.expander("View Bucket Data"):st.dataframe(complete_runs)
-                else:st.info("No complete runs for bucket analysis.")
+                    with st.expander("View Bucket Data"):
+                        st.dataframe(complete_runs)
+                else:
+                    st.info("No complete runs for bucket analysis.")
             with c2:plot_trend_chart(trend_summary_df,'hour','stability_index',"Hourly Stability Trend","Hour of Day","Stability (%)",is_stability=True);
             with st.expander("View Stability Data"):st.dataframe(trend_summary_df[['hour','stability_index','mttr_min','mtbf_min','stops','total_shots']])
             if not complete_runs.empty and'run_end_time'in complete_runs:
