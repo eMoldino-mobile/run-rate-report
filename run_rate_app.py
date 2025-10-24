@@ -1234,15 +1234,15 @@ def render_dashboard(df_tool, tool_id_selection):
                     else: st.info("No bucket counts to plot.")
                 else:
                     st.info("No complete runs or bucket data.")
-            with c2: # Stability Trend
-                if trend_level == "Run":
-                    st.subheader("Stability per Production Run")
-                    if run_summary_df_for_trends is not None and not run_summary_df_for_trends.empty:
-                        plot_trend_chart(run_summary_df_for_trends,'RUN ID','STABILITY %',"Stability per Run","Run ID","Stability (%)",is_stability=True)
-                        with st.expander("View Stability Data"):
-                            st.dataframe(run_summary_df_for_trends)
-                    else:
-                        st.info(f"No runs to analyze.")
+            with c2: # Stability Trend Column
+                st.subheader("Stability per Production Run") # Always show this title in 'by Run' mode
+                # Use run_summary_df (aliased as trend_summary_df in this version) if available
+                if trend_summary_df is not None and not trend_summary_df.empty and 'RUN ID' in trend_summary_df.columns:
+                    plot_trend_chart(trend_summary_df, 'RUN ID', 'STABILITY %', "Stability per Run", "Run ID", "Stability (%)", is_stability=True)
+                    with st.expander("View Stability Data", expanded=False):
+                        st.dataframe(trend_summary_df)
+                else:
+                    st.info("No run summary data available to plot stability per run.")
                 else: # Daily or Weekly Trend
                     st.subheader(f"{trend_level} Stability Trend")
                     if summary_df is not None and not summary_df.empty:
