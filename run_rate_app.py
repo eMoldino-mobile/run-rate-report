@@ -130,7 +130,12 @@ class RunRateCalculator:
         df["stop_event"] = False
 
         if "ACTUAL CT" in df.columns:
-            is_abnormal_cycle = (df["ACTUAL CT"] < lower_limit) | (df["ACTUAL CT"] > upper_limit)
+            # Need to handle cases where lower/upper limit might be Series (in 'by_run' mode)
+            if isinstance(lower_limit, pd.Series):
+                 is_abnormal_cycle = (df["ACTUAL CT"] < df['lower_limit']) | (df["ACTUAL CT"] > df['upper_limit'])
+            else:
+                 is_abnormal_cycle = (df["ACTUAL CT"] < lower_limit) | (df["ACTUAL CT"] > upper_limit)
+
             prev_actual_ct = df["ACTUAL CT"].shift(1)
             is_downtime_gap = df["time_diff_sec"] > (prev_actual_ct.fillna(0) + self.downtime_gap_tolerance)
             df["stop_flag"] = np.where(is_abnormal_cycle | is_downtime_gap.fillna(False), 1, 0)
@@ -238,9 +243,18 @@ class RunRateCalculator:
             "tot_down_time_sec": downtime_sec # Alias
         }
 
-        if self.analysis_mode == 'by_run' and isinstance(lower_limit, pd.Series) and not df.empty:
-            final_results.update({"min_lower_limit": lower_limit.min(), "max_lower_limit": lower_limit.max(), "min_upper_limit": upper_limit.min(), "max_upper_limit": upper_limit.max(), "min_mode_ct": df['mode_ct'].min(), "max_mode_ct": df['mode_ct'].max()})
-        elif "ACTUAL CT" in df.columns : final_results.update({"lower_limit": lower_limit, "upper_limit": upper_limit})
+        # Update results with specific limits based on analysis mode
+        if self.analysis_mode == 'by_run' and isinstance(lower_limit, pd.Series) and not df.empty and 'mode_ct' in df.columns:
+            # Check if mode_ct column actually exists before trying to access min/max
+             final_results.update({"min_lower_limit": lower_limit.min(), "max_lower_limit": lower_limit.max(),
+                                 "min_upper_limit": upper_limit.min(), "max_upper_limit": upper_limit.max(),
+                                 "min_mode_ct": df['mode_ct'].min(), "max_mode_ct": df['mode_ct'].max()})
+        elif "ACTUAL CT" in df.columns :
+            final_results.update({"lower_limit": lower_limit, "upper_limit": upper_limit})
+        # Add placeholder limits if ACTUAL CT was missing entirely
+        elif "ACTUAL CT" not in df.columns:
+             final_results.update({"lower_limit": 0, "upper_limit": np.inf})
+
 
         return final_results
 
@@ -266,12 +280,27 @@ def plot_shot_bar_chart(df, lower_limit, upper_limit, mode_ct, time_agg='hourly'
     fig.add_trace(go.Bar(x=[None], y=[None], name="Stopped Shot", marker_color=PASTEL_COLORS['red'], showlegend=True))
     fig.add_trace(go.Scatter(x=[None], y=[None], mode='lines', line=dict(width=0), fill='tozeroy', fillcolor='rgba(119, 221, 119, 0.3)', name='Tolerance Band', showlegend=True))
     fig.add_trace(go.Scatter(x=[None], y=[None], mode='lines', name='New Run Start', line=dict(color='purple', dash='dash', width=2), showlegend=True))
-    ll = lower_limit if lower_limit is not None else 0; ul = upper_limit if upper_limit is not None else np.inf
+
+    # Ensure lower_limit and upper_limit are treated correctly (scalar or Series)
+    ll = lower_limit if lower_limit is not None else 0
+    ul = upper_limit if upper_limit is not None else np.inf
+
+    # Check if 'lower_limit' column exists (implies by_run mode limits were calculated)
     if 'lower_limit' in df.columns and 'run_id' in df.columns:
         for run_id, group in df.groupby('run_id'):
-            if not group.empty: fig.add_shape(type="rect", xref="x", yref="y", x0=group['shot_time'].min(), y0=group['lower_limit'].iloc[0], x1=group['shot_time'].max(), y1=group['upper_limit'].iloc[0], fillcolor=PASTEL_COLORS['green'], opacity=0.3, layer="below", line_width=0)
-    elif ll is not None and ul is not None and ul != np.inf:
-        if not df.empty: fig.add_shape(type="rect", xref="x", yref="y", x0=df['shot_time'].min(), y0=ll, x1=df['shot_time'].max(), y1=ul, fillcolor=PASTEL_COLORS['green'], opacity=0.3, layer="below", line_width=0)
+            if not group.empty:
+                fig.add_shape(type="rect", xref="x", yref="y",
+                              x0=group['shot_time'].min(), y0=group['lower_limit'].iloc[0],
+                              x1=group['shot_time'].max(), y1=group['upper_limit'].iloc[0],
+                              fillcolor=PASTEL_COLORS['green'], opacity=0.3, layer="below", line_width=0)
+    # Fallback for aggregate mode or if limits are scalar
+    elif pd.notna(ll) and pd.notna(ul) and ul != np.inf:
+        if not df.empty:
+            fig.add_shape(type="rect", xref="x", yref="y",
+                          x0=df['shot_time'].min(), y0=ll,
+                          x1=df['shot_time'].max(), y1=ul,
+                          fillcolor=PASTEL_COLORS['green'], opacity=0.3, layer="below", line_width=0)
+
     if 'run_label' in df.columns:
         run_starts = df.groupby('run_label')['shot_time'].min().sort_values();
         for start_time in run_starts.iloc[1:]: fig.add_vline(x=start_time, line_width=2, line_dash="dash", line_color="purple")
@@ -377,16 +406,19 @@ def generate_detailed_analysis(analysis_df, overall_stability, overall_mttr, ove
                 def format_period(p, l):
                     if isinstance(p, (pd.Timestamp, datetime)): return pd.to_datetime(p).strftime('%A, %b %d')
                     elif isinstance(p, date): return p.strftime('%A, %b %d')
-                    elif l == "Monthly (by Run)" or l == "Weekly (by Run)" or l == "Custom Period (by Run)":
-                         if isinstance(p, (int, np.integer)): return f"Week {p}"
-                    elif analysis_level == "Daily": return f"{p}:00"
-                    return str(p)
+                    # Adjusted condition to handle week numbers correctly for specified levels
+                    elif l in ["Monthly (by Run)", "Weekly (by Run)", "Custom Period (by Run)"] and isinstance(p, (int, np.integer)):
+                         return f"Week {p}"
+                    elif analysis_level == "Daily" and isinstance(p, (int, np.integer, float)): return f"{int(p)}:00" # Ensure it's treated as hour
+                    return str(p) # Fallback for run labels etc.
+
                 best_p = format_period(best_performer['period'], analysis_level); worst_p = format_period(worst_performer['period'], analysis_level)
                 insights["best_worst"] = (f"Best: <strong>{best_p}</strong> (Stab: {best_performer['stability']:.1f}%, Stops: {int(best_performer.get('stops', 0))}, MTTR: {best_performer.get('mttr', 0):.1f}m). Worst: <strong>{worst_p}</strong> (Stab: {worst_performer['stability']:.1f}%, Stops: {int(worst_performer.get('stops', 0))}, MTTR: {worst_performer.get('mttr', 0):.1f}m).")
 
                 if 'stops' in analysis_df.columns and analysis_df['stops'].sum() > 0:
                     if analysis_level == "Daily":
                         peak_stop_hour = analysis_df.loc[analysis_df['stops'].idxmax()]
+                        # Ensure period is treated as integer for formatting
                         insights["patterns"] = f"Stop events peak around <strong>{int(peak_stop_hour['period'])}:00</strong> ({int(peak_stop_hour['stops'])} stops)."
                     else:
                         mean_stab = analysis_df['stability'].mean(); std_stab = analysis_df['stability'].std(); outlier_thresh = mean_stab - (1.5 * std_stab)
@@ -405,6 +437,8 @@ def generate_detailed_analysis(analysis_df, overall_stability, overall_mttr, ove
             driver = "Low <strong>MTBF</strong> (frequent stops)" if (overall_mtbf_nn > 0 and overall_mttr_nn > 0 and overall_mtbf_nn < overall_mttr_nn) else "High <strong>MTTR</strong> (long stops)"
             insights["recommendation"] = f"Poor stability. Primary driver: {driver}. MTBF: {overall_mtbf_nn:.1f}m, MTTR: {overall_mttr_nn:.1f}m. Investigate root cause."
     except KeyError as e: insights["error"] = f"Analysis error: Missing key {e}"; insights.update({k: "Error" for k in insights if k != "error"})
+    # --- Catch TypeError specifically ---
+    except TypeError as e: insights["error"] = f"Analysis error: Type mismatch during calculation ({e})"; insights.update({k: "Error" for k in insights if k != "error"})
     except Exception as e: insights["error"] = f"Unexpected analysis error: {e}"; insights.update({k: "Error" for k in insights if k != "error"})
     return insights
 
@@ -417,14 +451,33 @@ def generate_bucket_analysis(complete_runs, bucket_labels):
     num_long_runs = 0
     if long_buckets and 'time_bucket' in complete_runs.columns:
         if pd.api.types.is_categorical_dtype(complete_runs['time_bucket']):
+            # Ensure categories exist before filtering
             valid_categories = [cat for cat in long_buckets if cat in complete_runs['time_bucket'].cat.categories]
-            if valid_categories: num_long_runs = complete_runs[complete_runs['time_bucket'].isin(valid_categories)].shape[0]
-        else:
-            try: num_long_runs = complete_runs[complete_runs['time_bucket'].isin(long_buckets)].shape[0]
-            except TypeError: pass
+            if valid_categories:
+                 num_long_runs = complete_runs[complete_runs['time_bucket'].isin(valid_categories)].shape[0]
+        elif pd.api.types.is_object_dtype(complete_runs['time_bucket']): # Handle if it's object type
+             try:
+                 # Check if long_buckets exist in the actual data values
+                 present_buckets = [b for b in long_buckets if b in complete_runs['time_bucket'].unique()]
+                 if present_buckets:
+                      num_long_runs = complete_runs[complete_runs['time_bucket'].isin(present_buckets)].shape[0]
+             except TypeError: pass # Ignore if isin fails due to mixed types potentially
+        # Add a check for other types just in case, though less likely
+        elif 'time_bucket' in complete_runs.columns:
+             try:
+                  present_buckets = [b for b in long_buckets if b in complete_runs['time_bucket'].unique()]
+                  if present_buckets:
+                     num_long_runs = complete_runs[complete_runs['time_bucket'].isin(present_buckets)].shape[0]
+             except Exception: pass # General catch-all
+
     pct_long = (num_long_runs / total_runs * 100) if total_runs > 0 else 0; longest_run = "N/A"
-    if not complete_runs.empty: longest_run_min_val = complete_runs['duration_min'].max();
-    if pd.notna(longest_run_min_val): longest_run = format_minutes_to_dhm(longest_run_min_val)
+    # Ensure duration_min is numeric before finding max
+    if not complete_runs.empty and 'duration_min' in complete_runs.columns:
+        numeric_durations = pd.to_numeric(complete_runs['duration_min'], errors='coerce')
+        longest_run_min_val = numeric_durations.max()
+        if pd.notna(longest_run_min_val):
+            longest_run = format_minutes_to_dhm(longest_run_min_val)
+
     analysis = f"<strong>{total_runs}</strong> completed runs. <strong>{num_long_runs}</strong> ({pct_long:.1f}%) >60 min. Longest: <strong>{longest_run}</strong>. "
     if total_runs > 0:
         if pct_long < 20: analysis += "Suggests frequent interruptions."
@@ -450,9 +503,9 @@ def generate_mttr_mtbf_analysis(analysis_df, analysis_level):
     
     example_insight = ""
     
-    # --- [FIXED] Function definition moved inside ---
+    # --- Function definition moved inside ---
     def format_p(p, l):
-        # --- [FIXED] More robust type checking ---
+        # More robust type checking
         if isinstance(p, (pd.Timestamp, datetime)): # Check for datetime objects
             return pd.to_datetime(p).strftime('%A, %b %d')
         elif isinstance(p, date): # Check for date objects
@@ -461,7 +514,9 @@ def generate_mttr_mtbf_analysis(analysis_df, analysis_level):
              if isinstance(p, (int, np.integer)): # Check if it's a week number
                  return f"Week {p}"
         elif l == "Daily": # Check for hourly
-            return f"{p}:00"
+            # Ensure p is treated as a number before formatting
+             if isinstance(p, (int, np.integer, float)):
+                 return f"{int(p)}:00"
         return str(p) # Fallback for Run IDs or other types
 
     if not analysis_df.empty:
@@ -507,8 +562,13 @@ def generate_excel_report(all_runs_data, tolerance):
             ws.merge_range(f'{analysis_col_1}14:{analysis_col_3}14','Time Bucket Analysis',header_format);ws.write(f'{analysis_col_1}15','Bucket',sub_header_format);ws.write(f'{analysis_col_2}15','Duration Range',sub_header_format);ws.write(f'{analysis_col_3}15','Events Count',sub_header_format);max_bucket=20
             for i in range(1,max_bucket+1):
                 ws.write(f'{analysis_col_1}{15+i}',i,sub_header_format);ws.write(f'{analysis_col_2}{15+i}',f"{(i-1)*20} - {i*20} min",sub_header_format)
-                if time_bucket_col:ws.write_formula(f'{analysis_col_3}{15+i}',f'=COUNTIF({time_bucket_col}:{time_bucket_col},{i})',sub_header_format)
-                else:ws.write(f'{analysis_col_3}{15+i}','N/A',sub_header_format)
+                # --- EXCEL FORMULA FIX for Time Bucket Count ---
+                # Check if time_bucket_col exists before writing formula
+                if time_bucket_col:
+                     # Correct COUNTIF: Compare numeric bucket index (i) with the TIME BUCKET column
+                     ws.write_formula(f'{analysis_col_3}{15+i}',f'=COUNTIF({bucket_col_dyn}{start_row}:{bucket_col_dyn}{start_row + len(df_run) - 1},{i})',sub_header_format)
+                else:
+                     ws.write(f'{analysis_col_3}{15+i}','N/A',sub_header_format)
             ws.write(f'{analysis_col_2}{16+max_bucket}','Grand Total',sub_header_format);ws.write_formula(f'{analysis_col_3}{16+max_bucket}',f"=SUM({analysis_col_3}16:{analysis_col_3}{15+max_bucket})",sub_header_format)
             ws.write_row('A18',df_run.columns,header_format)
             if'SHOT TIME'in df_run.columns:df_run['SHOT TIME']=pd.to_datetime(df_run['SHOT TIME'],errors='coerce').dt.tz_localize(None)
@@ -517,6 +577,7 @@ def generate_excel_report(all_runs_data, tolerance):
                 current_row_excel_idx=start_row+i
                 for c_idx,value in enumerate(row_values):
                     col_name=df_run.columns[c_idx]
+                    # --- Skip writing raw values for formula columns in Excel ---
                     if col_name in['CUMULATIVE COUNT','RUN DURATION','TIME BUCKET','TIME DIFF SEC']:continue
                     cell_format=data_format
                     if isinstance(value,pd.Timestamp):
@@ -526,71 +587,123 @@ def generate_excel_report(all_runs_data, tolerance):
                     elif isinstance(value,(int,float,np.number)):
                         if col_name in['ACTUAL CT','adj_ct_sec']:cell_format=secs_format
                         if np.isfinite(value): ws.write_number(current_row_excel_idx-1,c_idx,value,cell_format)
-                        else: ws.write_string(current_row_excel_idx-1, c_idx, '', data_format)
-                    else:ws.write(current_row_excel_idx-1,c_idx,value,data_format)
+                        else: ws.write_string(current_row_excel_idx-1, c_idx, '', data_format) # Handle NaN/Inf
+                    else:ws.write(current_row_excel_idx-1,c_idx,value,data_format) # Write strings, etc.
+
             if table_formulas_ok:
-                time_diff_col_idx=df_run.columns.get_loc('TIME DIFF SEC');cum_count_col_idx=df_run.columns.get_loc('CUMULATIVE COUNT');run_dur_col_idx=df_run.columns.get_loc('RUN DURATION');bucket_col_idx=df_run.columns.get_loc('TIME BUCKET')
-                for i in range(len(df_run)):
-                    row_num=start_row+i;prev_row=row_num-1
-                    if i==0:helper_formula=f'=IF({stop_col}{row_num}=0,{time_diff_col_dyn}{row_num},0)'
-                    else:helper_formula=f'=IF({stop_event_col}{row_num}=1,0,{helper_col_letter}{prev_row})+IF({stop_col}{row_num}=0,{time_diff_col_dyn}{row_num},0)'
-                    ws.write_formula(f'{helper_col_letter}{row_num}',helper_formula)
-                    if i==0:ws.write_number(row_num-1,time_diff_col_idx,0,secs_format)
-                    else:formula=f'=({shot_time_col_dyn}{row_num}-{shot_time_col_dyn}{prev_row})*86400';ws.write_formula(row_num-1,time_diff_col_idx,formula,secs_format)
-                    cum_count_formula=f'=COUNTIF(${stop_event_col}${start_row}:${stop_event_col}{row_num},1)&"/"&IF({stop_event_col}{row_num}=1,"0 sec",TEXT({helper_col_letter}{row_num}/86400,"[h]:mm:ss"))';ws.write_formula(row_num-1,cum_count_col_idx,cum_count_formula,data_format)
-                    if i==0:run_dur_formula=f'=IF({stop_event_col}{row_num}=1,0,"")'
-                    else:run_dur_formula=f'=IF({stop_event_col}{row_num}=1,{helper_col_letter}{prev_row}/86400,"")'
-                    ws.write_formula(row_num-1,run_dur_col_idx,run_dur_formula,time_format)
-                    if i==0:time_bucket_formula=f'=IF({stop_event_col}{row_num}=1,IFERROR(FLOOR(0/60/20,1)+1,""),"")'
-                    else:time_bucket_formula=f'=IF({stop_event_col}{row_num}=1,IFERROR(FLOOR({helper_col_letter}{prev_row}/60/20,1)+1,""),"")'
-                    ws.write_formula(row_num-1,bucket_col_idx,time_bucket_formula,data_format)
-            else:
-                if cum_count_col_dyn:ws.write(f'{cum_count_col_dyn}{start_row}',"Formula Error",error_format)
-                if time_diff_col_dyn:ws.write(f'{time_diff_col_dyn}{start_row}',"Formula Error",error_format)
+                 # --- Get column indices safely ---
+                 time_diff_col_idx = df_run.columns.get_loc('TIME DIFF SEC') if 'TIME DIFF SEC' in df_run.columns else -1
+                 cum_count_col_idx = df_run.columns.get_loc('CUMULATIVE COUNT') if 'CUMULATIVE COUNT' in df_run.columns else -1
+                 run_dur_col_idx = df_run.columns.get_loc('RUN DURATION') if 'RUN DURATION' in df_run.columns else -1
+                 bucket_col_idx = df_run.columns.get_loc('TIME BUCKET') if 'TIME BUCKET' in df_run.columns else -1
+
+                 # --- Check if all necessary indices were found ---
+                 if -1 in [time_diff_col_idx, cum_count_col_idx, run_dur_col_idx, bucket_col_idx]:
+                      ws.write('A6', "Error: Could not find all columns needed for formulas.", error_format)
+                 else:
+                    for i in range(len(df_run)):
+                        row_num=start_row+i;prev_row=row_num-1
+
+                        # Helper column formula (calculates cumulative time within a run)
+                        if i==0:helper_formula=f'=IF({stop_col}{row_num}=0,{time_diff_col_dyn}{row_num},0)'
+                        else:helper_formula=f'=IF({stop_event_col}{row_num}=1,0,IF({stop_col}{row_num}=0,{time_diff_col_dyn}{row_num},{helper_col_letter}{prev_row}))' # Corrected helper logic
+                        ws.write_formula(f'{helper_col_letter}{row_num}',helper_formula) # Write helper formula for current row
+
+                        # Time Diff Sec (Excel calculation)
+                        if i==0:
+                             # Use the pre-calculated value for the first row (or 0 if not available)
+                             first_diff = data['processed_df_original']['time_diff_sec'].iloc[0] if 'processed_df_original' in data and not data['processed_df_original'].empty else 0
+                             ws.write_number(row_num-1, time_diff_col_idx, first_diff, secs_format)
+                        else:
+                             formula=f'=IFERROR(({shot_time_col_dyn}{row_num}-{shot_time_col_dyn}{prev_row})*86400, 0)'; # Calculate diff, default to 0 on error
+                             ws.write_formula(row_num-1,time_diff_col_idx,formula,secs_format)
+
+                        # Cumulative Count / Run Duration String
+                        cum_count_formula=f'=COUNTIF(${stop_event_col}${start_row}:${stop_event_col}{row_num},TRUE)&"/"&IF({stop_event_col}{row_num}=TRUE,"0 sec",TEXT({helper_col_letter}{row_num}/86400,"[h]:mm:ss"))'
+                        ws.write_formula(row_num-1,cum_count_col_idx,cum_count_formula,data_format)
+
+                        # Run Duration (Numeric, formatted as time)
+                        # This should show the duration of the *completed* run ending *before* the current stop event
+                        run_dur_formula = f'=IF({stop_event_col}{row_num}=TRUE, IF({row_num}>{start_row}, {helper_col_letter}{prev_row}/86400, 0), "")'
+                        ws.write_formula(row_num-1,run_dur_col_idx,run_dur_formula,time_format)
+
+                        # Time Bucket (Numeric index of the bucket)
+                        time_bucket_formula = f'=IF({stop_event_col}{row_num}=TRUE, IF({row_num}>{start_row}, IFERROR(FLOOR({helper_col_letter}{prev_row}/60/20,1)+1, ""), ""), "")'
+                        ws.write_formula(row_num-1,bucket_col_idx,time_bucket_formula,data_format) # Write as number, format later if needed
+
+            else: # If essential columns for formulas were missing
+                if cum_count_col_dyn: ws.write(f'{cum_count_col_dyn}{start_row}',"Formula Error",error_format)
+                if time_diff_col_dyn: ws.write(f'{time_diff_col_dyn}{start_row}',"Formula Error",error_format)
+                if run_dur_col_dyn: ws.write(f'{run_dur_col_dyn}{start_row}', "Formula Error", error_format)
+                if bucket_col_dyn: ws.write(f'{bucket_col_dyn}{start_row}', "Formula Error", error_format)
+
+            # Auto-adjust column widths
             for i,col_name in enumerate(df_run.columns):
-                try:width=max(len(str(col_name)),df_run[col_name].astype(str).map(len).max())
-                except:width=len(str(col_name))
-                ws.set_column(i,i,width+2 if width<40 else 40)
+                # Calculate max width needed for header and data
+                try:
+                     # Convert potential numeric/datetime data to string for length check, handle NaN safely
+                     max_len_data = df_run[col_name].astype(str).map(len).max()
+                     # Ensure max_len_data is a number, default to 0 if NaN
+                     max_len_data = 0 if pd.isna(max_len_data) else max_len_data
+                     # Compare with header length
+                     width = max(len(str(col_name)), int(max_len_data))
+                except Exception: # Fallback if error during length calculation
+                     width=len(str(col_name))
+                # Apply width limit and padding
+                ws.set_column(i,i,min(width + 2, 40)) # Limit max width to 40
+
     return output.getvalue()
 
 
 # --- Wrapper Function (Uses UNIFIED RunRateCalculator) ---
 def generate_run_based_excel_export(df_for_export, tolerance, downtime_gap_tolerance, run_interval_hours, tool_id_selection):
     try:
-        # Use main calculator for base processing
-        base_calc = RunRateCalculator(df_for_export, tolerance, downtime_gap_tolerance, analysis_mode='aggregate')
+        # Use main calculator for base processing AND run splitting
+        base_calc = RunRateCalculator(df_for_export, tolerance, downtime_gap_tolerance, analysis_mode='aggregate') # Use aggregate initially
         df_processed = base_calc.results.get("processed_df", pd.DataFrame())
+
+        if df_processed.empty:
+             st.error("Could not process data for Excel export. Check input data.")
+             return BytesIO().getvalue()
+
+        # --- Split into runs using time_diff_sec ---
+        split_col = 'time_diff_sec'
+        if split_col not in df_processed.columns:
+             st.error(f"'{split_col}' column not found after initial processing. Cannot split into runs.")
+             return BytesIO().getvalue()
+
+        is_new_run = df_processed[split_col] > (run_interval_hours * 3600)
+        # Ensure run_id starts from 1 correctly, handle potential empty is_new_run Series
+        if not is_new_run.empty:
+            # cumsum() creates groups, add 1 to start from 1.
+            # The logic `+ (0 if is_new_run.iloc[0] else 1)` was potentially flawed.
+            # A simpler approach: cumsum starts groups from 0, so add 1.
+            df_processed['run_id'] = is_new_run.cumsum() + 1
+        else: # Handle case with only one row or no time differences
+            df_processed['run_id'] = 1
+
     except Exception as e:
-        st.error(f"Error during initial data processing for Excel: {e}")
+        st.error(f"Error during initial data processing or run splitting for Excel: {e}")
         st.text(traceback.format_exc())
         return BytesIO().getvalue()
-
-    if df_processed.empty:
-        st.error("Could not process data for Excel export. Check input data.")
-        return BytesIO().getvalue()
-
-    # Split into runs (using time_diff_sec)
-    split_col = 'time_diff_sec'
-    is_new_run = df_processed[split_col] > (run_interval_hours * 3600)
-    # Ensure run_id starts from 1 correctly, handle potential empty is_new_run
-    if not is_new_run.empty:
-         df_processed['run_id'] = is_new_run.cumsum() + (0 if is_new_run.iloc[0] else 1)
-    else: # Handle case with only one row or no time differences
-         df_processed['run_id'] = 1
 
 
     all_runs_data = {}
     # Define base columns + formula placeholders
-    desired_columns_base = ['SUPPLIER NAME', 'tool_id', 'SESSION ID', 'SHOT ID', 'shot_time','APPROVED CT', 'ACTUAL CT', 'time_diff_sec', 'stop_flag', 'stop_event', 'run_group']
-    formula_columns = ['CUMULATIVE COUNT', 'RUN DURATION', 'TIME BUCKET']
+    # Ensure 'tool_id' is included if available in the original data
+    desired_columns_base = ['SUPPLIER NAME', 'tool_id', 'SESSION ID', 'SHOT ID', 'shot_time','APPROVED CT', 'ACTUAL CT']
+    # Columns calculated by RunRateCalculator (will be present after recalculation)
+    calculated_cols = ['time_diff_sec', 'stop_flag', 'stop_event', 'run_group', 'adj_ct_sec'] # adj_ct_sec needed for metrics
+    formula_columns = ['CUMULATIVE COUNT', 'RUN DURATION', 'TIME BUCKET'] # Placeholders for Excel formulas
 
-    # Final columns in desired Excel order
+    # Final columns in desired Excel order (match generate_excel_report function)
     final_desired_renamed = ['SUPPLIER NAME', 'EQUIPMENT CODE', 'SESSION ID', 'SHOT ID', 'SHOT TIME','APPROVED CT', 'ACTUAL CT', 'TIME DIFF SEC', 'STOP', 'STOP EVENT', 'run_group','CUMULATIVE COUNT', 'RUN DURATION', 'TIME BUCKET']
 
-    # Loop through runs, recalculate with RunRateCalculator for run-specific metrics
+    # Loop through runs identified by run_id
     for run_id, df_run_raw in df_processed.groupby('run_id'):
         try:
-            # Recalculate THIS run using the SAME unified logic
+            # --- Recalculate THIS run using the SAME unified logic ---
+            # Use 'aggregate' mode here as each run is treated independently for its metrics/limits
             run_calculator = RunRateCalculator(df_run_raw.copy(), tolerance, downtime_gap_tolerance, analysis_mode='aggregate')
             run_results = run_calculator.results
 
@@ -598,33 +711,41 @@ def generate_run_based_excel_export(df_for_export, tolerance, downtime_gap_toler
                 st.warning(f"Skipping empty/invalid Run ID {run_id} for Excel.")
                 continue
 
-            # Add general run info to the results dict (for Excel header)
-            run_results['equipment_code'] = df_run_raw['tool_id'].iloc[0] if 'tool_id' in df_run_raw.columns else tool_id_selection
+            # This is the DataFrame with calculated cols (stop_flag, etc.) for *this run*
+            export_df = run_results['processed_df'].copy()
+            # Store original time_diff_sec for first row handling in Excel export
+            run_results['processed_df_original'] = df_run_raw[['time_diff_sec']].copy()
+
+
+            # --- Add general run info to the results dict (for Excel header) ---
+            run_results['equipment_code'] = df_run_raw['tool_id'].iloc[0] if 'tool_id' in df_run_raw.columns and not df_run_raw['tool_id'].empty else tool_id_selection
             run_results['start_time'] = df_run_raw['shot_time'].min()
             run_results['end_time'] = df_run_raw['shot_time'].max()
+            # Add scalar lower/upper limits calculated for this specific run
+            run_results['lower_limit'] = run_results.get('lower_limit', 0) # From recalculation
+            run_results['upper_limit'] = run_results.get('upper_limit', np.inf) # From recalculation
 
-            # Prepare the DataFrame specific for this Excel sheet
-            export_df = run_results['processed_df'].copy()
+            # --- Prepare the DataFrame specific for this Excel sheet ---
+            # Select base columns that exist in the original raw data for this run
+            cols_to_keep = [col for col in desired_columns_base if col in df_run_raw.columns]
+            final_export_df = df_run_raw[cols_to_keep].copy()
 
-            # Add original columns if they exist in the raw slice for this run
-            for col in ['SUPPLIER NAME', 'SESSION ID', 'SHOT ID', 'APPROVED CT']:
-                if col in df_run_raw.columns and col not in export_df.columns:
-                    # Use merge to align correctly based on index
-                   export_df = export_df.merge(df_run_raw[[col]], left_index=True, right_index=True, how='left')
+            # Merge calculated columns from the re-processed run_results['processed_df']
+            calculated_cols_to_merge = [col for col in calculated_cols if col in export_df.columns]
+            final_export_df = final_export_df.merge(export_df[calculated_cols_to_merge], left_index=True, right_index=True, how='left')
 
-            # Add placeholders for formula columns if not present
+
+            # Add placeholders for formula columns
             for col in formula_columns:
-                if col not in export_df: export_df[col] = ''
+                final_export_df[col] = '' # Initialize as empty string
 
-            # Select and rename columns needed for the Excel sheet structure
-            columns_to_export = [col for col in desired_columns_base if col in export_df.columns] + formula_columns
-            final_export_df = export_df[columns_to_export].rename(columns={'tool_id': 'EQUIPMENT CODE', 'shot_time': 'SHOT TIME','time_diff_sec': 'TIME DIFF SEC', 'stop_flag': 'STOP', 'stop_event': 'STOP EVENT'})
+            # Rename columns for Excel
+            final_export_df.rename(columns={'tool_id': 'EQUIPMENT CODE', 'shot_time': 'SHOT TIME','time_diff_sec': 'TIME DIFF SEC', 'stop_flag': 'STOP', 'stop_event': 'STOP EVENT'}, inplace=True)
 
-            # Ensure all final desired columns exist, adding blanks if necessary
+            # Ensure all final desired columns exist, adding blanks if necessary, and reorder
             for col in final_desired_renamed:
                 if col not in final_export_df.columns: final_export_df[col] = ''
-            # Reorder to final desired Excel column order
-            final_export_df = final_export_df[[col for col in final_desired_renamed if col in final_export_df.columns]]
+            final_export_df = final_export_df[[col for col in final_desired_renamed if col in final_export_df.columns]] # Reorder
 
             # Store the prepared DataFrame back into the results dict for this run
             run_results['processed_df'] = final_export_df
@@ -633,13 +754,20 @@ def generate_run_based_excel_export(df_for_export, tolerance, downtime_gap_toler
         except Exception as e:
             st.warning(f"Could not process Run ID {run_id} for Excel: {e}")
             st.text(traceback.format_exc())
+            continue # Skip to the next run
 
     if not all_runs_data:
         st.error("No valid runs were processed for the Excel export.")
         return BytesIO().getvalue()
 
     # Generate the Excel file using the dedicated reporting function
-    return generate_excel_report(all_runs_data, tolerance)
+    try:
+         excel_data = generate_excel_report(all_runs_data, tolerance)
+         return excel_data
+    except Exception as e:
+         st.error(f"Error generating the final Excel file: {e}")
+         st.text(traceback.format_exc())
+         return BytesIO().getvalue()
 
 
 # --- Dashboard Rendering Function ---
@@ -666,7 +794,7 @@ def render_dashboard(df_tool, tool_id_selection):
         - **Remove Runs...**: (Only in 'by Run' mode) Filters out runs with fewer shots.
         """)
 
-    # --- [MODIFIED] Analysis Level Options ---
+    # --- Analysis Level Options ---
     analysis_options = ["Daily", "Weekly (by Run)", "Monthly (by Run)", "Custom Period (by Run)"]
     analysis_level = st.sidebar.radio(
         "Select Analysis Level",
@@ -693,7 +821,8 @@ def render_dashboard(df_tool, tool_id_selection):
                 is_new_run = df_processed['time_diff_sec'] > (interval_hours * 3600)
                  # Ensure correct run_id start, handle edge case of single row df
                 if not is_new_run.empty:
-                     df_processed['run_id'] = is_new_run.cumsum() + (0 if is_new_run.iloc[0] else 1)
+                     # Corrected run_id assignment: cumsum() + 1
+                     df_processed['run_id'] = is_new_run.cumsum() + 1
                 else:
                      df_processed['run_id'] = 1 # Assign run_id 1 if only one row
             return df_processed
@@ -765,34 +894,51 @@ def render_dashboard(df_tool, tool_id_selection):
         if 'run_id' in df_view.columns:
             if 'by Run' in analysis_level: # Apply filter only in 'by Run' modes
                 runs_before = df_view['run_id'].nunique()
+                # Use transform to get counts per run and filter
                 run_shot_counts = df_view.groupby('run_id')['run_id'].transform('count')
-                df_view = df_view[run_shot_counts >= min_shots_filter]
+                df_view = df_view[run_shot_counts >= min_shots_filter].copy() # Ensure it's a copy after filtering
                 runs_after = df_view['run_id'].nunique()
                 if runs_before > 0: st.sidebar.metric("Runs Displayed", f"{runs_after} / {runs_before}", f"-{runs_before - runs_after} filtered", delta_color="off")
+            # --- Relabel runs AFTER filtering ---
             if not df_view.empty: # Add labels if data remains
+                 # Get unique run_ids present *in the filtered view*, sorted by time
                  unique_run_ids_in_view = df_view.sort_values('shot_time')['run_id'].unique()
                  run_label_map = {run_id: f"Run {i+1:03d}" for i, run_id in enumerate(unique_run_ids_in_view)}
+                 # Apply the map based on the original run_id to create the label
                  df_view['run_label'] = df_view['run_id'].map(run_label_map)
 
 
     if df_view.empty: st.warning(f"No data for selected period/filters."); st.stop()
     else:
         # --- Calculate Final Metrics (using unified RunRateCalculator) ---
+        # Pass the potentially filtered df_view
         calc = RunRateCalculator(df_view.copy(), tolerance, downtime_gap_tolerance, analysis_mode=mode)
         results = calc.results
-        if not results or 'processed_df' not in results or results['processed_df'].empty: st.error("Calculation failed."); st.stop()
+
+        # Ensure calculation was successful
+        if not results or 'processed_df' not in results or results['processed_df'].empty:
+             # Add the run_label back to the processed df if it exists in df_view
+             if 'run_label' in df_view.columns:
+                  results['processed_df'] = results['processed_df'].merge(
+                       df_view[['run_label']], left_index=True, right_index=True, how='left'
+                  )
+             else:
+                  st.error("Calculation failed or resulted in empty data after filtering."); st.stop()
+
         summary_metrics = results # Use results directly
 
-        if mode == 'by_run': sub_header = sub_header.replace("Summary for", "Summary for (Combined Runs)")
+        # Adjust subheader for combined runs if in 'by_run' mode
+        if mode == 'by_run': sub_header = sub_header.replace("Summary for", "Summary (Combined Runs)")
 
         # --- Display Section ---
         col1, col2 = st.columns([3, 1]);
         with col1:
             st.subheader(sub_header)
         with col2:
+            # Pass the potentially filtered df_view to the export function
             st.download_button(
                 label="📥 Export Run-Based Report",
-                data=generate_run_based_excel_export(df_view.copy(), tolerance, downtime_gap_tolerance, run_interval_hours, tool_id_selection), # Pass gap tol
+                data=generate_run_based_excel_export(df_view.copy(), tolerance, downtime_gap_tolerance, run_interval_hours, tool_id_selection),
                 file_name=f"Run_Based_Report_{tool_id_selection.replace(' / ', '_').replace(' ', '_')}_{analysis_level.replace(' ', '_')}_{datetime.now():%Y%m%d}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
@@ -801,31 +947,38 @@ def render_dashboard(df_tool, tool_id_selection):
         # --- Trend Summary Calculation ---
         trend_summary_df = None
         run_summary_df_for_trends = None # Initialize
-        
+
+        # Calculate summaries based on the potentially filtered df_view
         if "Weekly (by Run)" in analysis_level:
-            trend_summary_df = calculate_daily_summaries_for_week(df_view, tolerance, downtime_gap_tolerance, mode)
+            trend_summary_df = calculate_daily_summaries_for_week(df_view.copy(), tolerance, downtime_gap_tolerance, mode)
         elif "Monthly (by Run)" in analysis_level:
-            trend_summary_df = calculate_weekly_summaries_for_month(df_view, tolerance, downtime_gap_tolerance, mode)
+            trend_summary_df = calculate_weekly_summaries_for_month(df_view.copy(), tolerance, downtime_gap_tolerance, mode)
         elif "Custom Period (by Run)" in analysis_level:
              time_span_days = (df_view['date'].max() - df_view['date'].min()).days
-             if time_span_days > 14: trend_summary_df = calculate_weekly_summaries_for_month(df_view, tolerance, downtime_gap_tolerance, mode)
-             else: trend_summary_df = calculate_daily_summaries_for_week(df_view, tolerance, downtime_gap_tolerance, mode)
+             if time_span_days > 14: trend_summary_df = calculate_weekly_summaries_for_month(df_view.copy(), tolerance, downtime_gap_tolerance, mode)
+             else: trend_summary_df = calculate_daily_summaries_for_week(df_view.copy(), tolerance, downtime_gap_tolerance, mode)
         elif analysis_level == "Daily":
+             # Hourly summary is already in 'results' from the main calculation on df_view
              trend_summary_df = results.get('hourly_summary', pd.DataFrame())
-        
-        # Calculate run summary *once* if in a 'by Run' mode (for table AND trends)
+
+        # Calculate run summary *once* if in a 'by Run' mode (using filtered df_view)
         if "by Run" in analysis_level:
-            run_summary_df_for_trends = calculate_run_summaries(df_view, tolerance, downtime_gap_tolerance)
+            # Pass the filtered df_view to calculate summaries only for displayed runs
+            run_summary_df_for_trends = calculate_run_summaries(df_view.copy(), tolerance, downtime_gap_tolerance)
             if run_summary_df_for_trends is not None and not run_summary_df_for_trends.empty:
-                # Rename columns for plotting
+                # Rename columns for plotting and table display consistency
                 run_summary_df_for_trends.rename(columns={'run_label': 'RUN ID', 'stability_index': 'STABILITY %', 'stops': 'STOPS', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'total_shots': 'Total Shots'}, inplace=True, errors='ignore')
 
 
         # --- Metric Display Containers ---
         with st.container(border=True):
             col1, col2, col3, col4, col5 = st.columns(5)
-            total_d = summary_metrics.get('total_runtime_sec', 0); prod_t = summary_metrics.get('production_time_sec', 0); down_t = summary_metrics.get('downtime_sec', 0)
-            prod_p = (prod_t / total_d * 100) if total_d > 0 else 0; down_p = (down_t / total_d * 100) if total_d > 0 else 0
+            # Use calculated overall metrics if available (especially for 'by_run' which aggregates post-run calcs)
+            total_d = summary_metrics.get('total_runtime_sec', 0)
+            prod_t = summary_metrics.get('production_time_sec', 0)
+            down_t = summary_metrics.get('downtime_sec', 0)
+            prod_p = (prod_t / total_d * 100) if total_d > 0 else 0
+            down_p = (down_t / total_d * 100) if total_d > 0 else 0
             with col1: st.metric("MTTR", f"{summary_metrics.get('mttr_min', 0):.1f} min")
             with col2: st.metric("MTBF", f"{summary_metrics.get('mtbf_min', 0):.1f} min")
             with col3: st.metric("Total Run Duration", format_duration(total_d)) # Uptime + Downtime
@@ -845,108 +998,121 @@ def render_dashboard(df_tool, tool_id_selection):
             with c3: st.metric("Stop Events", f"{summary_metrics.get('stop_events', 0)}"); st.markdown(f'<span style="background-color:{PASTEL_COLORS["red"]};color:#0E1117;padding:3px 8px;border-radius:10px;font-size:0.8rem;font-weight:bold;">{s_p:.1f}% Stopped Shots</span>', unsafe_allow_html=True)
         with st.container(border=True):
             c1, c2, c3 = st.columns(3)
-            if mode == 'by_run':
-                min_ll=summary_metrics.get('min_lower_limit', 0); max_ll=summary_metrics.get('max_lower_limit', 0); min_mc=summary_metrics.get('min_mode_ct', 0); max_mc=summary_metrics.get('max_mode_ct', 0); min_ul=summary_metrics.get('min_upper_limit', 0); max_ul=summary_metrics.get('max_upper_limit', 0)
+            # Display limits based on calculated results (could be scalar or range)
+            if mode == 'by_run' and 'min_lower_limit' in summary_metrics: # Check if by_run range limits exist
+                min_ll=summary_metrics.get('min_lower_limit', 0); max_ll=summary_metrics.get('max_lower_limit', 0);
+                min_mc=summary_metrics.get('min_mode_ct', 0); max_mc=summary_metrics.get('max_mode_ct', 0);
+                min_ul=summary_metrics.get('min_upper_limit', 0); max_ul=summary_metrics.get('max_upper_limit', 0)
                 c1.metric("Lower Limit (sec)", f"{min_ll:.2f} – {max_ll:.2f}" if min_ll != max_ll else f"{min_ll:.2f}")
                 with c2:
                     with st.container(border=True):
                         st.metric("Mode CT (sec)", f"{min_mc:.2f} – {max_mc:.2f}" if min_mc != max_mc else f"{min_mc:.2f}")
                 c3.metric("Upper Limit (sec)", f"{min_ul:.2f} – {max_ul:.2f}" if min_ul != max_ul else f"{min_ul:.2f}")
-            else: # Aggregate Mode
-                mode_val = summary_metrics.get('mode_ct', 0); mode_disp = f"{mode_val:.2f}" if isinstance(mode_val, (int,float)) else mode_val
-                c1.metric("Lower Limit (sec)", f"{summary_metrics.get('lower_limit', 0):.2f}")
+            else: # Aggregate Mode or fallback
+                mode_val = summary_metrics.get('mode_ct', "N/A"); # Use N/A if not calculated
+                mode_disp = f"{mode_val:.2f}" if isinstance(mode_val, (int,float)) else str(mode_val)
+                c1.metric("Lower Limit (sec)", f"{summary_metrics.get('lower_limit', 0):.2f}") # Default to 0 if missing
                 with c2:
                     with st.container(border=True):
                         st.metric("Mode CT (sec)", mode_disp)
-                c3.metric("Upper Limit (sec)", f"{summary_metrics.get('upper_limit', 0):.2f}")
+                c3.metric("Upper Limit (sec)", f"{summary_metrics.get('upper_limit', np.inf):.2f}") # Default to inf if missing
 
         # --- Detailed Analysis HTML ---
         if detailed_view:
             st.markdown("---")
             with st.expander("🤖 View Automated Analysis Summary", expanded=False):
                 analysis_df = pd.DataFrame() # Prepare df for analysis function
-                
+
                 # Determine which df to use for analysis based on mode/level
                 if analysis_level == "Daily":
                     if trend_summary_df is not None and not trend_summary_df.empty:
                         analysis_df = trend_summary_df.copy()
                         analysis_df.rename(columns={'hour': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}, inplace=True, errors='ignore')
                 elif "by Run" in analysis_level:
-                    # 'by Run' modes can show daily, weekly, or run-level trends
-                    # Use the 'trend_summary_df' (daily/weekly) if it exists, otherwise use the run summary
-                    if trend_summary_df is not None and not trend_summary_df.empty:
-                         analysis_df = trend_summary_df.copy()
-                         if 'date' in analysis_df.columns: rename_map = {'date': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}
-                         elif 'week' in analysis_df.columns: rename_map = {'week': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}
-                         analysis_df.rename(columns=rename_map, inplace=True, errors='ignore')
-                    elif run_summary_df_for_trends is not None and not run_summary_df_for_trends.empty:
-                         analysis_df = run_summary_df_for_trends.copy()
-                         # Use the renamed columns from the run summary
-                         analysis_df.rename(columns={'RUN ID': 'period', 'STABILITY %': 'stability', 'STOPS': 'stops', 'MTTR (min)': 'mttr'}, inplace=True, errors='ignore')
+                     # Use run summary directly for analysis in 'by Run' mode
+                     if run_summary_df_for_trends is not None and not run_summary_df_for_trends.empty:
+                          analysis_df = run_summary_df_for_trends.copy()
+                          # Use the renamed columns from the run summary
+                          analysis_df.rename(columns={'RUN ID': 'period', 'STABILITY %': 'stability', 'STOPS': 'stops', 'MTTR (min)': 'mttr'}, inplace=True, errors='ignore')
+                     # If run summary failed, try the daily/weekly trend as fallback (less ideal for run-level analysis)
+                     elif trend_summary_df is not None and not trend_summary_df.empty:
+                          analysis_df = trend_summary_df.copy()
+                          if 'date' in analysis_df.columns: rename_map = {'date': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}
+                          elif 'week' in analysis_df.columns: rename_map = {'week': 'period', 'stability_index': 'stability', 'stops': 'stops', 'mttr_min': 'mttr'}
+                          else: rename_map = {} # Should not happen if date/week exist
+                          analysis_df.rename(columns=rename_map, inplace=True, errors='ignore')
 
+                # Pass aggregated metrics calculated earlier
                 insights = generate_detailed_analysis(analysis_df, summary_metrics.get('stability_index', 0), summary_metrics.get('mttr_min', 0), summary_metrics.get('mtbf_min', 0), analysis_level)
-                
+
                 if insights.get("error"):
                     st.error(insights["error"])
                 else:
                     patterns_html = f'<p style="color:#FAFAFA;"><strong>Identified Patterns:</strong> {insights.get("patterns", "")}</p>' if insights.get("patterns") else ''
                     html_content = f"""<div style="border:1px solid #333;border-radius:0.5rem;padding:1.5rem;margin-top:1rem;font-family:sans-serif;line-height:1.6;background-color:#0E1117;"><h4 style="margin-top:0;color:#FAFAFA;">Automated Analysis Summary</h4><p style="color:#FAFAFA;"><strong>Overall Assessment:</strong> {insights.get("overall", "N/A")}</p><p style="color:#FAFAFA;"><strong>Predictive Trend:</strong> {insights.get("predictive", "N/A")}</p><p style="color:#FAFAFA;"><strong>Performance Variance:</strong> {insights.get("best_worst", "N/A")}</p>{patterns_html}<p style="margin-top:1rem;color:#FAFAFA;background-color:#262730;padding:1rem;border-radius:0.5rem;"><strong>Key Recommendation:</strong> {insights.get("recommendation", "N/A")}</p></div>"""
-                    # --- [FIXED] Corrected Call ---
                     components.html(html_content, height=400, scrolling=True)
 
         # --- Breakdown Tables ---
-        # Show daily/weekly table *only* if a 'by Run' mode is selected AND trend_summary_df (daily/weekly) was generated
-        if analysis_level in ["Weekly (by Run)", "Monthly (by Run)", "Custom Period (by Run)"] and trend_summary_df is not None and not trend_summary_df.empty:
-            if 'date' in trend_summary_df.columns or 'week' in trend_summary_df.columns:
-                with st.expander("View Daily/Weekly Breakdown Table", expanded=False):
-                    d_df = trend_summary_df.copy()
-                    if 'date' in d_df.columns:
-                        d_df['date'] = pd.to_datetime(d_df['date']).dt.strftime('%A, %b %d')
-                        d_df.rename(columns={'date': 'Day', 'stability_index': 'Stability (%)', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'stops': 'Stops'}, inplace=True)
-                    elif 'week' in d_df.columns:
-                        d_df.rename(columns={'week': 'Week', 'stability_index': 'Stability (%)', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'stops': 'Stops'}, inplace=True)
-                    # --- [FIXED] Select only relevant columns for this view ---
-                    cols_to_show = [col for col in ['Day', 'Week', 'Stability (%)', 'MTTR (min)', 'MTBF (min)', 'Stops', 'total_shots'] if col in d_df.columns]
+        # Show daily/weekly table *only* if trend_summary_df represents daily or weekly data
+        if trend_summary_df is not None and not trend_summary_df.empty and ('date' in trend_summary_df.columns or 'week' in trend_summary_df.columns):
+            table_title = "View Daily Breakdown Table" if 'date' in trend_summary_df.columns else "View Weekly Breakdown Table"
+            with st.expander(table_title, expanded=False):
+                d_df = trend_summary_df.copy()
+                if 'date' in d_df.columns:
+                    d_df['date'] = pd.to_datetime(d_df['date']).dt.strftime('%A, %b %d')
+                    d_df.rename(columns={'date': 'Day', 'stability_index': 'Stability (%)', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'stops': 'Stops', 'total_shots': 'Total Shots'}, inplace=True)
+                    cols_to_show = [col for col in ['Day', 'Stability (%)', 'MTTR (min)', 'MTBF (min)', 'Stops', 'Total Shots'] if col in d_df.columns]
+                elif 'week' in d_df.columns:
+                    d_df.rename(columns={'week': 'Week', 'stability_index': 'Stability (%)', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'stops': 'Stops', 'total_shots': 'Total Shots'}, inplace=True)
+                    cols_to_show = [col for col in ['Week', 'Stability (%)', 'MTTR (min)', 'MTBF (min)', 'Stops', 'Total Shots'] if col in d_df.columns]
+                else:
+                    cols_to_show = [] # Should not happen based on outer condition
+
+                if cols_to_show:
                     st.dataframe(d_df[cols_to_show].style.format({'Stability (%)': '{:.1f}', 'MTTR (min)': '{:.1f}', 'MTBF (min)': '{:.1f}'}), use_container_width=True)
 
-        # --- [MODIFIED] Run Breakdown Table ---
-        # Show this table *whenever* a 'by Run' mode is selected
-        if "by Run" in analysis_level:
-            # Use the run_summary_df_for_trends calculated earlier
-            if run_summary_df_for_trends is not None and not run_summary_df_for_trends.empty:
-                 with st.expander("View Run Breakdown Table", expanded=False):
-                    d_df = run_summary_df_for_trends.copy() # Use the df that's already calculated and renamed
-                    # Ensure start/end times are datetime objects before formatting (might be redundant, but safe)
-                    d_df['start_time'] = pd.to_datetime(d_df['start_time'], errors='coerce')
-                    d_df['end_time'] = pd.to_datetime(d_df['end_time'], errors='coerce')
-                    d_df = d_df.dropna(subset=['start_time', 'end_time'])
 
-                    if not d_df.empty:
-                        d_df["Period"] = d_df.apply(lambda r: f"{r['start_time']:%Y-%m-%d %H:%M} to {r['end_time']:%Y-%m-%d %H:%M}", axis=1)
-                        d_df["Total Shots"] = d_df['Total Shots'].apply(lambda x: f"{x:,}") # Use renamed col
-                        d_df["Normal Shots (%)"] = d_df.apply(lambda r: f"{r['normal_shots']:,} ({r['normal_shots']/r['Total Shots']*100:.1f}%)" if r['Total Shots']>0 else "0 (0.0%)", axis=1)
-                        d_df["Stops (%)"] = d_df.apply(lambda r: f"{r['STOPS']} ({r['stopped_shots']/r['Total Shots']*100:.1f}%)" if r['Total Shots']>0 else "0 (0.0%)", axis=1) # Use renamed col
-                        d_df["Total Duration"] = d_df['total_runtime_sec'].apply(format_duration)
-                        d_df["Prod. Time (%)"] = d_df.apply(lambda r: f"{format_duration(r['production_time_sec'])} ({r['production_time_sec']/r['total_runtime_sec']*100:.1f}%)" if r['total_runtime_sec']>0 else "0m (0.0%)", axis=1)
-                        d_df["Downtime (%)"] = d_df.apply(lambda r: f"{format_duration(r['downtime_sec'])} ({r['downtime_sec']/r['total_runtime_sec']*100:.1f}%)" if r['total_runtime_sec']>0 else "0m (0.0%)", axis=1)
-                        
-                        # Columns are already renamed, just adjust rename map for display
-                        d_df.rename(columns={'RUN ID':'Run ID','mode_ct':'Mode CT','lower_limit':'LL','upper_limit':'UL','MTTR (min)':'MTTR','MTBF (min)':'MTBF','STABILITY %':'Stability %'}, inplace=True, errors='ignore')
-                        cols = ['Run ID','Period','Total Shots','Normal Shots (%)','Stops (%)','Mode CT','LL','UL','Total Duration','Prod. Time (%)','Downtime (%)','MTTR','MTBF','Stability %']
-                        cols_exist = [c for c in cols if c in d_df.columns]
-                        st.dataframe(d_df[cols_exist].style.format({'Mode CT':'{:.2f}','LL':'{:.2f}','UL':'{:.2f}','MTTR':'{:.1f}','MTBF':'{:.1f}','Stability %':'{:.1f}'}), use_container_width=True)
-        # --- End Modified Block ---
+        # --- Run Breakdown Table ---
+        # Show this table *whenever* a 'by Run' mode is selected and the run summary exists
+        if "by Run" in analysis_level and run_summary_df_for_trends is not None and not run_summary_df_for_trends.empty:
+             with st.expander("View Run Breakdown Table", expanded=False):
+                d_df = run_summary_df_for_trends.copy() # Use the already calculated and renamed df
+                # Ensure start/end times are datetime objects before formatting
+                d_df['start_time'] = pd.to_datetime(d_df['start_time'], errors='coerce')
+                d_df['end_time'] = pd.to_datetime(d_df['end_time'], errors='coerce')
+                d_df = d_df.dropna(subset=['start_time', 'end_time'])
+
+                if not d_df.empty:
+                    # Safely convert 'Total Shots' back to numeric for calculation, handle errors
+                    d_df['Total Shots Numeric'] = pd.to_numeric(d_df['Total Shots'], errors='coerce').fillna(0).astype(int)
+
+                    d_df["Period"] = d_df.apply(lambda r: f"{r['start_time']:%Y-%m-%d %H:%M} to {r['end_time']:%Y-%m-%d %H:%M}", axis=1)
+                    # --- FIX: Calculate percentage using the numeric column ---
+                    d_df["Normal Shots (%)"] = d_df.apply(lambda r: f"{r['normal_shots']:,} ({r['normal_shots']/r['Total Shots Numeric']*100:.1f}%)" if r['Total Shots Numeric']>0 else "0 (0.0%)", axis=1)
+                    d_df["Stops (%)"] = d_df.apply(lambda r: f"{r['STOPS']} ({r['stopped_shots']/r['Total Shots Numeric']*100:.1f}%)" if r['Total Shots Numeric']>0 else "0 (0.0%)", axis=1)
+                    # --- FIX: Format Total Shots after calculation ---
+                    d_df["Total Shots Formatted"] = d_df['Total Shots Numeric'].apply(lambda x: f"{x:,}")
+
+                    d_df["Total Duration"] = d_df['total_runtime_sec'].apply(format_duration)
+                    d_df["Prod. Time (%)"] = d_df.apply(lambda r: f"{format_duration(r['production_time_sec'])} ({r['production_time_sec']/r['total_runtime_sec']*100:.1f}%)" if r['total_runtime_sec']>0 else "0m (0.0%)", axis=1)
+                    d_df["Downtime (%)"] = d_df.apply(lambda r: f"{format_duration(r['downtime_sec'])} ({r['downtime_sec']/r['total_runtime_sec']*100:.1f}%)" if r['total_runtime_sec']>0 else "0m (0.0%)", axis=1)
+
+                    # Adjust rename map and columns list for display
+                    d_df.rename(columns={'RUN ID':'Run ID','mode_ct':'Mode CT','lower_limit':'LL','upper_limit':'UL','MTTR (min)':'MTTR','MTBF (min)':'MTBF','STABILITY %':'Stability %', 'Total Shots Formatted': 'Total Shots'}, inplace=True, errors='ignore')
+                    cols = ['Run ID','Period','Total Shots','Normal Shots (%)','Stops (%)','Mode CT','LL','UL','Total Duration','Prod. Time (%)','Downtime (%)','MTTR','MTBF','Stability %']
+                    cols_exist = [c for c in cols if c in d_df.columns]
+                    st.dataframe(d_df[cols_exist].style.format({'Mode CT':'{:.2f}','LL':'{:.2f}','UL':'{:.2f}','MTTR':'{:.1f}','MTBF':'{:.1f}','Stability %':'{:.1f}'}), use_container_width=True)
 
 
         # --- Plots ---
+        # Pass the processed dataframe from the main results for plotting shots
         plot_shot_bar_chart(results['processed_df'], results.get('lower_limit'), results.get('upper_limit'), results.get('mode_ct'), time_agg=('hourly' if analysis_level == "Daily" else 'daily' if 'Weekly' in analysis_level else 'weekly'))
+
         with st.expander("View Shot Data Table", expanded=False):
-             display_cols = ['shot_time', 'run_label', 'ACTUAL CT', 'time_diff_sec', 'stop_flag', 'stop_event']
-             if 'run_label' not in results['processed_df'].columns:
-                 if 'run_label' in display_cols: display_cols.remove('run_label')
-             if 'ACTUAL CT' not in results['processed_df'].columns:
-                 if 'ACTUAL CT' in display_cols: display_cols.remove('ACTUAL CT')
-             st.dataframe(results['processed_df'][display_cols])
+            display_cols = ['shot_time', 'run_label', 'ACTUAL CT', 'time_diff_sec', 'stop_flag', 'stop_event']
+            # Select only columns that actually exist in the processed dataframe
+            display_cols_exist = [col for col in display_cols if col in results['processed_df'].columns]
+            st.dataframe(results['processed_df'][display_cols_exist])
 
 
         st.markdown("---")
@@ -954,29 +1120,65 @@ def render_dashboard(df_tool, tool_id_selection):
         # --- Trend Plot Section ---
         if analysis_level == "Daily":
             st.header("Hourly Analysis")
+            # Hourly data is in trend_summary_df
+            hourly_summary = trend_summary_df
+
             run_durations_period=results.get("run_durations",pd.DataFrame());processed_period_df=results.get('processed_df',pd.DataFrame());stop_events_df=processed_period_df.loc[processed_period_df['stop_event']].copy();complete_runs=pd.DataFrame()
-            if not stop_events_df.empty: stop_events_df['terminated_run_group']=stop_events_df['run_group']-1;end_time_map=stop_events_df.set_index('terminated_run_group')['shot_time'];run_durations_period['run_end_time']=run_durations_period['run_group'].map(end_time_map);complete_runs=run_durations_period.dropna(subset=['run_end_time']).copy()
-            else: complete_runs=run_durations_period
+            if not stop_events_df.empty and 'run_group' in stop_events_df.columns and 'shot_time' in stop_events_df.columns and not run_durations_period.empty and 'run_group' in run_durations_period.columns:
+                 try:
+                      stop_events_df['terminated_run_group']=stop_events_df['run_group']-1;
+                      end_time_map=stop_events_df.set_index('terminated_run_group')['shot_time'];
+                      run_durations_period['run_end_time']=run_durations_period['run_group'].map(end_time_map);
+                      complete_runs=run_durations_period.dropna(subset=['run_end_time']).copy()
+                 except KeyError as e:
+                      st.warning(f"Could not map run end times for bucket analysis: Missing key {e}")
+                      complete_runs = pd.DataFrame() # Ensure it's empty if mapping fails
+            else: complete_runs = pd.DataFrame() # Ensure it's empty if insufficient data
+
             c1,c2=st.columns(2)
             with c1:
-                if not complete_runs.empty and "time_bucket" in complete_runs.columns:
-                    b_counts=complete_runs["time_bucket"].value_counts().reindex(results["bucket_labels"],fill_value=0);fig_b=px.bar(b_counts,title="Time Bucket Analysis (Completed Runs)",labels={"index":"Duration (min)","value":"Occurrences"},text_auto=True,color=b_counts.index,color_discrete_map=results["bucket_color_map"]).update_layout(legend_title_text='Duration');st.plotly_chart(fig_b,use_container_width=True);
-                    with st.expander("View Bucket Data"):
-                        st.dataframe(complete_runs)
+                if not complete_runs.empty and "time_bucket" in complete_runs.columns and "bucket_labels" in results and results["bucket_labels"]:
+                    # Ensure time_bucket is categorical with all potential labels
+                    complete_runs["time_bucket"] = pd.Categorical(complete_runs["time_bucket"], categories=results["bucket_labels"], ordered=True)
+                    b_counts=complete_runs["time_bucket"].value_counts().reindex(results["bucket_labels"],fill_value=0);
+                    if not b_counts.empty:
+                         fig_b=px.bar(b_counts,title="Time Bucket Analysis (Completed Runs)",labels={"index":"Duration (min)","value":"Occurrences"},text_auto=True,color=b_counts.index,color_discrete_map=results.get("bucket_color_map",{})).update_layout(legend_title_text='Duration');st.plotly_chart(fig_b,use_container_width=True);
+                         with st.expander("View Bucket Data"):
+                             st.dataframe(complete_runs)
+                    else: st.info("No bucket counts to plot.")
                 else:
-                    st.info("No complete runs for bucket analysis.")
+                    st.info("No complete runs or bucket labels for bucket analysis.")
             with c2:
-                plot_trend_chart(trend_summary_df,'hour','stability_index',"Hourly Stability Trend","Hour of Day","Stability (%)",is_stability=True);
-                with st.expander("View Stability Data"):
-                    st.dataframe(trend_summary_df[['hour','stability_index','mttr_min','mtbf_min','stops','total_shots']])
-            if not complete_runs.empty and 'run_end_time' in complete_runs:
-                st.subheader("Hourly Bucket Trend");complete_runs['hour']=complete_runs['run_end_time'].dt.hour;pivot_df=pd.crosstab(index=complete_runs['hour'],columns=complete_runs['time_bucket'].astype('category').cat.set_categories(results["bucket_labels"]));pivot_df=pivot_df.reindex(pd.Index(range(24),name='hour'),fill_value=0);fig_hourly_bucket=px.bar(pivot_df,x=pivot_df.index,y=pivot_df.columns,title='Hourly Distribution of Run Durations',barmode='stack',color_discrete_map=results["bucket_color_map"],labels={'hour':'Hour of Stop','value':'Number of Runs','variable':'Run Duration (min)'});st.plotly_chart(fig_hourly_bucket,use_container_width=True);
-                with st.expander("View Bucket Trend Data"):
-                    st.dataframe(pivot_df)
-                if detailed_view:
-                    with st.expander("🤖 View Bucket Trend Analysis"):
-                        st.markdown(generate_bucket_analysis(complete_runs,results["bucket_labels"]),unsafe_allow_html=True)
-            st.subheader("Hourly MTTR & MTBF Trend");hourly_summary=results.get('hourly_summary',pd.DataFrame())
+                if hourly_summary is not None and not hourly_summary.empty:
+                    plot_trend_chart(hourly_summary,'hour','stability_index',"Hourly Stability Trend","Hour of Day","Stability (%)",is_stability=True);
+                    with st.expander("View Stability Data"):
+                        st.dataframe(hourly_summary[['hour','stability_index','mttr_min','mtbf_min','stops','total_shots']])
+                else: st.info("No hourly stability data.")
+
+            if not complete_runs.empty and 'run_end_time' in complete_runs and 'time_bucket' in complete_runs.columns and "bucket_labels" in results and results["bucket_labels"]:
+                st.subheader("Hourly Bucket Trend");
+                try:
+                     complete_runs['hour']=complete_runs['run_end_time'].dt.hour;
+                     # Ensure time_bucket is categorical
+                     complete_runs["time_bucket"] = pd.Categorical(complete_runs["time_bucket"], categories=results["bucket_labels"], ordered=True)
+                     pivot_df=pd.crosstab(index=complete_runs['hour'],columns=complete_runs['time_bucket'], dropna=False); # Use dropna=False
+                     pivot_df=pivot_df.reindex(pd.Index(range(24),name='hour'),fill_value=0); # Reindex hours 0-23
+                     # Ensure all expected bucket labels are columns
+                     pivot_df = pivot_df.reindex(columns=results["bucket_labels"], fill_value=0)
+
+                     if not pivot_df.empty:
+                         fig_hourly_bucket=px.bar(pivot_df,x=pivot_df.index,y=pivot_df.columns,title='Hourly Distribution of Run Durations',barmode='stack',color_discrete_map=results.get("bucket_color_map",{}),labels={'hour':'Hour of Stop','value':'Number of Runs','variable':'Run Duration (min)'});st.plotly_chart(fig_hourly_bucket,use_container_width=True);
+                         with st.expander("View Bucket Trend Data"):
+                             st.dataframe(pivot_df)
+                         if detailed_view:
+                             with st.expander("🤖 View Bucket Trend Analysis"):
+                                 st.markdown(generate_bucket_analysis(complete_runs,results["bucket_labels"]),unsafe_allow_html=True)
+                     else: st.info("Could not create pivot table for hourly bucket trend.")
+                except Exception as e:
+                     st.warning(f"Error generating hourly bucket trend: {e}")
+            else: st.info("Not enough data for hourly bucket trend.")
+
+            st.subheader("Hourly MTTR & MTBF Trend");
             if hourly_summary is not None and not hourly_summary.empty:
                 plot_mttr_mtbf_chart(df=hourly_summary,x_col='hour',mttr_col='mttr_min',mtbf_col='mtbf_min',shots_col='total_shots',title="Hourly MTTR, MTBF & Shot Count Trend");
                 with st.expander("View MTTR/MTBF Data"):
@@ -988,96 +1190,126 @@ def render_dashboard(df_tool, tool_id_selection):
                     st.markdown(generate_mttr_mtbf_analysis(analysis_df,analysis_level),unsafe_allow_html=True)
 
         elif "by Run" in analysis_level:
-            # Determine trend level
-            if analysis_level == "Weekly (by Run)": trend_level = "Daily"
-            elif analysis_level == "Monthly (by Run)": trend_level = "Weekly"
-            elif analysis_level == "Custom Period (by Run)":
-                 time_span_days = (df_view['date'].max() - df_view['date'].min()).days
-                 trend_level = "Weekly" if time_span_days > 14 else "Daily"
-            # --- [FIXED] Logic to set trend_level to "Run" ---
-            # If no daily/weekly summary was generated (e.g. short custom period), default to "Run"
-            if trend_summary_df is None or trend_summary_df.empty:
-                 trend_level = "Run"
-            
+            # Determine trend level based on what summary was generated
+            if trend_summary_df is not None and 'date' in trend_summary_df.columns: trend_level = "Daily"
+            elif trend_summary_df is not None and 'week' in trend_summary_df.columns: trend_level = "Weekly"
+            else: trend_level = "Run" # Default or if only run summary exists
+
             summary_df = trend_summary_df # This is daily/weekly summary if applicable
-            # run_summary_df_for_trends was calculated earlier (line 830)
+            # run_summary_df_for_trends was calculated earlier
 
-            if trend_level == "Run": 
-                st.header("Run-Based Analysis")
-            else: 
-                st.header(f"{trend_level} Trends for {analysis_level.split(' (')[0]}")
+            st.header(f"{trend_level} Trends for {analysis_level.split(' (')[0]}" if trend_level != "Run" else "Run-Based Analysis")
 
-            # Bucket Analysis
+            # Bucket Analysis (Overall for the period)
             run_durations_period=results.get("run_durations",pd.DataFrame());processed_period_df=results.get('processed_df',pd.DataFrame());stop_events_df=processed_period_df.loc[processed_period_df['stop_event']].copy();complete_runs=pd.DataFrame()
-            if not stop_events_df.empty: stop_events_df['terminated_run_group']=stop_events_df['run_group']-1;end_time_map=stop_events_df.set_index('terminated_run_group')['shot_time'];run_durations_period['run_end_time']=run_durations_period['run_group'].map(end_time_map);complete_runs=run_durations_period.dropna(subset=['run_end_time']).copy()
-            else: complete_runs=run_durations_period
+            # --- Robust mapping for complete runs ---
+            if not stop_events_df.empty and 'run_group' in stop_events_df.columns and 'shot_time' in stop_events_df.columns and not run_durations_period.empty and 'run_group' in run_durations_period.columns:
+                 try:
+                      stop_events_df['terminated_run_group']=stop_events_df['run_group']-1;
+                      end_time_map=stop_events_df.set_index('terminated_run_group')['shot_time'];
+                      run_durations_period['run_end_time']=run_durations_period['run_group'].map(end_time_map);
+                      complete_runs=run_durations_period.dropna(subset=['run_end_time']).copy()
+                      # --- Add run_label to complete_runs ---
+                      if 'run_label' in processed_period_df.columns and 'run_group' in processed_period_df.columns:
+                           run_group_to_label = processed_period_df.drop_duplicates('run_group')[['run_group', 'run_label']].set_index('run_group')
+                           complete_runs = complete_runs.merge(run_group_to_label, on='run_group', how='left')
+                 except KeyError as e:
+                      st.warning(f"Could not map run end times or labels for bucket analysis: Missing key {e}")
+                      complete_runs = pd.DataFrame() # Ensure empty on error
+            else: complete_runs = pd.DataFrame() # Ensure empty if insufficient data
+
+
             c1, c2 = st.columns(2)
             with c1:
                 st.subheader("Total Bucket Analysis (Across Runs/Period)")
-                if not complete_runs.empty and "time_bucket" in complete_runs.columns:
-                    b_counts=complete_runs["time_bucket"].value_counts().reindex(results["bucket_labels"],fill_value=0);fig_b=px.bar(b_counts,title="Total Time Bucket Analysis",labels={"index":"Duration(min)","value":"Occurrences"},text_auto=True,color=b_counts.index,color_discrete_map=results["bucket_color_map"]).update_layout(legend_title_text='Duration');st.plotly_chart(fig_b,use_container_width=True);
-                    with st.expander("View Bucket Data"):
-                        st.dataframe(complete_runs)
+                if not complete_runs.empty and "time_bucket" in complete_runs.columns and "bucket_labels" in results and results["bucket_labels"]:
+                    # Ensure time_bucket is categorical
+                    complete_runs["time_bucket"] = pd.Categorical(complete_runs["time_bucket"], categories=results["bucket_labels"], ordered=True)
+                    b_counts=complete_runs["time_bucket"].value_counts().reindex(results["bucket_labels"],fill_value=0);
+                    if not b_counts.empty:
+                        fig_b=px.bar(b_counts,title="Total Time Bucket Analysis",labels={"index":"Duration(min)","value":"Occurrences"},text_auto=True,color=b_counts.index,color_discrete_map=results.get("bucket_color_map",{})).update_layout(legend_title_text='Duration');st.plotly_chart(fig_b,use_container_width=True);
+                        with st.expander("View Bucket Data"):
+                            st.dataframe(complete_runs)
+                    else: st.info("No bucket counts to plot.")
                 else:
-                    st.info("No complete runs.")
+                    st.info("No complete runs or bucket data.")
             with c2: # Stability Trend
                 if trend_level == "Run":
-                     st.subheader("Stability per Production Run")
-                     if run_summary_df_for_trends is not None and not run_summary_df_for_trends.empty:
-                         plot_trend_chart(run_summary_df_for_trends,'RUN ID','STABILITY %',"Stability per Run","Run ID","Stability (%)",is_stability=True)
-                         with st.expander("View Stability Data"):
-                             st.dataframe(run_summary_df_for_trends)
-                     else:
-                         st.info(f"No runs to analyze.")
-                else:
-                     st.subheader(f"{trend_level} Stability Trend")
-                     if summary_df is not None and not summary_df.empty:
-                         x_col='date'if trend_level=="Daily"else'week';
-                         plot_trend_chart(summary_df,x_col,'stability_index',f"{trend_level} Stability Trend",trend_level,"Stability (%)",is_stability=True);
-                         with st.expander("View Stability Data"):
-                             st.dataframe(summary_df)
-                     else:
-                         st.info(f"No {trend_level.lower()} data.")
+                    st.subheader("Stability per Production Run")
+                    if run_summary_df_for_trends is not None and not run_summary_df_for_trends.empty:
+                        plot_trend_chart(run_summary_df_for_trends,'RUN ID','STABILITY %',"Stability per Run","Run ID","Stability (%)",is_stability=True)
+                        with st.expander("View Stability Data"):
+                            st.dataframe(run_summary_df_for_trends)
+                    else:
+                        st.info(f"No runs to analyze.")
+                else: # Daily or Weekly Trend
+                    st.subheader(f"{trend_level} Stability Trend")
+                    if summary_df is not None and not summary_df.empty:
+                        x_col='date'if trend_level=="Daily"else'week';
+                        plot_trend_chart(summary_df,x_col,'stability_index',f"{trend_level} Stability Trend",trend_level,"Stability (%)",is_stability=True);
+                        with st.expander("View Stability Data"):
+                            st.dataframe(summary_df)
+                    else:
+                        st.info(f"No {trend_level.lower()} stability data.")
 
-            # Bucket Trend per Unit
-            if not complete_runs.empty and 'run_end_time' in complete_runs:
+            # Bucket Trend per Unit (Run, Daily, or Weekly)
+            if not complete_runs.empty and ('run_end_time' in complete_runs.columns or trend_level == "Run") and 'time_bucket' in complete_runs.columns and "bucket_labels" in results and results["bucket_labels"]:
                 st.subheader(f"{trend_level} Bucket Trend")
                 pivot_df = pd.DataFrame()
-                trend_df = None
-                complete_runs_filtered = complete_runs
-                if trend_level == "Run":
-                    if 'run_label' not in complete_runs:
-                         if 'run_group' in processed_period_df.columns and 'run_label' in processed_period_df.columns: run_group_to_label_map=processed_period_df.drop_duplicates('run_group')[['run_group','run_label']].set_index('run_group')['run_label']; complete_runs['run_label']=complete_runs['run_group'].map(run_group_to_label_map)
-                         else: complete_runs['run_label'] = 'Unknown'
-                    if run_summary_df_for_trends is not None and not run_summary_df_for_trends.empty and 'RUN ID' in run_summary_df_for_trends.columns:
-                         valid_run_labels = run_summary_df_for_trends['RUN ID'].unique()
-                         complete_runs_filtered = complete_runs[complete_runs['run_label'].isin(valid_run_labels)]
-                         if not complete_runs_filtered.empty and 'time_bucket' in complete_runs_filtered.columns:
-                             pivot_df = pd.crosstab(index=complete_runs_filtered['run_label'],columns=complete_runs_filtered['time_bucket'].astype('category').cat.set_categories(results["bucket_labels"])).reindex(valid_run_labels, fill_value=0)
-                         trend_df = run_summary_df_for_trends.set_index('RUN ID').reindex(valid_run_labels)
-                    x_axis_title = "Run ID"
-                else: # Daily or Weekly
-                    time_col = 'date' if trend_level == "Daily" else 'week'
-                    complete_runs[time_col] = complete_runs['run_end_time'].dt.date if trend_level == "Daily" else complete_runs['run_end_time'].dt.isocalendar().week
-                    if summary_df is not None and time_col in summary_df.columns:
-                         all_units = summary_df[time_col].unique()
-                         if 'time_bucket' in complete_runs.columns:
-                             pivot_df = pd.crosstab(index=complete_runs[time_col],columns=complete_runs['time_bucket'].astype('category').cat.set_categories(results["bucket_labels"])).reindex(all_units, fill_value=0).sort_index()
-                         trend_df = summary_df.set_index(time_col).reindex(all_units).sort_index()
-                    x_axis_title = trend_level
+                trend_df_for_shots = None # This will hold the df used for the secondary axis (shots)
+                x_axis_title = trend_level
 
-                if not pivot_df.empty and trend_df is not None:
-                     fig_bucket_trend = make_subplots(specs=[[{"secondary_y": True}]])
-                     for col in pivot_df.columns: fig_bucket_trend.add_trace(go.Bar(name=col, x=pivot_df.index, y=pivot_df[col], marker_color=results["bucket_color_map"].get(col)), secondary_y=False)
-                     shots_col_name = 'Total Shots' if trend_level=='Run' else 'total_shots'
-                     if shots_col_name in trend_df.columns: fig_bucket_trend.add_trace(go.Scatter(name='Total Shots', x=trend_df.index, y=trend_df[shots_col_name], mode='lines+markers+text', text=trend_df[shots_col_name], textposition='top center', line=dict(color='blue')), secondary_y=True)
-                     fig_bucket_trend.update_layout(barmode='stack', title_text=f'{trend_level} Distribution of Run Durations vs. Shot Count', xaxis_title=x_axis_title, yaxis_title='Number of Runs', yaxis2_title='Total Shots', legend_title_text='Run Duration (min)')
-                     st.plotly_chart(fig_bucket_trend, use_container_width=True)
-                     with st.expander("View Bucket Trend Data"): st.dataframe(pivot_df)
-                     if detailed_view:
-                         with st.expander("🤖 View Bucket Trend Analysis"):
+                try:
+                    # Ensure time_bucket is categorical before crosstab
+                    complete_runs["time_bucket"] = pd.Categorical(complete_runs["time_bucket"], categories=results["bucket_labels"], ordered=True)
+
+                    if trend_level == "Run":
+                         # Use run_label which should exist now on complete_runs
+                         if 'run_label' in complete_runs.columns and run_summary_df_for_trends is not None and 'RUN ID' in run_summary_df_for_trends.columns:
+                             # Use only runs present in the filtered summary
+                             valid_run_labels = run_summary_df_for_trends['RUN ID'].unique()
+                             complete_runs_filtered = complete_runs[complete_runs['run_label'].isin(valid_run_labels)]
+                             if not complete_runs_filtered.empty:
+                                 pivot_df = pd.crosstab(index=complete_runs_filtered['run_label'],columns=complete_runs_filtered['time_bucket'], dropna=False).reindex(valid_run_labels, fill_value=0) # Index by Run ID
+                                 trend_df_for_shots = run_summary_df_for_trends.set_index('RUN ID').reindex(valid_run_labels) # Align shots data
+                         x_axis_title = "Run ID"
+                    else: # Daily or Weekly
+                        time_col = 'date' if trend_level == "Daily" else 'week'
+                        # Ensure the time column exists from the previous calculation
+                        if time_col not in complete_runs.columns and 'run_end_time' in complete_runs.columns:
+                             complete_runs[time_col] = complete_runs['run_end_time'].dt.date if trend_level == "Daily" else complete_runs['run_end_time'].dt.isocalendar().week
+
+                        if time_col in complete_runs.columns and summary_df is not None and time_col in summary_df.columns:
+                             all_units = sorted(summary_df[time_col].unique()) # Use units from the summary df
+                             pivot_df = pd.crosstab(index=complete_runs[time_col],columns=complete_runs['time_bucket'], dropna=False).reindex(all_units, fill_value=0).sort_index()
+                             trend_df_for_shots = summary_df.set_index(time_col).reindex(all_units).sort_index() # Align shots data
+                        x_axis_title = trend_level
+
+                    # Ensure all bucket labels are columns after potential filtering/reindexing
+                    if not pivot_df.empty:
+                          pivot_df = pivot_df.reindex(columns=results["bucket_labels"], fill_value=0)
+
+
+                    if not pivot_df.empty and trend_df_for_shots is not None:
+                        fig_bucket_trend = make_subplots(specs=[[{"secondary_y": True}]])
+                        for col in pivot_df.columns: fig_bucket_trend.add_trace(go.Bar(name=col, x=pivot_df.index, y=pivot_df[col], marker_color=results.get("bucket_color_map",{}).get(col)), secondary_y=False)
+
+                        shots_col_name = 'Total Shots' if trend_level=='Run' else 'total_shots'
+                        if shots_col_name in trend_df_for_shots.columns:
+                             shots_data = pd.to_numeric(trend_df_for_shots[shots_col_name], errors='coerce').fillna(0) # Ensure numeric
+                             fig_bucket_trend.add_trace(go.Scatter(name='Total Shots', x=trend_df_for_shots.index, y=shots_data, mode='lines+markers+text', text=shots_data.astype(int), textposition='top center', line=dict(color='blue')), secondary_y=True)
+
+                        fig_bucket_trend.update_layout(barmode='stack', title_text=f'{trend_level} Distribution of Run Durations vs. Shot Count', xaxis_title=x_axis_title, yaxis_title='Number of Runs', yaxis2_title='Total Shots', legend_title_text='Run Duration (min)')
+                        st.plotly_chart(fig_bucket_trend, use_container_width=True)
+                        with st.expander("View Bucket Trend Data"): st.dataframe(pivot_df)
+                        if detailed_view:
+                            with st.expander("🤖 View Bucket Trend Analysis"):
                                 st.markdown(generate_bucket_analysis(complete_runs_filtered if trend_level=='Run' else complete_runs, results["bucket_labels"]), unsafe_allow_html=True)
-                else: st.info(f"Not enough data for {trend_level} bucket trend.")
+                    else: st.info(f"Not enough combined data for {trend_level} bucket trend vs shots.")
+                except Exception as e:
+                     st.warning(f"Error generating {trend_level} bucket trend: {e}")
+                     st.text(traceback.format_exc()) # Show traceback for debugging
+            else: st.info(f"Not enough data for {trend_level} bucket trend.")
 
             # MTTR/MTBF Trend per Unit
             st.subheader(f"{trend_level} MTTR & MTBF Trend")
@@ -1087,21 +1319,27 @@ def render_dashboard(df_tool, tool_id_selection):
                 mttr_col = 'MTTR (min)' if trend_level == "Run" else 'mttr_min'
                 mtbf_col = 'MTBF (min)' if trend_level == "Run" else 'mtbf_min'
                 shots_col = 'Total Shots' if trend_level == "Run" else 'total_shots'
-                stops_col = 'stops' # Default for daily/weekly summary_df
-                if trend_level == "Run":
-                     stops_col = 'STOPS' if 'STOPS' in trend_df_for_mttr.columns else 'stops'
+                stops_col = 'STOPS' if trend_level == "Run" else 'stops' # Use STOPS for run summary, stops otherwise
 
-                if stops_col in trend_df_for_mttr.columns and trend_df_for_mttr[stops_col].sum() > 0:
-                    plot_mttr_mtbf_chart(df=trend_df_for_mttr, x_col=x_col, mttr_col=mttr_col, mtbf_col=mtbf_col, shots_col=shots_col, title=f"{trend_level} MTTR, MTBF & Shot Count Trend")
-                    with st.expander("View MTTR/MTBF Data"): st.dataframe(trend_df_for_mttr)
-                    if detailed_view:
-                        with st.expander("🤖 View MTTR/MTBF Correlation Analysis"):
-                            st.info("""**How this works:** Frequency vs Duration analysis."""); analysis_df=trend_df_for_mttr.copy(); rename_map={};
-                            if trend_level=="Run": rename_map={'RUN ID':'period','STABILITY %':'stability','STOPS':'stops','MTTR (min)':'mttr'}
-                            elif trend_level=="Daily": rename_map={'date':'period','stability_index':'stability','stops':'stops','mttr_min':'mttr'}
-                            else: rename_map={'week':'period','stability_index':'stability','stops':'stops','mttr_min':'mttr'} # Weekly
-                            analysis_df.rename(columns=rename_map, inplace=True, errors='ignore'); st.markdown(generate_mttr_mtbf_analysis(analysis_df,analysis_level),unsafe_allow_html=True)
-                else: st.info(f"No stops for {trend_level} MTTR/MTBF trend.")
+                # Check if essential columns exist
+                if all(c in trend_df_for_mttr.columns for c in [x_col, mttr_col, mtbf_col, shots_col, stops_col]):
+                    # Ensure stops data is numeric before summing
+                    stops_numeric = pd.to_numeric(trend_df_for_mttr[stops_col], errors='coerce').fillna(0)
+                    if stops_numeric.sum() > 0:
+                        plot_mttr_mtbf_chart(df=trend_df_for_mttr, x_col=x_col, mttr_col=mttr_col, mtbf_col=mtbf_col, shots_col=shots_col, title=f"{trend_level} MTTR, MTBF & Shot Count Trend")
+                        with st.expander("View MTTR/MTBF Data"): st.dataframe(trend_df_for_mttr)
+                        if detailed_view:
+                            with st.expander("🤖 View MTTR/MTBF Correlation Analysis"):
+                                st.info("""**How this works:** Frequency vs Duration analysis.""");
+                                analysis_df=trend_df_for_mttr.copy();
+                                # Define rename map based on trend level
+                                if trend_level=="Run": rename_map={'RUN ID':'period','STABILITY %':'stability','STOPS':'stops','MTTR (min)':'mttr'}
+                                elif trend_level=="Daily": rename_map={'date':'period','stability_index':'stability','stops':'stops','mttr_min':'mttr'}
+                                else: rename_map={'week':'period','stability_index':'stability','stops':'stops','mttr_min':'mttr'} # Weekly
+                                analysis_df.rename(columns=rename_map, inplace=True, errors='ignore');
+                                st.markdown(generate_mttr_mtbf_analysis(analysis_df,analysis_level),unsafe_allow_html=True)
+                    else: st.info(f"No stops recorded for {trend_level} MTTR/MTBF trend.")
+                else: st.info(f"Missing columns needed for {trend_level} MTTR/MTBF trend.")
             else: st.info(f"Not enough data for {trend_level} MTTR/MTBF trend.")
 
 
@@ -1112,29 +1350,81 @@ def calculate_risk_scores(df_all_tools):
     for tool_id,df_tool in df_all_tools.groupby(id_col):
         if df_tool.empty or len(df_tool)<10:continue
         try:
-            calc_prepare=RunRateCalculator(df_tool,default_tol,default_gap);df_prepared=calc_prepare.results.get("processed_df");
+            # Prepare data first to get accurate date range
+            calc_prepare=RunRateCalculator(df_tool,default_tol,default_gap, analysis_mode='aggregate');
+            df_prepared=calc_prepare.results.get("processed_df");
             if df_prepared is None or df_prepared.empty:continue
-            end_date=df_prepared['shot_time'].max();start_date=end_date-timedelta(weeks=4);df_period=df_prepared[(df_prepared['shot_time']>=start_date)&(df_prepared['shot_time']<=end_date)];
+
+            # Get the date range from the prepared data
+            end_date=df_prepared['shot_time'].max();
+            if pd.isna(end_date): continue # Skip if no valid end date
+            start_date=end_date-timedelta(weeks=4);
+
+            # Filter the PREPARED data for the 4-week period
+            df_period=df_prepared[(df_prepared['shot_time']>=start_date)&(df_prepared['shot_time']<=end_date)];
+
             if df_period.empty or len(df_period)<10:continue
-            calc=RunRateCalculator(df_period.copy(),default_tol,default_gap);res=calc.results;
+
+            # Recalculate metrics specifically for the 4-week period
+            calc=RunRateCalculator(df_period.copy(),default_tol,default_gap, analysis_mode='aggregate');
+            res=calc.results;
             if not res:continue
-            df_period['week']=df_period['shot_time'].dt.isocalendar().week;weekly_stabilities=[RunRateCalculator(df_week,default_tol,default_gap).results.get('stability_index',0)for _,df_week in df_period.groupby('week')if not df_week.empty];trend="Stable";
-            if len(weekly_stabilities)>1 and weekly_stabilities[-1]<weekly_stabilities[0]*0.95:trend="Declining"
-            initial_metrics.append({'Tool ID':tool_id,'Stability':res.get('stability_index',0),'MTTR':res.get('mttr_min',0),'MTBF':res.get('mtbf_min',0),'Weekly Stability':' → '.join([f'{s:.0f}%'for s in weekly_stabilities]),'Trend':trend,'Analysis Period':f"{start_date:%Y-%m-%d} to {end_date:%Y-%m-%d}"})
-        except Exception as e:st.warning(f"Could not calculate risk score for {tool_id}: {e}")
+
+            # Calculate weekly stability within the 4-week period
+            df_period_copy = df_period.copy() # Avoid SettingWithCopyWarning
+            df_period_copy['week']=df_period_copy['shot_time'].dt.isocalendar().week;
+            weekly_stabilities = []
+            for _,df_week in df_period_copy.groupby('week'):
+                 if not df_week.empty:
+                      week_calc = RunRateCalculator(df_week,default_tol,default_gap, analysis_mode='aggregate')
+                      weekly_stabilities.append(week_calc.results.get('stability_index', 0))
+
+            trend="Stable";
+            if len(weekly_stabilities)>1:
+                 # Check for NaN/None before comparison
+                 first_stab = weekly_stabilities[0]
+                 last_stab = weekly_stabilities[-1]
+                 if pd.notna(first_stab) and pd.notna(last_stab) and last_stab < first_stab * 0.95:
+                      trend="Declining"
+
+            initial_metrics.append({'Tool ID':tool_id,'Stability':res.get('stability_index',0),'MTTR':res.get('mttr_min',0),'MTBF':res.get('mtbf_min',0),'Weekly Stability':' → '.join([f'{s:.0f}%'for s in weekly_stabilities if pd.notna(s)]),'Trend':trend,'Analysis Period':f"{start_date:%Y-%m-%d} to {end_date:%Y-%m-%d}"})
+        except Exception as e:st.warning(f"Could not calculate risk score for {tool_id}: {e}") # Keep warning
+
     if not initial_metrics:return pd.DataFrame()
-    metrics_df=pd.DataFrame(initial_metrics);overall_mttr_mean=metrics_df['MTTR'].mean();overall_mtbf_mean=metrics_df['MTBF'].mean();final_risk_data=[]
+
+    metrics_df=pd.DataFrame(initial_metrics);
+    # Calculate means only from valid numeric values
+    overall_mttr_mean=pd.to_numeric(metrics_df['MTTR'], errors='coerce').mean();
+    overall_mtbf_mean=pd.to_numeric(metrics_df['MTBF'], errors='coerce').mean();
+    final_risk_data=[]
+
     for _,row in metrics_df.iterrows():
-        risk_score=row['Stability'];details=f"Overall stability: {row['Stability']:.1f}%."; # Default detail
+        # Ensure stability is numeric
+        stability_val = pd.to_numeric(row['Stability'], errors='coerce')
+        if pd.isna(stability_val): stability_val = 0 # Default to 0 if not numeric
+
+        risk_score=stability_val;
+        details=f"Overall stability: {stability_val:.1f}%."; # Default detail
         primary_factor="Low Stability" # Default factor
+
         if row['Trend']=="Declining":risk_score-=20;primary_factor="Declining Trend";details="Stability shows downward trend."
         # Check MTTR/MTBF only if Stability is below threshold AND trend isn't declining
-        elif row['Stability'] < 70:
-            if pd.notna(row['MTTR']) and pd.notna(overall_mttr_mean) and row['MTTR']>(overall_mttr_mean*1.2):
-                primary_factor="High MTTR";details=f"Avg stop duration (MTTR) {row['MTTR']:.1f} min concern."
-            elif pd.notna(row['MTBF']) and pd.notna(overall_mtbf_mean) and row['MTBF']<(overall_mtbf_mean*0.8):
-                primary_factor="Frequent Stops";details=f"Frequent stops (MTBF {row['MTBF']:.1f} min) impacting."
+        elif stability_val < 70:
+            mttr_val = pd.to_numeric(row['MTTR'], errors='coerce')
+            mtbf_val = pd.to_numeric(row['MTBF'], errors='coerce')
+
+            # Check against valid means
+            if pd.notna(mttr_val) and pd.notna(overall_mttr_mean) and mttr_val>(overall_mttr_mean*1.2):
+                primary_factor="High MTTR";details=f"Avg stop duration (MTTR) {mttr_val:.1f} min concern."
+            elif pd.notna(mtbf_val) and pd.notna(overall_mtbf_mean) and mtbf_val<(overall_mtbf_mean*0.8):
+                primary_factor="Frequent Stops";details=f"Frequent stops (MTBF {mtbf_val:.1f} min) impacting."
+            # If MTTR/MTBF aren't the primary issue but stability is low, keep default
+            elif stability_val < 70 and primary_factor == "Low Stability":
+                 details = f"Overall stability ({stability_val:.1f}%) is low, but MTTR/MTBF not flagged as primary drivers relative to average."
+
+
         final_risk_data.append({'Tool ID':row['Tool ID'],'Analysis Period':row['Analysis Period'],'Risk Score':max(0,risk_score),'Primary Risk Factor':primary_factor,'Weekly Stability':row['Weekly Stability'],'Details':details})
+
     if not final_risk_data:return pd.DataFrame()
     return pd.DataFrame(final_risk_data).sort_values('Risk Score',ascending=True).reset_index(drop=True)
 
@@ -1143,7 +1433,13 @@ def render_risk_tower(df_all_tools):
     with st.expander("ℹ️ How the Risk Tower Works"):st.markdown("""**Analysis Period**: 4-week range/tool. **Risk Score**: Stability Index (%), -20 for declining trend. **Primary Risk Factor**: Declining > High MTTR (>1.2x avg) > Frequent Stops (MTBF <0.8x avg) > Low Stability. **Color**: <span style='background-color:#ff6961;color:black;padding:2px 5px;border-radius:5px;'>Red (0-50)</span>,<span style='background-color:#ffb347;color:black;padding:2px 5px;border-radius:5px;'>Orange (51-70)</span>,<span style='background-color:#77dd77;color:black;padding:2px 5px;border-radius:5px;'>Green (>70)</span>.""",unsafe_allow_html=True)
     risk_df=calculate_risk_scores(df_all_tools)
     if risk_df.empty:st.warning("Not enough data for Risk Tower.");return
-    def style_risk(row):score=row['Risk Score'];color=PASTEL_COLORS['green']if score>70 else PASTEL_COLORS['orange']if score>50 else PASTEL_COLORS['red'];return[f'background-color: {color}'for _ in row]
+    def style_risk(row):
+        score = pd.to_numeric(row['Risk Score'], errors='coerce') # Ensure score is numeric
+        if pd.isna(score): color = '#808080' # Grey for NaN scores
+        elif score > 70: color = PASTEL_COLORS['green']
+        elif score > 50: color = PASTEL_COLORS['orange']
+        else: color = PASTEL_COLORS['red']
+        return[f'background-color: {color}'for _ in row]
     st.dataframe(risk_df.style.apply(style_risk,axis=1).format({'Risk Score':'{:.0f}'}),use_container_width=True,hide_index=True)
 
 
@@ -1158,54 +1454,78 @@ def load_all_data(files):
     df_list = []
     required_time_cols_alt1 = {"YEAR", "MONTH", "DAY", "TIME"}
     required_time_cols_alt2 = {"SHOT TIME"}
-    
+
     for file in files:
         df = None
         try:
             df = pd.read_excel(file)
             has_id = False
-            if "TOOLING ID" in df.columns: df.rename(columns={"TOOLING ID": "tool_id"}, inplace=True); has_id=True
-            elif "EQUIPMENT CODE" in df.columns: df.rename(columns={"EQUIPMENT CODE": "tool_id"}, inplace=True); has_id=True
-            elif "tool_id" in df.columns: has_id = True
+            # Standardize tool ID column name robustly
+            id_col_found = None
+            if "TOOLING ID" in df.columns: id_col_found = "TOOLING ID"
+            elif "EQUIPMENT CODE" in df.columns: id_col_found = "EQUIPMENT CODE"
+            elif "tool_id" in df.columns: id_col_found = "tool_id"
 
-            if not has_id:
+            if id_col_found:
+                 df.rename(columns={id_col_found: "tool_id"}, inplace=True)
+                 has_id = True
+            else:
                  st.warning(f"Skipping {file.name}: Missing required Tool ID column (TOOLING ID, EQUIPMENT CODE, or tool_id).")
-                 continue 
+                 continue # Skip this file
 
+            # Check for time columns
             has_time = ("SHOT TIME" in df.columns) or (required_time_cols_alt1.issubset(df.columns))
 
             if has_time:
+                # Ensure tool_id is string type before appending
+                if 'tool_id' in df.columns:
+                     df['tool_id'] = df['tool_id'].astype(str)
                 df_list.append(df)
             else:
                  st.warning(f"Skipping {file.name}: Missing required Time columns (SHOT TIME or YEAR/MONTH/DAY/TIME).")
 
         except Exception as e:
             st.warning(f"Could not load or process file: {file.name}. Error: {e}")
+            st.text(traceback.format_exc()) # Show traceback for loading errors
+
     if not df_list: return pd.DataFrame()
     try:
+         # Concatenate valid dataframes
          combined_df = pd.concat(df_list, ignore_index=True)
+         # Final check for tool_id column after concat
+         if "tool_id" not in combined_df.columns:
+              st.error("Tool ID column ('tool_id') missing after combining files.")
+              return pd.DataFrame()
+         # Ensure tool_id is consistently string type after concat
+         combined_df['tool_id'] = combined_df['tool_id'].astype(str)
          return combined_df
     except Exception as e:
          st.error(f"Error combining loaded files: {e}")
+         st.text(traceback.format_exc())
          return pd.DataFrame()
 
 
 df_all_tools = load_all_data(uploaded_files)
 id_col = "tool_id" # Standardized name
 
-if df_all_tools.empty: 
+if df_all_tools.empty:
     st.error("No valid data loaded from the uploaded files. Please check file contents and required columns.")
     st.stop()
 
+# This check might be redundant due to checks in load_all_data, but kept for safety
 if id_col not in df_all_tools.columns:
-    st.error("Tool ID column missing after combining files. This should not happen.")
+    st.error("Tool ID column ('tool_id') missing after combining files. This should not happen.")
     st.stop()
 
-df_all_tools.dropna(subset=[id_col], inplace=True) 
+# Clean data: drop rows where tool_id is NaN/None *before* getting unique values
+df_all_tools.dropna(subset=[id_col], inplace=True)
+
+# Ensure tool_id is string type AGAIN after potential NaNs dropped (belt-and-suspenders)
 df_all_tools[id_col] = df_all_tools[id_col].astype(str)
+
 unique_tool_ids = sorted(df_all_tools[id_col].unique().tolist())
 
-if not unique_tool_ids: st.error("No tools found after cleaning."); st.stop()
+if not unique_tool_ids: st.error("No valid tools found after cleaning data."); st.stop()
 
 
 tool_ids_options = ["All Tools (Risk Tower)"] + unique_tool_ids
@@ -1217,17 +1537,29 @@ tool_id_for_dashboard_display = "No Tool Selected" # Default
 if dashboard_tool_id_selection == "All Tools (Risk Tower)":
     if unique_tool_ids: # Check if there are any tools
         first_tool = unique_tool_ids[0];
+        # Ensure filtering uses the standardized 'tool_id' column
         df_for_dashboard = df_all_tools[df_all_tools[id_col] == first_tool].copy();
         tool_id_for_dashboard_display = first_tool
+    # No else needed, df_for_dashboard remains empty if no unique_tool_ids
 else:
+    # Ensure filtering uses the standardized 'tool_id' column
     df_for_dashboard = df_all_tools[df_all_tools[id_col] == dashboard_tool_id_selection].copy();
     tool_id_for_dashboard_display = dashboard_tool_id_selection
 
 # --- Tab Display ---
 tab1, tab2 = st.tabs(["Risk Tower", "Run Rate Dashboard"])
-with tab1: render_risk_tower(df_all_tools.copy()) 
+with tab1: render_risk_tower(df_all_tools.copy())
 with tab2:
     if not df_for_dashboard.empty:
         render_dashboard(df_for_dashboard, tool_id_for_dashboard_display)
     else:
-        st.info("Select a specific Tool ID from the sidebar, or ensure the default tool has data.")
+        # Provide more context if no data for the selected/default tool
+        if dashboard_tool_id_selection == "All Tools (Risk Tower)" and not unique_tool_ids:
+             st.warning("No tools found in the uploaded data to display a default dashboard.")
+        elif dashboard_tool_id_selection == "All Tools (Risk Tower)":
+             st.info(f"Defaulting dashboard to '{tool_id_for_dashboard_display}'. Select another tool from the sidebar if needed.")
+             # Attempt to render dashboard for the default tool even if "All Tools" selected
+             render_dashboard(df_for_dashboard, tool_id_for_dashboard_display)
+        else:
+             st.warning(f"No data found for the selected tool '{tool_id_for_dashboard_display}'. Please select another tool or check the uploaded files.")
+
