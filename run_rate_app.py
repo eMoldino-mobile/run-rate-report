@@ -937,10 +937,14 @@ def render_dashboard(df_tool, tool_id_selection):
             with c2: # Stability Trend
                 if trend_level == "Run": # Plot run stability
                      st.subheader("Stability per Production Run")
-                     if run_summary_df is not None and not run_summary_df.empty:
-                     # ... code to plot trend chart ...
+                 if run_summary_df is not None and not run_summary_df.empty: # Line 940
+                     # Removed semicolon from the end of the line below
+                     plot_trend_chart(run_summary_df,'RUN ID','STABILITY %',"Stability per Run","Run ID","Stability (%)",is_stability=True)
+                     # Ensure this block is indented correctly under the 'if'
                      with st.expander("View Stability Data"):
                          st.dataframe(run_summary_df)
+                 else:
+                     st.info(f"No runs to analyze.")
                  else:
                      st.info(f"No runs to analyze.") 
                 else: # Plot Daily/Weekly stability
