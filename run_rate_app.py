@@ -9,6 +9,7 @@ import warnings
 import streamlit.components.v1 as components
 import xlsxwriter
 from datetime import datetime, timedelta
+import math # Import math for isnan check
 
 # --- Page and Code Configuration ---
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -588,16 +589,23 @@ def generate_detailed_analysis(analysis_df, overall_stability, overall_mttr, ove
 
     predictive_insight = ""
     if len(analysis_df) > 1:
-        volatility_std = analysis_df['stability'].std()
-        volatility_level = "highly volatile" if volatility_std > 15 else "moderately volatile" if volatility_std > 5 else "relatively stable"
+        # Use dropna before calculating std to avoid warnings/errors with NaN
+        volatility_std = analysis_df['stability'].dropna().std()
+        if pd.isna(volatility_std): # Handle case where all values are NaN or only one non-NaN value exists
+             volatility_level = "undetermined"
+        else:
+            volatility_level = "highly volatile" if volatility_std > 15 else "moderately volatile" if volatility_std > 5 else "relatively stable"
         
         half_point = len(analysis_df) // 2
-        first_half_mean = analysis_df['stability'].iloc[:half_point].mean()
-        second_half_mean = analysis_df['stability'].iloc[half_point:].mean()
+        # Use dropna before mean calculation
+        first_half_mean = analysis_df['stability'].iloc[:half_point].dropna().mean()
+        second_half_mean = analysis_df['stability'].iloc[half_point:].dropna().mean()
         
         trend_direction = "stable"
-        if second_half_mean > first_half_mean * 1.05: trend_direction = "improving"
-        elif second_half_mean < first_half_mean * 0.95: trend_direction = "declining"
+        # Check if means are valid numbers before comparison
+        if not pd.isna(first_half_mean) and not pd.isna(second_half_mean):
+            if second_half_mean > first_half_mean * 1.05: trend_direction = "improving"
+            elif second_half_mean < first_half_mean * 0.95: trend_direction = "declining"
 
         if trend_direction == "stable":
             predictive_insight = f"Performance has been <strong>{volatility_level}</strong> with no clear long-term upward or downward trend."
@@ -605,41 +613,67 @@ def generate_detailed_analysis(analysis_df, overall_stability, overall_mttr, ove
             predictive_insight = f"Performance shows a <strong>{trend_direction} trend</strong>, although this has been <strong>{volatility_level}</strong>."
 
     best_worst_analysis = ""
-    if not analysis_df.empty:
-        best_performer = analysis_df.loc[analysis_df['stability'].idxmax()]
-        worst_performer = analysis_df.loc[analysis_df['stability'].idxmin()]
+    # Use dropna before idxmax/idxmin
+    if not analysis_df.empty and not analysis_df['stability'].dropna().empty:
+        best_performer = analysis_df.loc[analysis_df['stability'].dropna().idxmax()]
+        worst_performer = analysis_df.loc[analysis_df['stability'].dropna().idxmin()]
 
         def format_period(period_value, level):
             if isinstance(period_value, (pd.Timestamp, pd.Period, pd.Timedelta)):
                 return pd.to_datetime(period_value).strftime('%A, %b %d')
-            if level == "Monthly": return f"Week {period_value}"
-            if "Daily" in level: return f"{period_value}:00"
+            # Handle potential float conversion for week/hour if needed, ensure it's int first
+            if level == "Monthly": return f"Week {int(period_value)}" if pd.notna(period_value) else "N/A"
+            if "Daily" in level: return f"{int(period_value)}:00" if pd.notna(period_value) else "N/A"
             return str(period_value)
 
         best_period_label = format_period(best_performer['period'], analysis_level)
         worst_period_label = format_period(worst_performer['period'], analysis_level)
+        
+        # Ensure stops and mttr are numeric before formatting
+        worst_stops = int(worst_performer['stops']) if pd.notna(worst_performer['stops']) else 0
+        worst_mttr = worst_performer.get('mttr', 0) if pd.notna(worst_performer.get('mttr', 0)) else 0
+        best_stops = int(best_performer['stops']) if pd.notna(best_performer['stops']) else 0
+
 
         best_worst_analysis = (f"The best performance was during <strong>{best_period_label}</strong> (Stability: {best_performer['stability']:.1f}%), "
                                  f"while the worst was during <strong>{worst_period_label}</strong> (Stability: {worst_performer['stability']:.1f}%). "
-                                 f"The key difference was the impact of stoppages: the worst period had {int(worst_performer['stops'])} stops with an average duration of {worst_performer.get('mttr', 0):.1f} min, "
-                                 f"compared to {int(best_performer['stops'])} stops during the best period.")
+                                 f"The key difference was the impact of stoppages: the worst period had {worst_stops} stops with an average duration of {worst_mttr:.1f} min, "
+                                 f"compared to {best_stops} stops during the best period.")
 
     pattern_insight = ""
-    if not analysis_df.empty and analysis_df['stops'].sum() > 0:
+    # Use dropna before sum and idxmax
+    if not analysis_df.empty and not analysis_df['stops'].dropna().empty and analysis_df['stops'].dropna().sum() > 0:
         if "Daily" in analysis_level:
-            peak_stop_hour = analysis_df.loc[analysis_df['stops'].idxmax()]
-            pattern_insight = f"A notable pattern is the concentration of stop events around <strong>{int(peak_stop_hour['period'])}:00</strong>, which saw the highest number of interruptions ({int(peak_stop_hour['stops'])} stops)."
+            peak_stop_hour_row = analysis_df.loc[analysis_df['stops'].dropna().idxmax()]
+            peak_period = peak_stop_hour_row['period']
+            # --- FIX: Check if peak_period is valid before int() ---
+            if pd.notna(peak_period) and isinstance(peak_period, (int, float)) and not math.isnan(peak_period):
+                 pattern_insight = f"A notable pattern is the concentration of stop events around <strong>{int(peak_period)}:00</strong>, which saw the highest number of interruptions ({int(peak_stop_hour_row['stops'])} stops)."
+            else:
+                 pattern_insight = "Could not identify a peak stop hour due to data issues."
+            # --- END FIX ---
         else:
-            mean_stability = analysis_df['stability'].mean()
-            std_stability = analysis_df['stability'].std()
-            outlier_threshold = mean_stability - (1.5 * std_stability)
-            outliers = analysis_df[analysis_df['stability'] < outlier_threshold]
-            if not outliers.empty:
-                worst_outlier = outliers.loc[outliers['stability'].idxmin()]
-                outlier_label = format_period(worst_outlier['period'], analysis_level)
-                pattern_insight = f"A key area of concern is <strong>{outlier_label}</strong>, which performed significantly below average and disproportionately affected the overall stability."
+            # Use dropna before mean/std
+            mean_stability = analysis_df['stability'].dropna().mean()
+            std_stability = analysis_df['stability'].dropna().std()
+            # Check if mean/std are valid
+            if pd.notna(mean_stability) and pd.notna(std_stability) and std_stability > 0:
+                outlier_threshold = mean_stability - (1.5 * std_stability)
+                outliers = analysis_df[analysis_df['stability'] < outlier_threshold]
+                if not outliers.empty and not outliers['stability'].dropna().empty:
+                    worst_outlier = outliers.loc[outliers['stability'].dropna().idxmin()]
+                    outlier_label = format_period(worst_outlier['period'], analysis_level)
+                    pattern_insight = f"A key area of concern is <strong>{outlier_label}</strong>, which performed significantly below average and disproportionately affected the overall stability."
+            elif pd.notna(mean_stability): # Handle case with std=0 or NaN std
+                 pattern_insight = "Stability levels were consistent, no significant outliers detected."
+
 
     recommendation = ""
+    # Ensure stability/mttr/mtbf are valid numbers before comparison
+    overall_stability = overall_stability if pd.notna(overall_stability) else 0
+    overall_mttr = overall_mttr if pd.notna(overall_mttr) else 0
+    overall_mtbf = overall_mtbf if pd.notna(overall_mtbf) else 0
+
     if overall_stability >= 95:
         recommendation = "Overall performance is excellent. Continue monitoring for any emerging negative trends in either MTBF or MTTR to maintain this high level of stability."
     elif overall_stability > 70:
@@ -654,6 +688,7 @@ def generate_detailed_analysis(analysis_df, overall_stability, overall_mttr, ove
             recommendation = f"Stability is poor and requires attention. The primary driver is a high <strong>Mean Time To Repair (MTTR)</strong> of <strong>{overall_mttr:.1f} minutes</strong>. The top priority should be investigating why stops take a long time to resolve and streamlining the repair process."
 
     return {"overall": overall_summary, "predictive": predictive_insight, "best_worst": best_worst_analysis, "patterns": pattern_insight, "recommendation": recommendation}
+
 
 def generate_bucket_analysis(complete_runs, bucket_labels):
     if complete_runs.empty or 'duration_min' not in complete_runs.columns:
@@ -1747,4 +1782,3 @@ with tab2:
         render_dashboard(df_for_dashboard, tool_id_for_dashboard_display)
     else:
         st.info("Select a specific Tool ID from the sidebar to view its dashboard.")
-
