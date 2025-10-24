@@ -643,23 +643,53 @@ def generate_excel_report(all_runs_data, tolerance):
             ws.write(f'{analysis_col_2}{16+max_bucket}','Grand Total',sub_header_format);ws.write_formula(f'{analysis_col_3}{16+max_bucket}',f"=SUM({analysis_col_3}16:{analysis_col_3}{15+max_bucket})",sub_header_format)
             ws.write_row('A18',df_run.columns,header_format)
             if'SHOT TIME'in df_run.columns:df_run['SHOT TIME']=pd.to_datetime(df_run['SHOT TIME'],errors='coerce').dt.tz_localize(None)
-            df_run.fillna('',inplace=True)
-            for i,row_values in enumerate(df_run.to_numpy()):
-                current_row_excel_idx=start_row+i
-                for c_idx,value in enumerate(row_values):
-                    col_name=df_run.columns[c_idx]
-                    # --- Skip writing raw values for formula columns in Excel ---
-                    if col_name in['CUMULATIVE COUNT','RUN DURATION','TIME BUCKET','TIME DIFF SEC']:continue
-                    cell_format=data_format
-                    if isinstance(value,pd.Timestamp):
-                        if pd.notna(value):ws.write_datetime(current_row_excel_idx-1,c_idx,value,datetime_format)
-                        else:ws.write_string(current_row_excel_idx-1,c_idx,'',data_format)
-                    elif isinstance(value,(bool,np.bool_)):ws.write_number(current_row_excel_idx-1,c_idx,int(value),data_format)
-                    elif isinstance(value,(int,float,np.number)):
-                        if col_name in['ACTUAL CT','adj_ct_sec']:cell_format=secs_format
-                        if np.isfinite(value): ws.write_number(current_row_excel_idx-1,c_idx,value,cell_format)
-                        else: ws.write_string(current_row_excel_idx-1, c_idx, '', data_format) # Handle NaN/Inf
-                    else:ws.write(current_row_excel_idx-1,c_idx,value,data_format) # Write strings, etc.
+            df_run_nan_filled = df_run.fillna(np.nan)
+
+            for i, row_values in enumerate(df_run_nan_filled.itertuples(index=False)): # Use itertuples for clarity
+                current_row_excel_idx = start_row + i - 1 # Adjust index for 0-based write methods
+    
+                for c_idx, value in enumerate(row_values):
+                    col_name = df_run.columns[c_idx]
+    
+                    # Skip columns calculated ENTIRELY by Excel formulas (we write formulas later)
+                    if col_name in ['CUMULATIVE COUNT', 'RUN DURATION', 'TIME BUCKET', 'TIME DIFF SEC']:
+                        continue # Formulas will populate these
+    
+                    cell_format = data_format # Default format
+    
+                    # --- Explicit Handling for STOP and STOP EVENT ---
+                    if col_name == 'STOP':
+                        # Ensure it's written as a number (0 or 1), default to 0 if NaN/None
+                        num_value = int(value) if pd.notna(value) else 0
+                        ws.write_number(current_row_excel_idx, c_idx, num_value, cell_format)
+                    elif col_name == 'STOP EVENT':
+                        # Ensure it's written as a number (0 or 1), default to 0 if NaN/None/False
+                        num_value = 1 if value == True else 0 # Explicit boolean check to handle NaN correctly
+                        ws.write_number(current_row_excel_idx, c_idx, num_value, cell_format)
+    
+                    # --- Handling for other types (Improved) ---
+                    elif isinstance(value, pd.Timestamp):
+                        if pd.notna(value):
+                            # Remove timezone if present, as xlsxwriter might raise warnings/errors
+                            value_no_tz = value.tz_localize(None) if value.tzinfo is not None else value
+                            ws.write_datetime(current_row_excel_idx, c_idx, value_no_tz, datetime_format)
+                        else:
+                            ws.write_blank(current_row_excel_idx, c_idx, None, cell_format) # Write Excel blank for NaT
+                    elif isinstance(value, (int, float, np.number)):
+                        if col_name in ['ACTUAL CT', 'adj_ct_sec']: # Add any other sec columns here
+                            cell_format = secs_format
+                        # Check for NaN/Inf before writing
+                        if pd.notna(value) and np.isfinite(value):
+                            ws.write_number(current_row_excel_idx, c_idx, value, cell_format)
+                        else:
+                            ws.write_blank(current_row_excel_idx, c_idx, None, cell_format) # Write Excel blank for NaN/Inf
+                    # --- Handling strings and fallback ---
+                    # Check for NaN specifically, otherwise convert to string
+                    elif pd.isna(value):
+                         ws.write_blank(current_row_excel_idx, c_idx, None, cell_format) # Write blank for other NaNs
+                    else:
+                        # Convert anything else to string as a fallback
+                        ws.write_string(current_row_excel_idx, c_idx, str(value), cell_format)
 
             if table_formulas_ok:
                 # --- Get column indices safely ---
