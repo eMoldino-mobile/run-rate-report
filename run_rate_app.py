@@ -8,7 +8,7 @@ from io import BytesIO
 import warnings
 import streamlit.components.v1 as components
 import xlsxwriter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 # --- Page and Code Configuration ---
 warnings.filterwarnings("ignore", category=FutureWarning)
