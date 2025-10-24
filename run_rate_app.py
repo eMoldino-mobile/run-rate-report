@@ -1078,34 +1078,50 @@ def render_dashboard(df_tool, tool_id_selection):
 
         # --- Run Breakdown Table ---
         # Show this table *whenever* a 'by Run' mode is selected and the run summary exists
-        if "by Run" in analysis_level and run_summary_df_for_trends is not None and not run_summary_df_for_trends.empty:
-            with st.expander("View Run Breakdown Table", expanded=False):
-                d_df = run_summary_df_for_trends.copy() # Use the already calculated and renamed df
-                # Ensure start/end times are datetime objects before formatting
-                d_df['start_time'] = pd.to_datetime(d_df['start_time'], errors='coerce')
-                d_df['end_time'] = pd.to_datetime(d_df['end_time'], errors='coerce')
-                d_df = d_df.dropna(subset=['start_time', 'end_time'])
+        with st.expander("View Run Breakdown Table", expanded=False):
+            d_df = run_summary_df_for_trends.copy() # Use the already calculated and renamed df
+            # Ensure start/end times are datetime objects before formatting
+            d_df['start_time'] = pd.to_datetime(d_df['start_time'], errors='coerce')
+            d_df['end_time'] = pd.to_datetime(d_df['end_time'], errors='coerce')
+            d_df = d_df.dropna(subset=['start_time', 'end_time'])
 
-                if not d_df.empty:
-                    # Safely convert 'Total Shots' back to numeric for calculation, handle errors
-                    d_df['Total Shots Numeric'] = pd.to_numeric(d_df['Total Shots'], errors='coerce').fillna(0).astype(int)
+            if not d_df.empty:
+                 # --- FIX 1: Rename the original numeric 'Total Shots' ---
+                if 'Total Shots' in d_df.columns:
+                     d_df.rename(columns={'Total Shots': 'Total Shots Numeric'}, inplace=True)
+                 else:
+                     # Handle case where 'Total Shots' might already be missing or named differently
+                     # Add 'Total Shots Numeric' based on 'total_shots' if it exists
+                     if 'total_shots' in d_df.columns:
+                          d_df['Total Shots Numeric'] = pd.to_numeric(d_df['total_shots'], errors='coerce').fillna(0).astype(int)
+                     else: # Add a placeholder if no shots column found
+                          d_df['Total Shots Numeric'] = 0
+                          st.warning("Could not find 'Total Shots' or 'total_shots' for Run Breakdown Table.")
 
-                    d_df["Period"] = d_df.apply(lambda r: f"{r['start_time']:%Y-%m-%d %H:%M} to {r['end_time']:%Y-%m-%d %H:%M}", axis=1)
-                    # --- FIX: Calculate percentage using the numeric column ---
-                    d_df["Normal Shots (%)"] = d_df.apply(lambda r: f"{r['normal_shots']:,} ({r['normal_shots']/r['Total Shots Numeric']*100:.1f}%)" if r['Total Shots Numeric']>0 else "0 (0.0%)", axis=1)
-                    d_df["Stops (%)"] = d_df.apply(lambda r: f"{r['STOPS']} ({r['stopped_shots']/r['Total Shots Numeric']*100:.1f}%)" if r['Total Shots Numeric']>0 else "0 (0.0%)", axis=1)
-                    # --- FIX: Format Total Shots after calculation ---
-                    d_df["Total Shots Formatted"] = d_df['Total Shots Numeric'].apply(lambda x: f"{x:,}")
 
-                    d_df["Total Duration"] = d_df['total_runtime_sec'].apply(format_duration)
-                    d_df["Prod. Time (%)"] = d_df.apply(lambda r: f"{format_duration(r['production_time_sec'])} ({r['production_time_sec']/r['total_runtime_sec']*100:.1f}%)" if r['total_runtime_sec']>0 else "0m (0.0%)", axis=1)
-                    d_df["Downtime (%)"] = d_df.apply(lambda r: f"{format_duration(r['downtime_sec'])} ({r['downtime_sec']/r['total_runtime_sec']*100:.1f}%)" if r['total_runtime_sec']>0 else "0m (0.0%)", axis=1)
+                # Safely convert 'Total Shots Numeric' (now guaranteed to exist)
+                d_df['Total Shots Numeric'] = pd.to_numeric(d_df['Total Shots Numeric'], errors='coerce').fillna(0).astype(int)
 
-                    # Adjust rename map and columns list for display
-                    d_df.rename(columns={'RUN ID':'Run ID','mode_ct':'Mode CT','lower_limit':'LL','upper_limit':'UL','MTTR (min)':'MTTR','MTBF (min)':'MTBF','STABILITY %':'Stability %', 'Total Shots Formatted': 'Total Shots'}, inplace=True, errors='ignore')
-                    cols = ['Run ID','Period','Total Shots','Normal Shots (%)','Stops (%)','Mode CT','LL','UL','Total Duration','Prod. Time (%)','Downtime (%)','MTTR','MTBF','Stability %']
-                    cols_exist = [c for c in cols if c in d_df.columns]
-                    st.dataframe(d_df[cols_exist].style.format({'Mode CT':'{:.2f}','LL':'{:.2f}','UL':'{:.2f}','MTTR':'{:.1f}','MTBF':'{:.1f}','Stability %':'{:.1f}'}), use_container_width=True)
+                d_df["Period"] = d_df.apply(lambda r: f"{r['start_time']:%Y-%m-%d %H:%M} to {r['end_time']:%Y-%m-%d %H:%M}", axis=1)
+
+                # Create the formatted column - NO LONGER NAMED 'Total Shots Formatted' initially
+                d_df["Total Shots"] = d_df['Total Shots Numeric'].apply(lambda x: f"{x:,}") # Create the final display column directly
+
+                # --- FIX 2: Calculate percentages using the numeric column ---
+                d_df["Normal Shots (%)"] = d_df.apply(lambda r: f"{r['normal_shots']:,} ({r['normal_shots']/r['Total Shots Numeric']*100:.1f}%)" if r['Total Shots Numeric']>0 else "0 (0.0%)", axis=1)
+                d_df["Stops (%)"] = d_df.apply(lambda r: f"{r['STOPS']} ({r['stopped_shots']/r['Total Shots Numeric']*100:.1f}%)" if r['Total Shots Numeric']>0 else "0 (0.0%)", axis=1)
+
+                d_df["Total Duration"] = d_df['total_runtime_sec'].apply(format_duration)
+                d_df["Prod. Time (%)"] = d_df.apply(lambda r: f"{format_duration(r['production_time_sec'])} ({r['production_time_sec']/r['total_runtime_sec']*100:.1f}%)" if r['total_runtime_sec']>0 else "0m (0.0%)", axis=1)
+                d_df["Downtime (%)"] = d_df.apply(lambda r: f"{format_duration(r['downtime_sec'])} ({r['downtime_sec']/r['total_runtime_sec']*100:.1f}%)" if r['total_runtime_sec']>0 else "0m (0.0%)", axis=1)
+
+                # --- FIX 3: REMOVE the problematic rename target from the rename dictionary ---
+                d_df.rename(columns={'RUN ID':'Run ID','mode_ct':'Mode CT','lower_limit':'LL','upper_limit':'UL','MTTR (min)':'MTTR','MTBF (min)':'MTBF','STABILITY %':'Stability %'}, inplace=True, errors='ignore') # Removed 'Total Shots Formatted': 'Total Shots'
+
+                # --- FIX 4: Ensure 'Total Shots' (the formatted one) is in the list ---
+                cols = ['Run ID','Period','Total Shots','Normal Shots (%)','Stops (%)','Mode CT','LL','UL','Total Duration','Prod. Time (%)','Downtime (%)','MTTR','MTBF','Stability %']
+                cols_exist = [c for c in cols if c in d_df.columns]
+                st.dataframe(d_df[cols_exist].style.format({'Mode CT':'{:.2f}','LL':'{:.2f}','UL':'{:.2f}','MTTR':'{:.1f}','MTBF':'{:.1f}','Stability %':'{:.1f}'}), use_container_width=True)
 
 
         # --- Plots ---
