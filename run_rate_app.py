@@ -947,20 +947,15 @@ def prepare_and_generate_run_based_excel(df_for_export, tolerance, downtime_gap_
                     'CUMULATIVE COUNT', 'RUN DURATION', 'TIME BUCKET'
                 ]
 
-                # Merge calculated columns...
-                final_export_df = final_export_df.merge(export_df[calculated_cols_to_merge], left_index=True, right_index=True, how='left')
-        
-                # Add placeholders for formula columns...
-                for col in formula_columns:
-                    final_export_df[col] = ''
-        
-                # --- ADD SHOT SEQUENCE ---
-                final_export_df.insert(3, 'Shot Sequence', range(1, len(final_export_df) + 1)) # Insert sequence after SESSION ID
-                # --- END ADD ---
-        
-                # Rename columns for Excel...
-                final_export_df.rename(columns={'tool_id': 'EQUIPMENT CODE', # ... rest of renames ...
-                }, inplace=True)
+                # Ensure all columns exist and reorder
+                for col in final_desired_renamed:
+                    if col not in final_export_df.columns:
+                        final_export_df[col] = '' # Add missing columns as blank
+                # Select columns in the desired order, only keep those that exist after rename/add
+                final_export_df = final_export_df[[col for col in final_desired_renamed if col in final_export_df.columns]]
+
+                run_results['processed_df'] = final_export_df # Store the prepared df back
+                all_runs_data[run_id] = run_results # Add run results to the main dict
 
             except Exception as e:
                 st.warning(f"Could not process Run ID {run_id} for Excel: {e}")
