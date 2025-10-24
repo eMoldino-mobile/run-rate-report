@@ -697,7 +697,29 @@ def generate_excel_report(all_runs_data, tolerance):
                 ws.write_formula('L5', f"=SUM({stop_event_col}{start_row}:{stop_event_col}{start_row + len(df_run) - 1})", sub_header_format)
             else: ws.write('L5', 'N/A', sub_header_format) # Indicate if column missing
 
-            ws.write('F5', 'Tot Run Time (Calc)', label_format); ws.write('G5', 'Tot Down Time', label_format); ws.write('H5', 'Tot Prod Time', label_format)
+            # --- Corrected Summary Layout ---
+            ws.write('F5', 'Tot Run Time (Calc)', label_format)
+            ws.write('G5', 'Tot Down Time', label_format)
+            ws.write('H5', 'Tot Prod Time', label_format)
+
+            debug_downtime_val = data.get('tot_down_time_sec', 'KEY_MISSING')
+            # print(f"Run ID {run_id}: Value for 'tot_down_time_sec': {debug_downtime_val}") # Keep for debugging if needed
+            downtime_to_write = debug_downtime_val if isinstance(debug_downtime_val, (int, float)) else 0
+
+            ws.write('F6', data.get('total_runtime_sec', 0) / 86400, time_format) # Use calculated total
+            ws.write('G6', downtime_to_write / 86400, time_format) # Use calculated downtime
+            ws.write('H6', data.get('production_time_sec', 0) / 86400, time_format) # Use calculated production time
+
+            # Add Labels for Percentages in Row 7
+            ws.write('F4', 'Prod %', label_format) # Label above F7
+            ws.write('G4', 'Down %', label_format) # Label above G7
+            ws.write('H4', '', label_format) # Keep H4 empty or add another label if desired
+
+            # Write Percentage Formulas in Row 7
+            ws.write_formula('F7', f"=IFERROR(H6/F6, 0)", percent_format) # Production Time %
+            ws.write_formula('G7', f"=IFERROR(G6/F6, 0)", percent_format) # Downtime %
+            ws.write('H7','', data_format) # Keep H7 blank
+            # --- End Corrected Summary Layout ---
             # Use pre-calculated values passed in the 'data' dictionary for this run
             # --- DEBUGGING for G6 ---
             debug_downtime_val = data.get('tot_down_time_sec', 'KEY_MISSING')
