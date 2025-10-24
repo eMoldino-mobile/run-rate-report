@@ -713,7 +713,7 @@ def generate_excel_report(all_runs_data, tolerance):
             # Add Labels for Percentages in Row 7
             ws.write('F4', 'Prod %', label_format) # Label above F7
             ws.write('G4', 'Down %', label_format) # Label above G7
-            ws.write('H4', '', label_format) # Keep H4 empty or add another label if desired
+            ws.write('H4', '', label_format) # Keep H4 empty
 
             # Write Percentage Formulas in Row 7
             ws.write_formula('F7', f"=IFERROR(H6/F6, 0)", percent_format) # Production Time %
