@@ -215,6 +215,10 @@ class RunRateCalculator:
             "mtbf_min": mtbf_min, "stability_index": stability_index, "run_durations": run_durations,
             "bucket_labels": labels, "bucket_color_map": bucket_color_map, "hourly_summary": hourly_summary,
             "total_runtime_sec": total_runtime_sec, "production_time_sec": production_time_sec, "downtime_sec": downtime_sec,
+            "avg_cycle_time_sec": avg_cycle_time_sec,
+            "time_to_first_dt_min": time_to_first_dt_sec / 60,
+            "production_run_sec": production_run_sec, # Wall-clock
+            "tot_down_time_sec": downtime_sec # Alias
         }
         
         if self.analysis_mode == 'by_run' and isinstance(lower_limit, pd.Series) and not df.empty:
@@ -892,8 +896,7 @@ def prepare_and_generate_run_based_excel(df_for_export, tolerance, downtime_gap_
         # Columns needed from the raw run data + calculated ones
         # Match columns expected by generate_excel_report and formulas
         desired_columns_base = [
-            'SUPPLIER NAME', 'tool_id', 'SESSION ID', #'SHOT ID', # <-- Remove this
-             'shot_time',
+            'SUPPLIER NAME', 'tool_id', 'SESSION ID', 'shot_time',
             'APPROVED CT', 'ACTUAL CT',
             'time_diff_sec', 'stop_flag', 'stop_event', 'run_group'
         ]
