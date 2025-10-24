@@ -697,7 +697,7 @@ def generate_excel_report(all_runs_data, tolerance):
                 ws.write_formula('L5', f"=SUM({stop_event_col}{start_row}:{stop_event_col}{start_row + len(df_run) - 1})", sub_header_format)
             else: ws.write('L5', 'N/A', sub_header_format) # Indicate if column missing
 
-            # --- Corrected Summary Layout ---
+            # --- Corrected Summary Layout v2 ---
             ws.write('F5', 'Tot Run Time (Calc)', label_format)
             ws.write('G5', 'Tot Down Time', label_format)
             ws.write('H5', 'Tot Prod Time', label_format)
@@ -706,30 +706,20 @@ def generate_excel_report(all_runs_data, tolerance):
             # print(f"Run ID {run_id}: Value for 'tot_down_time_sec': {debug_downtime_val}") # Keep for debugging if needed
             downtime_to_write = debug_downtime_val if isinstance(debug_downtime_val, (int, float)) else 0
 
-            ws.write('F6', data.get('total_runtime_sec', 0) / 86400, time_format) # Use calculated total
-            ws.write('G6', downtime_to_write / 86400, time_format) # Use calculated downtime
-            ws.write('H6', data.get('production_time_sec', 0) / 86400, time_format) # Use calculated production time
+            ws.write('F6', data.get('total_runtime_sec', 0) / 86400, time_format) # Total Time
+            ws.write('G6', downtime_to_write / 86400, time_format) # Downtime
+            ws.write('H6', data.get('production_time_sec', 0) / 86400, time_format) # Production Time
 
-            # Add Labels for Percentages in Row 7
-            ws.write('F4', 'Prod %', label_format) # Label above F7
+            # Add Labels for Percentages in Row 4
+            ws.write('F4', '', label_format) # Keep F4 Blank
             ws.write('G4', 'Down %', label_format) # Label above G7
-            ws.write('H4', '', label_format) # Keep H4 empty
+            ws.write('H4', 'Prod %', label_format) # Label above H7 <--- MOVED LABEL
 
             # Write Percentage Formulas in Row 7
-            ws.write_formula('F7', f"=IFERROR(H6/F6, 0)", percent_format) # Production Time %
+            ws.write('F7', '', data_format) # Keep F7 Blank <--- BLANKED F7
             ws.write_formula('G7', f"=IFERROR(G6/F6, 0)", percent_format) # Downtime %
-            ws.write('H7','', data_format) # Keep H7 blank
-            # --- End Corrected Summary Layout ---
-            # Use pre-calculated values passed in the 'data' dictionary for this run
-            # --- DEBUGGING for G6 ---
-            debug_downtime_val = data.get('tot_down_time_sec', 'KEY_MISSING')
-            print(f"Run ID {run_id}: Value for 'tot_down_time_sec': {debug_downtime_val}")
-            downtime_to_write = debug_downtime_val if isinstance(debug_downtime_val, (int, float)) else 0
-            # --- END DEBUGGING ---
-            ws.write('F6', data.get('total_runtime_sec', 0) / 86400, time_format) # Use calculated total
-            ws.write('G6', downtime_to_write / 86400, time_format) # Use calculated downtime
-            ws.write('H6', data.get('production_time_sec', 0) / 86400, time_format) # Use calculated production time
-            ws.write_formula('F7', f"=IFERROR(H6/F6, 0)", percent_format); ws.write_formula('G7', f"=IFERROR(G6/F6, 0)", percent_format); ws.write('H7','',data_format)
+            ws.write_formula('H7', f"=IFERROR(H6/F6, 0)", percent_format) # Production Time % <--- MOVED FORMULA
+            # --- End Corrected Summary Layout v2 ---
 
             ws.merge_range('K8:L8', 'Reliability Metrics', header_format)
             ws.write('K9', 'MTTR (Avg)', label_format); ws.write('L9', data.get('mttr_min', 0), mins_format)
