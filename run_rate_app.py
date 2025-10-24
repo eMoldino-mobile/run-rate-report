@@ -702,6 +702,26 @@ def generate_excel_report(all_runs_data, tolerance):
             ws.write('G5', 'Tot Down Time', label_format)
             ws.write('H5', 'Tot Prod Time', label_format)
 
+            debug_downtime_val = data.get('tot_down_time_sec', 'KEY_MISSING')
+            # print(f"Run ID {run_id}: Value for 'tot_down_time_sec': {debug_downtime_val}") # Keep for debugging if needed
+            downtime_to_write = debug_downtime_val if isinstance(debug_downtime_val, (int, float)) else 0
+
+            ws.write('F6', data.get('total_runtime_sec', 0) / 86400, time_format) # Use calculated total
+            ws.write('G6', downtime_to_write / 86400, time_format) # Use calculated downtime
+            ws.write('H6', data.get('production_time_sec', 0) / 86400, time_format) # Use calculated production time
+
+            # Add Labels for Percentages in Row 7
+            ws.write('F4', 'Prod %', label_format) # Label above F7
+            ws.write('G4', 'Down %', label_format) # Label above G7
+            ws.write('H4', '', label_format) # Keep H4 empty or add another label if desired
+
+            # Write Percentage Formulas in Row 7
+            ws.write_formula('F7', f"=IFERROR(H6/F6, 0)", percent_format) # Production Time %
+            ws.write_formula('G7', f"=IFERROR(G6/F6, 0)", percent_format) # Downtime %
+            ws.write('H7','', data_format) # Keep H7 blank
+            # --- End Corrected Summary Layout ---
+            # Use pre-calculated values passed in the 'data' dictionary for this run
+
             ws.merge_range('K8:L8', 'Reliability Metrics', header_format)
             ws.write('K9', 'MTTR (Avg)', label_format); ws.write('L9', data.get('mttr_min', 0), mins_format)
             ws.write('K10', 'MTBF (Avg)', label_format); ws.write('L10', data.get('mtbf_min', 0), mins_format)
