@@ -857,7 +857,7 @@ def render_dashboard(df_tool, tool_id_selection):
                 else:
                     patterns_html = f'<p style="color:#FAFAFA;"><strong>Identified Patterns:</strong> {insights.get("patterns", "")}</p>' if insights.get("patterns") else ''
                     html_content = f"""<div style="border:1px solid #333;border-radius:0.5rem;padding:1.5rem;margin-top:1rem;font-family:sans-serif;line-height:1.6;background-color:#0E1117;"><h4 style="margin-top:0;color:#FAFAFA;">Automated Analysis Summary</h4><p style="color:#FAFAFA;"><strong>Overall Assessment:</strong> {insights.get("overall", "N/A")}</p><p style="color:#FAFAFA;"><strong>Predictive Trend:</strong> {insights.get("predictive", "N/A")}</p><p style="color:#FAFAFA;"><strong>Performance Variance:</strong> {insights.get("best_worst", "N/A")}</p>{patterns_html}<p style="margin-top:1rem;color:#FAFAFA;background-color:#262730;padding:1rem;border-radius:0.5rem;"><strong>Key Recommendation:</strong> {insights.get("recommendation", "N/A")}</p></div>"""
-                    components.v1.html(html_content, height=400, scrolling=True)
+                    components.html(html_content, height=400, scrolling=True)
 
         # --- Breakdown Tables ---
         if analysis_level in ["Weekly (by Run)", "Monthly (by Run)", "Custom Period (by Run)"] and trend_summary_df is not None and not trend_summary_df.empty:
