@@ -1076,27 +1076,27 @@ def render_dashboard(df_tool, tool_id_selection):
                     st.dataframe(d_df[cols_to_show].style.format({'Stability (%)': '{:.1f}', 'MTTR (min)': '{:.1f}', 'MTBF (min)': '{:.1f}'}), use_container_width=True)
 
 
-        # --- Run Breakdown Table ---
-        # Show this table *whenever* a 'by Run' mode is selected and the run summary exists
-        with st.expander("View Run Breakdown Table", expanded=False):
-            d_df = run_summary_df_for_trends.copy() # Use the already calculated and renamed df
-            # Ensure start/end times are datetime objects before formatting
-            d_df['start_time'] = pd.to_datetime(d_df['start_time'], errors='coerce')
-            d_df['end_time'] = pd.to_datetime(d_df['end_time'], errors='coerce')
-            d_df = d_df.dropna(subset=['start_time', 'end_time'])
-
-            if not d_df.empty:
-                 # --- FIX 1: Rename the original numeric 'Total Shots' ---
-                if 'Total Shots' in d_df.columns:
-                     d_df.rename(columns={'Total Shots': 'Total Shots Numeric'}, inplace=True)
-                else:
-                     # Handle case where 'Total Shots' might already be missing or named differently
-                     # Add 'Total Shots Numeric' based on 'total_shots' if it exists
-                     if 'total_shots' in d_df.columns:
-                          d_df['Total Shots Numeric'] = pd.to_numeric(d_df['total_shots'], errors='coerce').fillna(0).astype(int)
-                     else: # Add a placeholder if no shots column found
-                          d_df['Total Shots Numeric'] = 0
-                          st.warning("Could not find 'Total Shots' or 'total_shots' for Run Breakdown Table.")
+            # --- Run Breakdown Table ---
+            # Show this table *whenever* a 'by Run' mode is selected and the run summary exists
+            with st.expander("View Run Breakdown Table", expanded=False):
+                d_df = run_summary_df_for_trends.copy() # Use the already calculated and renamed df
+                # Ensure start/end times are datetime objects before formatting
+                d_df['start_time'] = pd.to_datetime(d_df['start_time'], errors='coerce')
+                d_df['end_time'] = pd.to_datetime(d_df['end_time'], errors='coerce')
+                d_df = d_df.dropna(subset=['start_time', 'end_time'])
+    
+                if not d_df.empty:
+                     # --- FIX 1: Rename the original numeric 'Total Shots' ---
+                    if 'Total Shots' in d_df.columns:
+                         d_df.rename(columns={'Total Shots': 'Total Shots Numeric'}, inplace=True)
+                    else:
+                         # Handle case where 'Total Shots' might already be missing or named differently
+                         # Add 'Total Shots Numeric' based on 'total_shots' if it exists
+                         if 'total_shots' in d_df.columns:
+                              d_df['Total Shots Numeric'] = pd.to_numeric(d_df['total_shots'], errors='coerce').fillna(0).astype(int)
+                         else: # Add a placeholder if no shots column found
+                              d_df['Total Shots Numeric'] = 0
+                              st.warning("Could not find 'Total Shots' or 'total_shots' for Run Breakdown Table.")
 
 
                 # Safely convert 'Total Shots Numeric' (now guaranteed to exist)
