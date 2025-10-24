@@ -780,9 +780,14 @@ def render_dashboard(df_tool, tool_id_selection):
             c1, c2, c3 = st.columns(3)
             # Use .get() for limits as they might not exist if ACTUAL CT is missing
             if mode == 'by_run':
-                min_ll=summary_metrics.get('min_lower_limit', 0); max_ll=summary_metrics.get('max_lower_limit', 0); min_mc=summary_metrics.get('min_mode_ct', 0); max_mc=summary_metrics.get('max_mode_ct', 0); min_ul=summary_metrics.get('min_upper_limit', 0); max_ul=summary_metrics.get('max_upper_limit', 0)
+                min_ll = summary_metrics.get('min_lower_limit', 0); max_ll = summary_metrics.get('max_lower_limit', 0)
                 c1.metric("Lower Limit (sec)", f"{min_ll:.2f} – {max_ll:.2f}" if min_ll != max_ll else f"{min_ll:.2f}")
-                with c2: with st.container(border=True): st.metric("Mode CT (sec)", f"{min_mc:.2f} – {max_mc:.2f}" if min_mc != max_mc else f"{min_mc:.2f}")
+                with c2:
+                    min_mc = summary_metrics.get('min_mode_ct', 0); max_mc = summary_metrics.get('max_mode_ct', 0)
+                    # Corrected indentation for the nested 'with' statement
+                    with st.container(border=True):
+                        st.metric("Mode CT (sec)", f"{min_mc:.2f} – {max_mc:.2f}" if min_mc != max_mc else f"{min_mc:.2f}")
+                min_ul = summary_metrics.get('min_upper_limit', 0); max_ul = summary_metrics.get('max_upper_limit', 0)
                 c3.metric("Upper Limit (sec)", f"{min_ul:.2f} – {max_ul:.2f}" if min_ul != max_ul else f"{min_ul:.2f}")
             else: # Aggregate Mode
                 mode_val = summary_metrics.get('mode_ct', 0); mode_disp = f"{mode_val:.2f}" if isinstance(mode_val, (int,float)) else mode_val
