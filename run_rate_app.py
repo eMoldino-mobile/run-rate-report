@@ -405,7 +405,7 @@ def generate_mttr_mtbf_analysis(analysis_df, analysis_level):
         elif abs(mttr_corr) > abs(stops_corr) * 1.5: primary_driver = "**duration of stops**"; primary_driver_dur = True
         else: primary_driver = "**frequency and duration**"
         corr_insight = f"Analysis suggests <strong>{primary_driver}</strong> most impacts stability."
-    example_insight = ""; def format_p(p, l):
+        example_insight = ""; def format_p(p, l):
         if isinstance(p, (pd.Timestamp, pd.Period, pd.Timedelta)): return pd.to_datetime(p).strftime('%A, %b %d')
         if l == "Monthly": return f"Week {p}"
         if "Daily" in l: return f"{p}:00"; return str(p)
