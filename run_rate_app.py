@@ -203,11 +203,11 @@ class RunRateCalculator:
                     last_edge_start = edges[-2]; labels[-1] = f"{last_edge_start}+"; edges[-1] = np.inf
                 # Ensure labels list is not empty before using pd.cut
                 if labels:
-                     try:
+                    try:
                         run_durations["time_bucket"] = pd.cut(run_durations["duration_min"], bins=edges, labels=labels, right=False, include_lowest=True)
-                     except ValueError as e:
-                          print(f"Warning during bucket creation: {e}. Buckets might be inaccurate.") # Print instead of st.warning inside class
-                          run_durations["time_bucket"] = "Error" # Assign default if cut fails
+                    except ValueError as e:
+                         print(f"Warning during bucket creation: {e}. Buckets might be inaccurate.") # Print instead of st.warning inside class
+                         run_durations["time_bucket"] = "Error" # Assign default if cut fails
 
                 reds, blues, greens = px.colors.sequential.Reds[3:7], px.colors.sequential.Blues[3:8], px.colors.sequential.Greens[3:8]
                 red_labels, blue_labels, green_labels = [], [], []
@@ -364,8 +364,8 @@ def generate_detailed_analysis(analysis_df, overall_stability, overall_mttr, ove
             half_point = len(analysis_df) // 2; first_half_mean = analysis_df['stability'].iloc[:half_point].mean(); second_half_mean = analysis_df['stability'].iloc[half_point:].mean()
             trend_direction = "stable";
             if pd.notna(first_half_mean) and pd.notna(second_half_mean):
-                 if second_half_mean > first_half_mean * 1.05: trend_direction = "improving"
-                 elif second_half_mean < first_half_mean * 0.95: trend_direction = "declining"
+                if second_half_mean > first_half_mean * 1.05: trend_direction = "improving"
+                elif second_half_mean < first_half_mean * 0.95: trend_direction = "declining"
             insights["predictive"] = f"Performance trend: <strong>{trend_direction}</strong>. Volatility: <strong>{volatility_level}</strong>."
         else: insights["predictive"] = "Not enough data points for trend analysis."
 
@@ -420,8 +420,8 @@ def generate_bucket_analysis(complete_runs, bucket_labels):
             valid_categories = [cat for cat in long_buckets if cat in complete_runs['time_bucket'].cat.categories]
             if valid_categories: num_long_runs = complete_runs[complete_runs['time_bucket'].isin(valid_categories)].shape[0]
         else:
-             try: num_long_runs = complete_runs[complete_runs['time_bucket'].isin(long_buckets)].shape[0]
-             except TypeError: pass
+            try: num_long_runs = complete_runs[complete_runs['time_bucket'].isin(long_buckets)].shape[0]
+            except TypeError: pass
     pct_long = (num_long_runs / total_runs * 100) if total_runs > 0 else 0; longest_run = "N/A"
     if not complete_runs.empty: longest_run_min_val = complete_runs['duration_min'].max();
     if pd.notna(longest_run_min_val): longest_run = format_minutes_to_dhm(longest_run_min_val)
@@ -461,7 +461,7 @@ def generate_mttr_mtbf_analysis(analysis_df, analysis_level):
              if isinstance(p, (int, np.integer)): # Check if it's a week number
                  return f"Week {p}"
         elif l == "Daily": # Check for hourly
-             return f"{p}:00"
+            return f"{p}:00"
         return str(p) # Fallback for Run IDs or other types
 
     if not analysis_df.empty:
@@ -608,9 +608,9 @@ def generate_run_based_excel_export(df_for_export, tolerance, downtime_gap_toler
 
             # Add original columns if they exist in the raw slice for this run
             for col in ['SUPPLIER NAME', 'SESSION ID', 'SHOT ID', 'APPROVED CT']:
-                 if col in df_run_raw.columns and col not in export_df.columns:
-                     # Use merge to align correctly based on index
-                    export_df = export_df.merge(df_run_raw[[col]], left_index=True, right_index=True, how='left')
+                if col in df_run_raw.columns and col not in export_df.columns:
+                    # Use merge to align correctly based on index
+                   export_df = export_df.merge(df_run_raw[[col]], left_index=True, right_index=True, how='left')
 
             # Add placeholders for formula columns if not present
             for col in formula_columns:
@@ -693,9 +693,9 @@ def render_dashboard(df_tool, tool_id_selection):
                 is_new_run = df_processed['time_diff_sec'] > (interval_hours * 3600)
                  # Ensure correct run_id start, handle edge case of single row df
                 if not is_new_run.empty:
-                    df_processed['run_id'] = is_new_run.cumsum() + (0 if is_new_run.iloc[0] else 1)
+                     df_processed['run_id'] = is_new_run.cumsum() + (0 if is_new_run.iloc[0] else 1)
                 else:
-                    df_processed['run_id'] = 1 # Assign run_id 1 if only one row
+                     df_processed['run_id'] = 1 # Assign run_id 1 if only one row
             return df_processed
         except Exception as e:
              st.error(f"Error during initial data processing cache: {e}")
@@ -711,11 +711,11 @@ def render_dashboard(df_tool, tool_id_selection):
         if not df_processed.empty and 'run_id' in df_processed.columns:
              run_shot_counts = df_processed.groupby('run_id').size()
              if not run_shot_counts.empty:
-                max_shots = int(run_shot_counts.max()) if pd.notna(run_shot_counts.max()) else 1 # Handle potential NaN max
-                max_shots = max(1, max_shots) # Ensure max_value is at least 1
-                default_value = min(10, max_shots) if max_shots > 1 else 1
-                # Ensure value <= max_value
-                min_shots_filter = st.sidebar.slider("Remove Runs with Fewer Than X Shots", 1, max_shots, min(default_value, max_shots), 1, help="Filters out smaller production runs.")
+                 max_shots = int(run_shot_counts.max()) if pd.notna(run_shot_counts.max()) else 1 # Handle potential NaN max
+                 max_shots = max(1, max_shots) # Ensure max_value is at least 1
+                 default_value = min(10, max_shots) if max_shots > 1 else 1
+                 # Ensure value <= max_value
+                 min_shots_filter = st.sidebar.slider("Remove Runs with Fewer Than X Shots", 1, max_shots, min(default_value, max_shots), 1, help="Filters out smaller production runs.")
 
 
     st.sidebar.markdown("---")
@@ -943,9 +943,9 @@ def render_dashboard(df_tool, tool_id_selection):
         with st.expander("View Shot Data Table", expanded=False):
              display_cols = ['shot_time', 'run_label', 'ACTUAL CT', 'time_diff_sec', 'stop_flag', 'stop_event']
              if 'run_label' not in results['processed_df'].columns:
-                  if 'run_label' in display_cols: display_cols.remove('run_label')
+                 if 'run_label' in display_cols: display_cols.remove('run_label')
              if 'ACTUAL CT' not in results['processed_df'].columns:
-                  if 'ACTUAL CT' in display_cols: display_cols.remove('ACTUAL CT')
+                 if 'ACTUAL CT' in display_cols: display_cols.remove('ACTUAL CT')
              st.dataframe(results['processed_df'][display_cols])
 
 
@@ -1024,20 +1024,20 @@ def render_dashboard(df_tool, tool_id_selection):
                 if trend_level == "Run":
                      st.subheader("Stability per Production Run")
                      if run_summary_df_for_trends is not None and not run_summary_df_for_trends.empty:
-                          plot_trend_chart(run_summary_df_for_trends,'RUN ID','STABILITY %',"Stability per Run","Run ID","Stability (%)",is_stability=True)
-                          with st.expander("View Stability Data"):
-                              st.dataframe(run_summary_df_for_trends)
+                         plot_trend_chart(run_summary_df_for_trends,'RUN ID','STABILITY %',"Stability per Run","Run ID","Stability (%)",is_stability=True)
+                         with st.expander("View Stability Data"):
+                             st.dataframe(run_summary_df_for_trends)
                      else:
-                          st.info(f"No runs to analyze.")
+                         st.info(f"No runs to analyze.")
                 else:
                      st.subheader(f"{trend_level} Stability Trend")
                      if summary_df is not None and not summary_df.empty:
-                          x_col='date'if trend_level=="Daily"else'week';
-                          plot_trend_chart(summary_df,x_col,'stability_index',f"{trend_level} Stability Trend",trend_level,"Stability (%)",is_stability=True);
-                          with st.expander("View Stability Data"):
-                              st.dataframe(summary_df)
+                         x_col='date'if trend_level=="Daily"else'week';
+                         plot_trend_chart(summary_df,x_col,'stability_index',f"{trend_level} Stability Trend",trend_level,"Stability (%)",is_stability=True);
+                         with st.expander("View Stability Data"):
+                             st.dataframe(summary_df)
                      else:
-                          st.info(f"No {trend_level.lower()} data.")
+                         st.info(f"No {trend_level.lower()} data.")
 
             # Bucket Trend per Unit
             if not complete_runs.empty and 'run_end_time' in complete_runs:
@@ -1053,7 +1053,7 @@ def render_dashboard(df_tool, tool_id_selection):
                          valid_run_labels = run_summary_df_for_trends['RUN ID'].unique()
                          complete_runs_filtered = complete_runs[complete_runs['run_label'].isin(valid_run_labels)]
                          if not complete_runs_filtered.empty and 'time_bucket' in complete_runs_filtered.columns:
-                            pivot_df = pd.crosstab(index=complete_runs_filtered['run_label'],columns=complete_runs_filtered['time_bucket'].astype('category').cat.set_categories(results["bucket_labels"])).reindex(valid_run_labels, fill_value=0)
+                             pivot_df = pd.crosstab(index=complete_runs_filtered['run_label'],columns=complete_runs_filtered['time_bucket'].astype('category').cat.set_categories(results["bucket_labels"])).reindex(valid_run_labels, fill_value=0)
                          trend_df = run_summary_df_for_trends.set_index('RUN ID').reindex(valid_run_labels)
                     x_axis_title = "Run ID"
                 else: # Daily or Weekly
@@ -1075,8 +1075,8 @@ def render_dashboard(df_tool, tool_id_selection):
                      st.plotly_chart(fig_bucket_trend, use_container_width=True)
                      with st.expander("View Bucket Trend Data"): st.dataframe(pivot_df)
                      if detailed_view:
-                          with st.expander("🤖 View Bucket Trend Analysis"):
-                               st.markdown(generate_bucket_analysis(complete_runs_filtered if trend_level=='Run' else complete_runs, results["bucket_labels"]), unsafe_allow_html=True)
+                         with st.expander("🤖 View Bucket Trend Analysis"):
+                                st.markdown(generate_bucket_analysis(complete_runs_filtered if trend_level=='Run' else complete_runs, results["bucket_labels"]), unsafe_allow_html=True)
                 else: st.info(f"Not enough data for {trend_level} bucket trend.")
 
             # MTTR/MTBF Trend per Unit
@@ -1231,4 +1231,3 @@ with tab2:
         render_dashboard(df_for_dashboard, tool_id_for_dashboard_display)
     else:
         st.info("Select a specific Tool ID from the sidebar, or ensure the default tool has data.")
-
