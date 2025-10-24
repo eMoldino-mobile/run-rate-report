@@ -405,10 +405,15 @@ def generate_mttr_mtbf_analysis(analysis_df, analysis_level):
         elif abs(mttr_corr) > abs(stops_corr) * 1.5: primary_driver = "**duration of stops**"; primary_driver_dur = True
         else: primary_driver = "**frequency and duration**"
         corr_insight = f"Analysis suggests <strong>{primary_driver}</strong> most impacts stability."
-        example_insight = ""; def format_p(p, l):
-        if isinstance(p, (pd.Timestamp, pd.Period, pd.Timedelta)): return pd.to_datetime(p).strftime('%A, %b %d')
-        if l == "Monthly": return f"Week {p}"
-        if "Daily" in l: return f"{p}:00"; return str(p)
+        example_insight = ""; 
+        def format_p(p, l):
+        if isinstance(p, (pd.Timestamp, pd.Period, pd.Timedelta)): 
+            return pd.to_datetime(p).strftime('%A, %b %d')
+        if l == "Monthly": 
+            return f"Week {p}"
+        if "Daily" in l: 
+            return f"{p}:00"; 
+        return str(p)
     if primary_driver_freq: highest_stops = analysis_df.loc[analysis_df['stops'].idxmax()]; p_label = format_p(highest_stops['period'], analysis_level); example_insight = f"E.g., <strong>{p_label}</strong> had most stops (<strong>{int(highest_stops['stops'])}</strong>). Prioritize root cause."
     elif primary_driver_dur: highest_mttr = analysis_df.loc[analysis_df['mttr'].idxmax()]; p_label = format_p(highest_mttr['period'], analysis_level); example_insight = f"E.g., <strong>{p_label}</strong> had longest downtimes (avg <strong>{highest_mttr['mttr']:.1f} min</strong>). Investigate delays."
     else: highest_mttr = analysis_df.loc[analysis_df['mttr'].idxmax()]; p_label = format_p(highest_mttr['period'], analysis_level); example_insight = (f"E.g., <strong>{p_label}</strong> had long downtimes (avg <strong>{highest_mttr['mttr']:.1f} min</strong>), showing duration impact.")
