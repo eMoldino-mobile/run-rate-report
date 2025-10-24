@@ -188,6 +188,25 @@ class RunRateCalculator:
         for i, label in enumerate(blue_labels): bucket_color_map[label] = blues[i % len(blues)]
         for i, label in enumerate(green_labels): bucket_color_map[label] = greens[i % len(greens)]
             
+        # --- Calcs needed specifically for the Excel Exporter ---
+        avg_cycle_time_sec = production_time_sec / normal_shots if normal_shots > 0 else 0
+        
+        # --- REVISED Time to First DT Calculation ---
+        first_stop_event_index = df[df['stop_event'] == True].index.min() # Find the index of the first True value
+        
+        if pd.isna(first_stop_event_index):
+            # Case 1: No stop events occurred in this run
+            time_to_first_dt_sec = production_time_sec # The entire production time is time to first DT
+        elif first_stop_event_index == 0:
+             # Case 2: First shot itself was marked as a stop event (shouldn't happen, but handle)
+             time_to_first_dt_sec = 0
+        else:
+             # Case 3: Sum adj_ct_sec (uptime) of rows *before* the first stop event
+             time_to_first_dt_sec = df.loc[:first_stop_event_index - 1, 'adj_ct_sec'].sum()
+        # --- END REVISED Calculation ---
+        
+        production_run_sec = (df["shot_time"].max() - df["shot_time"].min()).total_seconds() if total_shots > 1 else 0
+        
         hourly_summary = self._calculate_hourly_summary(df)
         
         final_results = {
