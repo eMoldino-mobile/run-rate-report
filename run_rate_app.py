@@ -714,12 +714,11 @@ def generate_excel_report(all_runs_data, tolerance):
             ws.write('F4', '', label_format) # Keep F4 Blank
             ws.write('G4', 'Down %', label_format) # Label above G7
             ws.write('H4', 'Prod %', label_format) # Label above H7 <--- MOVED LABEL
-
+            
             # Write Percentage Formulas in Row 7
             ws.write('F7', '', data_format) # Keep F7 Blank <--- BLANKED F7
             ws.write_formula('G7', f"=IFERROR(G6/F6, 0)", percent_format) # Downtime %
             ws.write_formula('H7', f"=IFERROR(H6/F6, 0)", percent_format) # Production Time % <--- MOVED FORMULA
-            # --- End Corrected Summary Layout v2 ---
 
             ws.merge_range('K8:L8', 'Reliability Metrics', header_format)
             ws.write('K9', 'MTTR (Avg)', label_format); ws.write('L9', data.get('mttr_min', 0), mins_format)
