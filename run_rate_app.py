@@ -339,21 +339,60 @@ def generate_detailed_analysis(analysis_df, overall_stability, overall_mttr, ove
 # --- (End of MODIFIED generate_detailed_analysis) ---
 
 def generate_bucket_analysis(complete_runs, bucket_labels):
-    # ... (code remains the same) ...
-    if complete_runs.empty or 'duration_min' not in complete_runs.columns: return "No completed runs to analyze."
+    # Default message if no data
+    if complete_runs.empty or 'duration_min' not in complete_runs.columns:
+        return "No completed runs to analyze for long-run trends."
+
     total_runs = len(complete_runs)
-    try: # <-- Move try to its own line
-        long_buckets = [l for l in bucket_labels if int(l.split('-')[0].replace('+', '')) >= 60]
-    except (ValueError, IndexError): # <-- Ensure the corresponding except is present and correctly indented
-    long_buckets = []
-    if int(l.split('-')[0].replace('+', '')) >= 60]
-    except: long_buckets = []; num_long_runs = complete_runs[complete_runs['time_bucket'].isin(long_buckets)].shape[0] if long_buckets else 0
-    pct_long = (num_long_runs / total_runs * 100) if total_runs > 0 else 0; longest_run = format_minutes_to_dhm(complete_runs['duration_min'].max())
-    analysis = f"<strong>{total_runs}</strong> completed runs. <strong>{num_long_runs}</strong> ({pct_long:.1f}%) >60 min. Longest: <strong>{longest_run}</strong>. "
+    long_buckets = [] # Initialize empty list
+
+    # Ensure bucket_labels is valid before iterating
+    if bucket_labels and isinstance(bucket_labels, (list, tuple, pd.Series)):
+        try:
+            # Correctly structured list comprehension within try block
+            long_buckets = [
+                label for label in bucket_labels
+                # Added str() conversion for robustness against non-string labels
+                if int(str(label).split('-')[0].replace('+', '')) >= 60
+            ]
+        except (ValueError, IndexError, TypeError):
+             # If any label fails parsing (e.g., unexpected format),
+             # keep long_buckets potentially partially filled or empty.
+             # You could add st.warning("Could not parse all bucket labels.") here if needed.
+             pass # Continue with the long_buckets found so far (or empty list)
+
+    # Calculate number of long runs *after* defining long_buckets
+    num_long_runs = 0 # Default to 0
+    if long_buckets and 'time_bucket' in complete_runs.columns: # Check if time_bucket exists
+        # Ensure time_bucket column type is compatible before using isin
+        if pd.api.types.is_categorical_dtype(complete_runs['time_bucket']):
+            # Filter categories present in long_buckets before filtering the DataFrame
+            valid_categories = [cat for cat in long_buckets if cat in complete_runs['time_bucket'].cat.categories]
+            if valid_categories:
+                num_long_runs = complete_runs[complete_runs['time_bucket'].isin(valid_categories)].shape[0]
+        else: # Handle non-categorical case if necessary (less likely with pd.cut)
+             try:
+                 num_long_runs = complete_runs[complete_runs['time_bucket'].isin(long_buckets)].shape[0]
+             except TypeError: # Catch error if types are incompatible for isin
+                  st.warning("Could not filter runs by time bucket due to type mismatch.")
+                  pass # Keep num_long_runs as 0
+
+    # Calculate percentage and longest run
+    pct_long = (num_long_runs / total_runs * 100) if total_runs > 0 else 0
+    longest_run = "N/A" # Default longest run
+    if not complete_runs.empty:
+        longest_run_min_val = complete_runs['duration_min'].max()
+        if pd.notna(longest_run_min_val):
+            longest_run = format_minutes_to_dhm(longest_run_min_val)
+
+
+    # Build analysis text
+    analysis = f"<strong>{total_runs}</strong> completed runs. <strong>{num_long_runs}</strong> ({pct_long:.1f}%) were long runs (>60 min). Longest run: <strong>{longest_run}</strong>. "
     if total_runs > 0:
         if pct_long < 20: analysis += "Suggests frequent interruptions."
-        elif pct_long > 50: analysis += "Indicates strong sustained operation."
+        elif pct_long > 50: analysis += "Indicates strong capability for sustained operation."
         else: analysis += "Shows mixed performance."
+
     return analysis
 
 def generate_mttr_mtbf_analysis(analysis_df, analysis_level):
