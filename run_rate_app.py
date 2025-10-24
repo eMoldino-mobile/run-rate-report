@@ -874,13 +874,10 @@ def prepare_and_generate_run_based_excel(df_for_export, tolerance, downtime_gap_
         # Columns needed from the raw run data + calculated ones
         # Match columns expected by generate_excel_report and formulas
         desired_columns_base = [
-            'SUPPLIER NAME', 'tool_id', 'SESSION ID', 'SHOT ID', 'shot_time',
+            'SUPPLIER NAME', 'tool_id', 'SESSION ID', #'SHOT ID', # <-- Remove this
+             'shot_time',
             'APPROVED CT', 'ACTUAL CT',
-            'time_diff_sec', # Needed for helper col formula & display
-            'stop_flag',     # Needed for helper col formula
-            'stop_event',    # Needed for formulas
-            'run_group'      # Optional but potentially useful context
-            # 'adj_ct_sec' is used internally by calculator but not needed in final export sheet
+            'time_diff_sec', 'stop_flag', 'stop_event', 'run_group'
         ]
         # Columns that will be generated purely by Excel formulas
         formula_columns = ['CUMULATIVE COUNT', 'RUN DURATION', 'TIME BUCKET']
@@ -942,21 +939,28 @@ def prepare_and_generate_run_based_excel(df_for_export, tolerance, downtime_gap_
 
                 # Define the final exact column order for the Excel sheet
                 final_desired_renamed = [
-                    'SUPPLIER NAME', 'EQUIPMENT CODE', 'SESSION ID', 'SHOT ID', 'SHOT TIME',
+                    'SUPPLIER NAME', 'EQUIPMENT CODE', 'SESSION ID',
+                    'Shot Sequence', # <-- Replace SHOT ID
+                    'SHOT TIME',
                     'APPROVED CT', 'ACTUAL CT',
                     'TIME DIFF SEC', 'STOP', 'STOP EVENT', 'run_group',
                     'CUMULATIVE COUNT', 'RUN DURATION', 'TIME BUCKET'
                 ]
 
-                # Ensure all columns exist and reorder
-                for col in final_desired_renamed:
-                    if col not in final_export_df.columns:
-                        final_export_df[col] = '' # Add missing columns as blank
-                # Select columns in the desired order, only keep those that exist after rename/add
-                final_export_df = final_export_df[[col for col in final_desired_renamed if col in final_export_df.columns]]
-
-                run_results['processed_df'] = final_export_df # Store the prepared df back
-                all_runs_data[run_id] = run_results # Add run results to the main dict
+                # Merge calculated columns...
+                final_export_df = final_export_df.merge(export_df[calculated_cols_to_merge], left_index=True, right_index=True, how='left')
+        
+                # Add placeholders for formula columns...
+                for col in formula_columns:
+                    final_export_df[col] = ''
+        
+                # --- ADD SHOT SEQUENCE ---
+                final_export_df.insert(3, 'Shot Sequence', range(1, len(final_export_df) + 1)) # Insert sequence after SESSION ID
+                # --- END ADD ---
+        
+                # Rename columns for Excel...
+                final_export_df.rename(columns={'tool_id': 'EQUIPMENT CODE', # ... rest of renames ...
+                }, inplace=True)
 
             except Exception as e:
                 st.warning(f"Could not process Run ID {run_id} for Excel: {e}")
