@@ -1026,7 +1026,9 @@ def render_dashboard(df_tool, tool_id_selection):
                      fig_bucket_trend.update_layout(barmode='stack', title_text=f'{trend_level} Distribution of Run Durations vs. Shot Count', xaxis_title=x_axis_title, yaxis_title='Number of Runs', yaxis2_title='Total Shots', legend_title_text='Run Duration (min)')
                      st.plotly_chart(fig_bucket_trend, use_container_width=True)
                      with st.expander("View Bucket Trend Data"): st.dataframe(pivot_df)
-                     if detailed_view: with st.expander("🤖 View Bucket Trend Analysis"): st.markdown(generate_bucket_analysis(complete_runs_filtered if trend_level=='Run' else complete_runs, results["bucket_labels"]), unsafe_allow_html=True)
+                     if detailed_view: 
+                         with st.expander("🤖 View Bucket Trend Analysis"): st.markdown(generate_bucket_analysis(complete_runs_filtered if trend_level=='Run' 
+                         else complete_runs, results["bucket_labels"]), unsafe_allow_html=True)
                 else: st.info(f"Not enough data for {trend_level} bucket trend.")
 
             # MTTR/MTBF Trend per Unit
