@@ -341,7 +341,12 @@ def generate_detailed_analysis(analysis_df, overall_stability, overall_mttr, ove
 def generate_bucket_analysis(complete_runs, bucket_labels):
     # ... (code remains the same) ...
     if complete_runs.empty or 'duration_min' not in complete_runs.columns: return "No completed runs to analyze."
-    total_runs = len(complete_runs); try: long_buckets = [l for l in bucket_labels if int(l.split('-')[0].replace('+', '')) >= 60]
+    total_runs = len(complete_runs)
+    try: # <-- Move try to its own line
+        long_buckets = [l for l in bucket_labels if int(l.split('-')[0].replace('+', '')) >= 60]
+    except (ValueError, IndexError): # <-- Ensure the corresponding except is present and correctly indented
+    long_buckets = []
+    if int(l.split('-')[0].replace('+', '')) >= 60]
     except: long_buckets = []; num_long_runs = complete_runs[complete_runs['time_bucket'].isin(long_buckets)].shape[0] if long_buckets else 0
     pct_long = (num_long_runs / total_runs * 100) if total_runs > 0 else 0; longest_run = format_minutes_to_dhm(complete_runs['duration_min'].max())
     analysis = f"<strong>{total_runs}</strong> completed runs. <strong>{num_long_runs}</strong> ({pct_long:.1f}%) >60 min. Longest: <strong>{longest_run}</strong>. "
