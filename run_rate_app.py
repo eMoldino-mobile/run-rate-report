@@ -452,6 +452,7 @@ def generate_mttr_mtbf_analysis(analysis_df, analysis_level):
     
     # --- [FIXED] Function definition moved inside ---
     def format_p(p, l):
+        # --- [FIXED] More robust type checking ---
         if isinstance(p, (pd.Timestamp, datetime)): # Check for datetime objects
             return pd.to_datetime(p).strftime('%A, %b %d')
         elif isinstance(p, date): # Check for date objects
@@ -904,7 +905,7 @@ def render_dashboard(df_tool, tool_id_selection):
                         d_df.rename(columns={'date': 'Day', 'stability_index': 'Stability (%)', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'stops': 'Stops'}, inplace=True)
                     elif 'week' in d_df.columns:
                         d_df.rename(columns={'week': 'Week', 'stability_index': 'Stability (%)', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'stops': 'Stops'}, inplace=True)
-                    # Select only relevant columns for this view
+                    # --- [FIXED] Select only relevant columns for this view ---
                     cols_to_show = [col for col in ['Day', 'Week', 'Stability (%)', 'MTTR (min)', 'MTBF (min)', 'Stops', 'total_shots'] if col in d_df.columns]
                     st.dataframe(d_df[cols_to_show].style.format({'Stability (%)': '{:.1f}', 'MTTR (min)': '{:.1f}', 'MTBF (min)': '{:.1f}'}), use_container_width=True)
 
@@ -993,16 +994,18 @@ def render_dashboard(df_tool, tool_id_selection):
             elif analysis_level == "Custom Period (by Run)":
                  time_span_days = (df_view['date'].max() - df_view['date'].min()).days
                  trend_level = "Weekly" if time_span_days > 14 else "Daily"
-            # --- [MODIFIED] Logic to set trend_level to "Run" ---
+            # --- [FIXED] Logic to set trend_level to "Run" ---
             # If no daily/weekly summary was generated (e.g. short custom period), default to "Run"
             if trend_summary_df is None or trend_summary_df.empty:
                  trend_level = "Run"
             
             summary_df = trend_summary_df # This is daily/weekly summary if applicable
-            # run_summary_df_trends was calculated earlier (line 830)
+            # run_summary_df_for_trends was calculated earlier (line 830)
 
-            if trend_level == "Run": st.header("Run-Based Analysis")
-            else: st.header(f"{trend_level} Trends for {analysis_level.split(' (')[0]}")
+            if trend_level == "Run": 
+                st.header("Run-Based Analysis")
+            else: 
+                st.header(f"{trend_level} Trends for {analysis_level.split(' (')[0]}")
 
             # Bucket Analysis
             run_durations_period=results.get("run_durations",pd.DataFrame());processed_period_df=results.get('processed_df',pd.DataFrame());stop_events_df=processed_period_df.loc[processed_period_df['stop_event']].copy();complete_runs=pd.DataFrame()
@@ -1071,7 +1074,6 @@ def render_dashboard(df_tool, tool_id_selection):
                      fig_bucket_trend.update_layout(barmode='stack', title_text=f'{trend_level} Distribution of Run Durations vs. Shot Count', xaxis_title=x_axis_title, yaxis_title='Number of Runs', yaxis2_title='Total Shots', legend_title_text='Run Duration (min)')
                      st.plotly_chart(fig_bucket_trend, use_container_width=True)
                      with st.expander("View Bucket Trend Data"): st.dataframe(pivot_df)
-                     # --- [FIXED] Indentation ---
                      if detailed_view:
                           with st.expander("🤖 View Bucket Trend Analysis"):
                                st.markdown(generate_bucket_analysis(complete_runs_filtered if trend_level=='Run' else complete_runs, results["bucket_labels"]), unsafe_allow_html=True)
