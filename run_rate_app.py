@@ -21,7 +21,7 @@ PASTEL_COLORS = {
     'green': '#77dd77'
 }
 
-# --- Core Calculation Class (for Dashboard) ---
+# --- [UPDATED] Core Calculation Class (from Fixed Exporter) ---
 class RunRateCalculator:
     def __init__(self, df: pd.DataFrame, tolerance: float, downtime_gap_tolerance: float, analysis_mode='aggregate'):
         self.df_raw = df.copy()
@@ -49,6 +49,7 @@ class RunRateCalculator:
         # Handle the NaN for the first shot.
         if not df.empty and pd.isna(df.loc[0, "time_diff_sec"]):
             if "ACTUAL CT" in df.columns:
+                # Use ACTUAL CT for the first shot's "diff" if available
                 df.loc[0, "time_diff_sec"] = df.loc[0, "ACTUAL CT"]
             else:
                 df.loc[0, "time_diff_sec"] = 0
@@ -85,23 +86,6 @@ class RunRateCalculator:
         )
         return hourly_summary.fillna(0)
 
-    def _calculate_stop_durations(self, df):
-        stop_durations = []
-        stop_start_times = []
-        stop_start_time = None
-        
-        for i in range(len(df)):
-            if df.loc[i, "stop_event"]:
-                stop_start_time = df.loc[i - 1, "shot_time"] if i > 0 else df.loc[i, "shot_time"]
-            elif stop_start_time is not None and df.loc[i, "stop_flag"] == 0:
-                stop_end_time = df.loc[i, "shot_time"]
-                duration_sec = (stop_end_time - stop_start_time).total_seconds()
-                if duration_sec <= 28800:
-                    stop_durations.append(duration_sec)
-                    stop_start_times.append(stop_start_time)
-                stop_start_time = None
-        return pd.Series(stop_durations, index=stop_start_times)
-
     def _calculate_all_metrics(self) -> dict:
         df = self._prepare_data()
         if df.empty or "ACTUAL CT" not in df.columns:
@@ -123,22 +107,16 @@ class RunRateCalculator:
             upper_limit = mode_ct * (1 + self.tolerance)
             mode_ct_display = mode_ct
 
-        # --- Two-Phase Stop Detection Logic ---
-        # Phase 1: Check for abnormal cycle times.
+        # --- Two-Phase Stop Detection Logic (from Dashboard) ---
         is_abnormal_cycle = (df["ACTUAL CT"] < lower_limit) | (df["ACTUAL CT"] > upper_limit)
-        
-        # Phase 2: Check for downtime gaps using the new adjustable tolerance.
         prev_actual_ct = df["ACTUAL CT"].shift(1)
         is_downtime_gap = df["time_diff_sec"] > (prev_actual_ct + self.downtime_gap_tolerance)
-
-        # A shot is flagged as a stop if EITHER condition is true.
         df["stop_flag"] = np.where(is_abnormal_cycle | is_downtime_gap.fillna(False), 1, 0)
         
         if not df.empty:
-            df.loc[0, "stop_flag"] = 0 # The first shot can never be a stop.
+            df.loc[0, "stop_flag"] = 0
         
         df["stop_event"] = (df["stop_flag"] == 1) & (df["stop_flag"].shift(1, fill_value=0) == 0)
-        
         df["adj_ct_sec"] = np.where(df["stop_flag"] == 1, df["time_diff_sec"], df["ACTUAL CT"])
 
         total_shots = len(df)
@@ -148,18 +126,23 @@ class RunRateCalculator:
         mttr_min = (downtime_sec / 60 / stop_events) if stop_events > 0 else 0
 
         production_time_sec = df.loc[df['stop_flag'] == 0, 'ACTUAL CT'].sum()
-
         mtbf_min = (production_time_sec / 60 / stop_events) if stop_events > 0 else (production_time_sec / 60)
         
-        total_runtime_sec = production_time_sec + downtime_sec
-        stability_index = (production_time_sec / total_runtime_sec * 100) if total_runtime_sec > 0 else (100.0 if stop_events == 0 else 0.0)
-        
+        total_runtime_calc = production_time_sec + downtime_sec
+        stability_index = (production_time_sec / total_runtime_calc * 100) if total_runtime_calc > 0 else (100.0 if stop_events == 0 else 0.0)
+
         normal_shots = total_shots - df["stop_flag"].sum()
         efficiency = normal_shots / total_shots if total_shots > 0 else 0
         df["run_group"] = df["stop_event"].cumsum()
 
         df_for_runs = df[df['adj_ct_sec'] <= 28800].copy()
         run_durations = df_for_runs[df_for_runs["stop_flag"] == 0].groupby("run_group")["ACTUAL CT"].sum().div(60).reset_index(name="duration_min")
+
+        # --- [ADDED] Calcs needed for the Excel Exporter ---
+        avg_cycle_time_sec = production_time_sec / normal_shots if normal_shots > 0 else 0
+        first_stop_index = df[df['stop_event']].index.min()
+        time_to_first_dt_sec = df.loc[:first_stop_index-1, 'adj_ct_sec'].sum() if pd.notna(first_stop_index) and first_stop_index > 0 else production_time_sec
+        production_run_sec = (df["shot_time"].max() - df["shot_time"].min()).total_seconds() if total_shots > 1 else 0
 
         max_minutes = min(run_durations["duration_min"].max(), 240) if not run_durations.empty else 0
         upper_bound = int(np.ceil(max_minutes / 20.0) * 20)
@@ -173,7 +156,6 @@ class RunRateCalculator:
             run_durations["time_bucket"] = pd.cut(run_durations["duration_min"], bins=edges, labels=labels, right=False, include_lowest=True)
         
         reds, blues, greens = px.colors.sequential.Reds[3:7], px.colors.sequential.Blues[3:8], px.colors.sequential.Greens[3:8]
-        
         red_labels, blue_labels, green_labels = [], [], []
         for label in labels:
             try:
@@ -195,7 +177,15 @@ class RunRateCalculator:
             "stop_events": stop_events, "normal_shots": normal_shots, "mttr_min": mttr_min,
             "mtbf_min": mtbf_min, "stability_index": stability_index, "run_durations": run_durations,
             "bucket_labels": labels, "bucket_color_map": bucket_color_map, "hourly_summary": hourly_summary,
-            "total_runtime_sec": total_runtime_sec, "production_time_sec": production_time_sec, "downtime_sec": downtime_sec,
+            "total_runtime_sec": total_runtime_calc, # Use calculated total
+            "production_time_sec": production_time_sec, 
+            "downtime_sec": downtime_sec,
+            
+            # --- [ADDED] Metrics for Exporter Compatibility ---
+            "avg_cycle_time_sec": avg_cycle_time_sec,
+            "time_to_first_dt_min": time_to_first_dt_sec / 60,
+            "production_run_sec": production_run_sec, # Wall-clock total time
+            "tot_down_time_sec": downtime_sec # Alias for exporter
         }
         
         if self.analysis_mode == 'by_run' and isinstance(lower_limit, pd.Series) and not df.empty:
@@ -211,123 +201,6 @@ class RunRateCalculator:
             
         return final_results
 
-# --- Core Calculation Class (for Excel Export) ---
-# This class is specifically for the detailed Excel export and contains the logic from the standalone app
-class ExcelReportCalculator:
-    def __init__(self, df: pd.DataFrame, tolerance: float):
-        self.df_raw = df.copy()
-        self.tolerance = tolerance
-        self.results = self._calculate_all_metrics()
-
-    def _prepare_data(self) -> pd.DataFrame:
-        df = self.df_raw.copy()
-        if {"YEAR", "MONTH", "DAY", "TIME"}.issubset(df.columns):
-            datetime_str = df["YEAR"].astype(str) + "-" + df["MONTH"].astype(str) + "-" + df["DAY"].astype(str) + " " + df['TIME'].astype(str)
-            df["shot_time"] = pd.to_datetime(datetime_str, errors="coerce")
-        elif "SHOT TIME" in df.columns:
-            df["shot_time"] = pd.to_datetime(df["SHOT TIME"], errors="coerce")
-        else:
-            # Try to find 'shot_time' if it was already processed by the main app
-            if "shot_time" not in df.columns:
-                return pd.DataFrame()
-
-        df = df.dropna(subset=["shot_time"]).sort_values("shot_time").reset_index(drop=True)
-        if df.empty: return pd.DataFrame()
-
-        # --- LOGIC CHANGE (from simple app) ---
-        # 1. Create the pure timestamp difference column for export
-        df["time_diff_sec"] = df["shot_time"].diff().dt.total_seconds()
-
-        if "ACTUAL CT" in df.columns:
-            # Use the pure time_diff_sec for stop logic comparison
-            time_diff_sec_calc = df["time_diff_sec"] 
-            prev_actual_ct = df["ACTUAL CT"].shift(1)
-            rounding_buffer = 2.0
-            
-            is_a_stop = (prev_actual_ct == 999.9) | (time_diff_sec_calc > (prev_actual_ct + rounding_buffer))
-            
-            # 2. Create a new internal column for stop/run logic
-            df["logic_ct_diff"] = np.where(is_a_stop, time_diff_sec_calc, df["ACTUAL CT"])
-        else:
-            # If no 'ACTUAL CT', use the pure timestamp diff for logic
-            df["logic_ct_diff"] = df["time_diff_sec"]
-
-        # 3. Handle NaNs for both new columns in the first row
-        if not df.empty:
-            if pd.isna(df.loc[0, "time_diff_sec"]):
-                df.loc[0, "time_diff_sec"] = 0 # First shot has no time diff
-            
-            if pd.isna(df.loc[0, "logic_ct_diff"]):
-                # For the first row, logic_ct_diff should be ACTUAL CT if it exists, else 0
-                df.loc[0, "logic_ct_diff"] = df.loc[0, "ACTUAL CT"] if "ACTUAL CT" in df.columns else 0
-                
-        return df
-        # --- END LOGIC CHANGE ---
-
-    def _calculate_all_metrics(self) -> dict:
-        df = self._prepare_data()
-        if df.empty or "ACTUAL CT" not in df.columns:
-            return {}
-
-        # --- LOGIC CHANGE: Use 'logic_ct_diff' for all calculations ---
-        df_for_mode_calc = df[df["logic_ct_diff"] <= 28800]
-        mode_ct = df_for_mode_calc["ACTUAL CT"].mode().iloc[0] if not df_for_mode_calc["ACTUAL CT"].mode().empty else 0
-        lower_limit = mode_ct * (1 - self.tolerance)
-        upper_limit = mode_ct * (1 + self.tolerance)
-
-        stop_condition = ((df["logic_ct_diff"] < lower_limit) | (df["logic_ct_diff"] > upper_limit)) & (df["logic_ct_diff"] <= 28800)
-        df["stop_flag"] = np.where(stop_condition, 1, 0)
-        if not df.empty:
-            df.loc[0, "stop_flag"] = 0
-        df["stop_event"] = (df["stop_flag"] == 1) & (df["stop_flag"].shift(1, fill_value=0) == 0)
-
-        total_shots = len(df)
-        stop_events = df["stop_event"].sum()
-        downtime_sec = df.loc[df['stop_flag'] == 1, 'logic_ct_diff'].sum()
-        production_time_sec = df[df['stop_flag'] == 0]['logic_ct_diff'].sum()
-
-        stop_durations = []
-        is_in_stop = False
-        current_stop_duration = 0
-        for _, row in df.iterrows():
-            if row['stop_flag'] == 1:
-                is_in_stop = True
-                current_stop_duration += row['logic_ct_diff'] # Use logic_ct_diff
-            elif is_in_stop and row['stop_flag'] == 0:
-                stop_durations.append(current_stop_duration)
-                is_in_stop = False
-                current_stop_duration = 0
-        
-        # Add the last stop if the data ends during a stop
-        if is_in_stop:
-            stop_durations.append(current_stop_duration)
-            
-        total_downtime_from_stops = sum(stop_durations)
-        mttr_sec = total_downtime_from_stops / stop_events if stop_events > 0 else 0
-
-        mtbf_min = (production_time_sec / 60 / stop_events) if stop_events > 0 else (production_time_sec / 60)
-        
-        total_runtime_sec = (df["shot_time"].max() - df["shot_time"].min()).total_seconds() if total_shots > 1 else 0
-        normal_shots = total_shots - df["stop_flag"].sum()
-        efficiency = normal_shots / total_shots if total_shots > 0 else 0
-        
-        first_stop_index = df[df['stop_event']].index.min()
-        time_to_first_dt_sec = df.loc[:first_stop_index-1, 'logic_ct_diff'].sum() if pd.notna(first_stop_index) and first_stop_index > 0 else production_time_sec
-        avg_cycle_time = production_time_sec / normal_shots if normal_shots > 0 else 0
-        
-        df["run_group"] = df["stop_event"].cumsum()
-        run_durations = df[df["stop_flag"] == 0].groupby("run_group")["logic_ct_diff"].sum().div(60).reset_index(name="duration_min")
-        # --- END LOGIC CHANGE ---
-
-        return {
-            "processed_df": df, "mode_ct": mode_ct, "lower_limit": lower_limit, "upper_limit": upper_limit,
-            "total_shots": total_shots, "efficiency": efficiency, "stop_events": stop_events,
-            "normal_shots": normal_shots, "mttr_min": mttr_sec / 60, "mtbf_min": mtbf_min,
-            "production_run_sec": total_runtime_sec, "tot_down_time_sec": downtime_sec,
-            "time_to_first_dt_min": time_to_first_dt_sec / 60,
-            "avg_cycle_time_sec": avg_cycle_time,
-            "run_durations": run_durations
-        }
 
 # --- UI Helper and Plotting Functions ---
 def create_gauge(value, title, steps=None):
@@ -350,30 +223,23 @@ def plot_shot_bar_chart(df, lower_limit, upper_limit, mode_ct, time_agg='hourly'
     df['plot_time'] = df['shot_time']
     stop_indices = df[df['stop_flag'] == 1].index
     if not stop_indices.empty:
-        # Ensure we don't try to shift from a non-existent index -1
         valid_stop_indices = stop_indices[stop_indices > 0]
         df.loc[valid_stop_indices, 'plot_time'] = df['shot_time'].shift(1).loc[valid_stop_indices]
     
     fig = go.Figure()
 
-    # --- 1. Main Bar Chart Trace (without its own legend item) ---
-    # Add this first to establish the axes correctly.
     fig.add_trace(go.Bar(x=df['plot_time'], y=df['adj_ct_sec'], marker_color=df['color'], name='Cycle Time', showlegend=False))
-
-    # --- 2. Add Dummy Traces for a Custom Legend ---
     fig.add_trace(go.Bar(x=[None], y=[None], name="Normal Shot", marker_color='#3498DB', showlegend=True))
     fig.add_trace(go.Bar(x=[None], y=[None], name="Stopped Shot", marker_color=PASTEL_COLORS['red'], showlegend=True))
     fig.add_trace(go.Scatter(x=[None], y=[None], mode='lines',
                            line=dict(width=0),
                            fill='tozeroy',
-                           fillcolor='rgba(119, 221, 119, 0.3)',  # Pastel green with opacity
+                           fillcolor='rgba(119, 221, 119, 0.3)',
                            name='Tolerance Band', showlegend=True))
     fig.add_trace(go.Scatter(x=[None], y=[None], mode='lines', name='New Run Start',
                            line=dict(color='purple', dash='dash', width=2), showlegend=True))
 
-    # --- 3. Draw Correctly Scoped Tolerance Bands ---
     if 'lower_limit' in df.columns and 'run_id' in df.columns:
-        # For 'by run' mode, draw a band for each run from its first to last actual shot time
         for run_id, group in df.groupby('run_id'):
             if not group.empty:
                 fig.add_shape(
@@ -383,7 +249,6 @@ def plot_shot_bar_chart(df, lower_limit, upper_limit, mode_ct, time_agg='hourly'
                     fillcolor=PASTEL_COLORS['green'], opacity=0.3, layer="below", line_width=0
                 )
     else:
-        # For aggregate mode, draw one band for the entire period's shots
         if not df.empty:
             fig.add_shape(
                 type="rect", xref="x", yref="y",
@@ -392,10 +257,8 @@ def plot_shot_bar_chart(df, lower_limit, upper_limit, mode_ct, time_agg='hourly'
                 fillcolor=PASTEL_COLORS['green'], opacity=0.3, layer="below", line_width=0
             )
             
-    # --- 4. Add Vertical Lines for New Run Starts ---
     if 'run_label' in df.columns:
         run_starts = df.groupby('run_label')['shot_time'].min().sort_values()
-        # Draw a line for each run start after the first one
         for start_time in run_starts.iloc[1:]:
             fig.add_vline(x=start_time, line_width=2, line_dash="dash", line_color="purple")
 
@@ -428,59 +291,50 @@ def plot_trend_chart(df, x_col, y_col, title, x_title, y_title, y_range=[0, 101]
         marker_config['color'] = [PASTEL_COLORS['red'] if v <= 50 else PASTEL_COLORS['orange'] if v <= 70 else PASTEL_COLORS['green'] for v in df[y_col]]
         marker_config['size'] = 10
     fig.add_trace(go.Scatter(x=df[x_col], y=df[y_col], mode="lines+markers", name=y_title,
-                           line=dict(color="black" if is_stability else "royalblue", width=2), marker=marker_config))
+                                line=dict(color="black" if is_stability else "royalblue", width=2), marker=marker_config))
     if is_stability:
         for y0, y1, c in [(0, 50, PASTEL_COLORS['red']), (50, 70, PASTEL_COLORS['orange']), (70, 100, PASTEL_COLORS['green'])]:
             fig.add_shape(type="rect", xref="paper", x0=0, x1=1, y0=y0, y1=y1, fillcolor=c, opacity=0.2, line_width=0, layer="below")
     fig.update_layout(title=title, yaxis=dict(title=y_title, range=y_range), xaxis_title=x_title,
-                      legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     st.plotly_chart(fig, use_container_width=True)
 
 def plot_mttr_mtbf_chart(df, x_col, mttr_col, mtbf_col, shots_col, title):
     if df is None or df.empty or df[shots_col].sum() == 0:
-        return # Don't plot if no data
+        return
 
-    # Get data series
     mttr = df[mttr_col]
     mtbf = df[mtbf_col]
     shots = df[shots_col]
     x_axis = df[x_col]
 
-    # --- Scaling Logic ---
-    # Define ranges for left and right Y-axes, handle potential NaN/inf values
     max_mttr = np.nanmax(mttr[np.isfinite(mttr)]) if not mttr.empty and any(np.isfinite(mttr)) else 0
     max_mtbf = np.nanmax(mtbf[np.isfinite(mtbf)]) if not mtbf.empty and any(np.isfinite(mtbf)) else 0
     y_range_mttr = [0, max_mttr * 1.15 if max_mttr > 0 else 10]
     y_range_mtbf = [0, max_mtbf * 1.15 if max_mtbf > 0 else 10]
     
-    # Scale the 'shots' data to fit within the MTBF axis range
     shots_min, shots_max = shots.min(), shots.max()
     
-    # Avoid division by zero if all shot counts are the same
     if (shots_max - shots_min) == 0:
         scaled_shots = pd.Series([y_range_mtbf[1] / 2 if y_range_mtbf[1] > 0 else 0.5] * len(shots), index=shots.index)
     else:
-        # Scale to 90% of the axis height to avoid text labels going off-chart
         scaled_shots = (shots - shots_min) / (shots_max - shots_min) * (y_range_mtbf[1] * 0.9)
     
-    # Create figure
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     
-    # Add traces
     fig.add_trace(go.Scatter(x=x_axis, y=mttr, name='MTTR (min)', mode='lines+markers', line=dict(color='red', width=4)), secondary_y=False)
     fig.add_trace(go.Scatter(x=x_axis, y=mtbf, name='MTBF (min)', mode='lines+markers', line=dict(color='green', width=4)), secondary_y=True)
     
-    # Add the SCALED shot trace, but with ORIGINAL text labels
     fig.add_trace(go.Scatter(
         x=x_axis, 
-        y=scaled_shots,  # Plot scaled data
+        y=scaled_shots,
         name='Total Shots', 
         mode='lines+markers+text', 
-        text=shots,  # Display original data
+        text=shots,
         textposition='top center',
         textfont=dict(color='blue'),
         line=dict(color='blue', dash='dot')), 
-        secondary_y=True # Plot on the right axis
+        secondary_y=True
     )
     
     fig.update_layout(
@@ -488,7 +342,7 @@ def plot_mttr_mtbf_chart(df, x_col, mttr_col, mtbf_col, shots_col, title):
         yaxis_title="MTTR (min)", 
         yaxis2_title="MTBF (min)",
         yaxis=dict(range=y_range_mttr),
-        yaxis2=dict(range=y_range_mtbf), # Enforce the MTBF range
+        yaxis2=dict(range=y_range_mtbf),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     )
     st.plotly_chart(fig, use_container_width=True)
@@ -519,8 +373,8 @@ def calculate_daily_summaries_for_week(df_week, tolerance, downtime_gap_toleranc
             calc = RunRateCalculator(df_day.copy(), tolerance, downtime_gap_tolerance, analysis_mode=analysis_mode)
             res = calc.results
             summary = {'date': date, 'stability_index': res.get('stability_index', np.nan),
-                         'mttr_min': res.get('mttr_min', np.nan), 'mtbf_min': res.get('mtbf_min', np.nan),
-                         'stops': res.get('stop_events', 0), 'total_shots': res.get('total_shots', 0)}
+                        'mttr_min': res.get('mttr_min', np.nan), 'mtbf_min': res.get('mtbf_min', np.nan),
+                        'stops': res.get('stop_events', 0), 'total_shots': res.get('total_shots', 0)}
             daily_results_list.append(summary)
     return pd.DataFrame(daily_results_list) if daily_results_list else pd.DataFrame()
 
@@ -532,13 +386,12 @@ def calculate_weekly_summaries_for_month(df_month, tolerance, downtime_gap_toler
             calc = RunRateCalculator(df_week.copy(), tolerance, downtime_gap_tolerance, analysis_mode=analysis_mode)
             res = calc.results
             summary = {'week': week, 'stability_index': res.get('stability_index', np.nan),
-                         'mttr_min': res.get('mttr_min', np.nan), 'mtbf_min': res.get('mtbf_min', np.nan),
-                         'stops': res.get('stop_events', 0), 'total_shots': res.get('total_shots', 0)}
+                        'mttr_min': res.get('mttr_min', np.nan), 'mtbf_min': res.get('mtbf_min', np.nan),
+                        'stops': res.get('stop_events', 0), 'total_shots': res.get('total_shots', 0)}
             weekly_results_list.append(summary)
     return pd.DataFrame(weekly_results_list) if weekly_results_list else pd.DataFrame()
 
 def calculate_run_summaries(df_period, tolerance, downtime_gap_tolerance):
-    """Iterates through a period's data, calculates metrics for each run, and returns a summary DataFrame."""
     run_summary_list = []
     for run_label, df_run in df_period.groupby('run_label'):
         if not df_run.empty:
@@ -620,9 +473,9 @@ def generate_detailed_analysis(analysis_df, overall_stability, overall_mttr, ove
         worst_period_label = format_period(worst_performer['period'], analysis_level)
 
         best_worst_analysis = (f"The best performance was during <strong>{best_period_label}</strong> (Stability: {best_performer['stability']:.1f}%), "
-                                 f"while the worst was during <strong>{worst_period_label}</strong> (Stability: {worst_performer['stability']:.1f}%). "
-                                 f"The key difference was the impact of stoppages: the worst period had {int(worst_performer['stops'])} stops with an average duration of {worst_performer.get('mttr', 0):.1f} min, "
-                                 f"compared to {int(best_performer['stops'])} stops during the best period.")
+                                f"while the worst was during <strong>{worst_period_label}</strong> (Stability: {worst_performer['stability']:.1f}%). "
+                                f"The key difference was the impact of stoppages: the worst period had {int(worst_performer['stops'])} stops with an average duration of {worst_performer.get('mttr', 0):.1f} min, "
+                                f"compared to {int(best_performer['stops'])} stops during the best period.")
 
     pattern_insight = ""
     if not analysis_df.empty and analysis_df['stops'].sum() > 0:
@@ -722,7 +575,7 @@ def generate_mttr_mtbf_analysis(analysis_df, analysis_level):
         example_insight = (f"As an example, <strong>{period_label}</strong> experienced prolonged downtimes with an average repair time of <strong>{highest_mttr_period_row['mttr']:.1f} minutes</strong>, highlighting the impact of long stops.")
     return f"<div style='line-height: 1.6;'><p>{corr_insight}</p><p>{example_insight}</p></div>"
 
-# --- NEW Excel Generation Function (replaces old create_excel_export) ---
+# --- [NEW] Excel Generation Function (from Fixed Exporter) ---
 def generate_excel_report(all_runs_data, tolerance):
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -744,19 +597,14 @@ def generate_excel_report(all_runs_data, tolerance):
         for run_id, data in all_runs_data.items():
             ws = workbook.add_worksheet(f"Run_{run_id:03d}")
             df_run = data['processed_df'].copy()
-            start_row = 19 # The row where the data table starts (1-indexed)
+            start_row = 19
             
-            # --- Dynamically find column letters ---
             col_map = {name: chr(ord('A') + i) for i, name in enumerate(df_run.columns)}
             
-            # Columns for Table Formulas
-            shot_time_col_dyn = col_map.get('SHOT TIME') # <-- Get SHOT TIME column
-            
-            # Columns for Header Formulas
+            shot_time_col_dyn = col_map.get('SHOT TIME')
             stop_col = col_map.get('STOP')
             stop_event_col = col_map.get('STOP EVENT')
             time_bucket_col = col_map.get('TIME BUCKET')
-            # --- FIX: Use SHOT TIME column for count, fall back to 'A' ---
             first_col_for_count = shot_time_col_dyn if shot_time_col_dyn else 'A' 
             
             cum_count_col_dyn = col_map.get('CUMULATIVE COUNT')
@@ -764,20 +612,15 @@ def generate_excel_report(all_runs_data, tolerance):
             bucket_col_dyn = col_map.get('TIME BUCKET')
             time_diff_col_dyn = col_map.get('TIME DIFF SEC')
 
-
-            # Helper column will be the one *after* the last data column
             data_cols_count = len(df_run.columns)
             helper_col_letter = chr(ord('A') + data_cols_count)
             ws.set_column(f'{helper_col_letter}:{helper_col_letter}', None, None, {'hidden': True})
             
-            # --- Define Analysis Block Columns ---
-            # Start 2 columns after the helper column (leaves one blank column)
             analysis_start_col_idx = data_cols_count + 2 
-            analysis_col_1 = chr(ord('A') + analysis_start_col_idx)     # Bucket #
-            analysis_col_2 = chr(ord('A') + analysis_start_col_idx + 1) # Duration Range
-            analysis_col_3 = chr(ord('A') + analysis_start_col_idx + 2) # Events Count
+            analysis_col_1 = chr(ord('A') + analysis_start_col_idx)
+            analysis_col_2 = chr(ord('A') + analysis_start_col_idx + 1)
+            analysis_col_3 = chr(ord('A') + analysis_start_col_idx + 2)
 
-            # Check for missing essential columns
             missing_cols = []
             if not stop_col: missing_cols.append('STOP')
             if not stop_event_col: missing_cols.append('STOP EVENT')
@@ -785,7 +628,7 @@ def generate_excel_report(all_runs_data, tolerance):
             if not time_diff_col_dyn: missing_cols.append('TIME DIFF SEC')
             if not cum_count_col_dyn: missing_cols.append('CUMULATIVE COUNT')
             if not run_dur_col_dyn: missing_cols.append('RUN DURATION')
-            if not shot_time_col_dyn: missing_cols.append('SHOT TIME') # <-- Add check
+            if not shot_time_col_dyn: missing_cols.append('SHOT TIME')
             
             if missing_cols:
                 ws.write('A5', f"Error: Missing columns for formulas: {', '.join(missing_cols)}", error_format)
@@ -793,7 +636,7 @@ def generate_excel_report(all_runs_data, tolerance):
             table_formulas_ok = all(item is not None for item in [
                 stop_col, stop_event_col, time_diff_col_dyn, 
                 cum_count_col_dyn, run_dur_col_dyn, bucket_col_dyn,
-                shot_time_col_dyn # <-- Add to check
+                shot_time_col_dyn
             ])
 
             # --- Layout ---
@@ -804,21 +647,32 @@ def generate_excel_report(all_runs_data, tolerance):
             ws.write('B3', 'Every Shot')
 
             ws.write('E1', 'Mode CT', sub_header_format)
-            ws.write('E2', data['mode_ct'], secs_format)
+            # Use 'mode_ct' directly, which is a number for aggregate mode
+            ws.write('E2', data['mode_ct'], secs_format) 
 
             ws.write('F1', 'Outside L1', sub_header_format); ws.write('G1', 'Outside L2', sub_header_format); ws.write('H1', 'IDLE', sub_header_format)
             ws.write('F2', 'Lower Limit', label_format); ws.write('G2', 'Upper Limit', label_format); ws.write('H2', 'Stops', label_format)
             
-            ws.write_formula('F3', f'=E2*(1-{tolerance})', secs_format)
-            ws.write_formula('G3', f'=E2*(1+{tolerance})', secs_format)
+            # Use formula or static value based on mode
+            lower_limit_val = data.get('lower_limit', f'=E2*(1-{tolerance})')
+            upper_limit_val = data.get('upper_limit', f'=E2*(1+{tolerance})')
+
+            if isinstance(lower_limit_val, str):
+                ws.write_formula('F3', lower_limit_val, secs_format)
+            else:
+                 ws.write('F3', lower_limit_val, secs_format)
+                 
+            if isinstance(upper_limit_val, str):
+                ws.write_formula('G3', upper_limit_val, secs_format)
+            else:
+                ws.write('G3', upper_limit_val, secs_format)
+            
             if stop_col:
                 ws.write_formula('H3', f"=SUM({stop_col}{start_row}:{stop_col}{start_row + len(df_run) - 1})", sub_header_format)
             else:
                 ws.write('H3', 'N/A', sub_header_format)
 
-
             ws.write('K1', 'Total Shot Count', label_format); ws.write('L1', 'Normal Shot Count', label_format)
-            # --- FIX: Use first_col_for_count (SHOT TIME col) ---
             ws.write_formula('K2', f"=COUNTA({first_col_for_count}{start_row}:{first_col_for_count}{start_row + len(df_run) - 1})", sub_header_format)
             ws.write_formula('L2', f"=K2-H3", sub_header_format)
             
@@ -830,8 +684,8 @@ def generate_excel_report(all_runs_data, tolerance):
                 ws.write('L5', 'N/A', sub_header_format)
 
             ws.write('F5', 'Tot Run Time', label_format); ws.write('G5', 'Tot Down Time', label_format)
-            ws.write('F6', data['production_run_sec'] / 86400, time_format)
-            ws.write('G6', data['tot_down_time_sec'] / 86400, time_format)
+            ws.write('F6', data['production_run_sec'] / 86400, time_format) # Wall clock time
+            ws.write('G6', data['tot_down_time_sec'] / 86400, time_format) # Sum of stops
             ws.write_formula('F7', f"=(F6-G6)/F6", percent_format); ws.write_formula('G7', f"=G6/F6", percent_format)
             
             ws.merge_range('K8:L8', 'Reliability Metrics', header_format)
@@ -839,24 +693,17 @@ def generate_excel_report(all_runs_data, tolerance):
             ws.write('K10', 'MTBF (Avg)', label_format); ws.write('L10', data['mtbf_min'], mins_format)
             
             ws.write('K11', 'Time to First DT', label_format)
-            # --- FORMULA CHANGE for Time to First DT ---
             if stop_event_col and run_dur_col_dyn:
                 end_row_num = start_row + len(df_run) - 1
                 match_range = f'{stop_event_col}{start_row}:{stop_event_col}{end_row_num}'
                 index_range = f'{run_dur_col_dyn}:{run_dur_col_dyn}'
-                # Find the first row with stop_event=1, get its row number, then INDEX into the RUN DURATION column
-                # (18 + MATCH(...)) gives the absolute row number.
-                # IFERROR handles the case of no stops, falling back to the pre-calculated total run time.
                 formula = f'IFERROR(INDEX({index_range}, 18 + MATCH(1, {match_range}, 0)) * 1440, {data["time_to_first_dt_min"]})'
                 ws.write_formula('L11', formula, mins_format)
             else:
-                # Fallback to static value if columns are missing
                 ws.write('L11', data['time_to_first_dt_min'], mins_format) 
-            # --- END FORMULA CHANGE ---
             
             ws.write('K12', 'Avg Cycle Time', label_format); ws.write('L12', data['avg_cycle_time_sec'], secs_format)
 
-            # --- Time Bucket Analysis (Dynamically Placed) ---
             ws.merge_range(f'{analysis_col_1}14:{analysis_col_3}14', 'Time Bucket Analysis', header_format)
             ws.write(f'{analysis_col_1}15', 'Bucket', sub_header_format)
             ws.write(f'{analysis_col_2}15', 'Duration Range', sub_header_format)
@@ -881,7 +728,6 @@ def generate_excel_report(all_runs_data, tolerance):
                 df_run['SHOT TIME'] = pd.to_datetime(df_run['SHOT TIME']).dt.tz_localize(None)
             df_run.fillna('', inplace=True)
             
-            # Write the entire DataFrame first
             for i, row in enumerate(df_run.to_numpy()):
                 current_row_excel_idx = start_row + i
                 for c_idx, value in enumerate(row):
@@ -889,23 +735,18 @@ def generate_excel_report(all_runs_data, tolerance):
                     if col_name in ['CUMULATIVE COUNT', 'RUN DURATION', 'TIME BUCKET']:
                         continue 
                     
-                    # --- FORMULA CHANGE for TIME DIFF SEC ---
                     if col_name == 'TIME DIFF SEC':
                         if table_formulas_ok:
-                            if i == 0: # First data row
-                                ws.write_number(current_row_excel_idx - 1, c_idx, 0, secs_format)
-                            else: # Subsequent data rows
-                                current_row_num_excel = current_row_excel_idx # e.g., 19, 20...
-                                prev_row_num_excel = current_row_excel_idx - 1 # e.g., 18, 19...
-                                # Excel row numbers are 1-based, so 19 is correct for first data row
+                            if i == 0:
+                                ws.write_number(current_row_excel_idx - 1, c_idx, value, secs_format)
+                            else:
+                                current_row_num_excel = current_row_excel_idx
+                                prev_row_num_excel = current_row_excel_idx - 1
                                 formula = f'=({shot_time_col_dyn}{current_row_num_excel}-{shot_time_col_dyn}{prev_row_num_excel})*86400'
                                 ws.write_formula(current_row_excel_idx - 1, c_idx, formula, secs_format)
                         else:
-                            # Fallback if columns are missing
                             ws.write(current_row_excel_idx - 1, c_idx, value, secs_format)
-                        continue # Move to the next cell
-                    # --- END FORMULA CHANGE ---
-                        
+                        continue
                     
                     if isinstance(value, pd.Timestamp):
                         ws.write_datetime(current_row_excel_idx - 1, c_idx, value, datetime_format)
@@ -914,46 +755,35 @@ def generate_excel_report(all_runs_data, tolerance):
                     else:
                         ws.write(current_row_excel_idx - 1, c_idx, value, data_format)
             
-            # --- Write Dynamic Table Formulas ---
             if table_formulas_ok:
                 for i in range(len(df_run)):
                     row_num = start_row + i
                     prev_row = row_num - 1
                     
-                    # Helper column for run duration sum
-                    # This formula now correctly references the 'TIME DIFF SEC' column
-                    # which itself contains a formula. Excel handles this dependency.
                     if i == 0:
                         helper_formula = f'=IF({stop_col}{row_num}=0, {time_diff_col_dyn}{row_num}, 0)'
                     else:
                         helper_formula = f'=IF({stop_event_col}{row_num}=1, 0, {helper_col_letter}{prev_row}) + IF({stop_col}{row_num}=0, {time_diff_col_dyn}{row_num}, 0)'
                     ws.write_formula(f'{helper_col_letter}{row_num}', helper_formula)
 
-                    # CUMULATIVE COUNT
                     cum_count_formula = f'=COUNTIF(${stop_event_col}${start_row}:${stop_event_col}{row_num},1) & "/" & IF({stop_event_col}{row_num}=1, "0 sec", TEXT({helper_col_letter}{row_num}/86400, "[h]:mm:ss"))'
                     ws.write_formula(f'{cum_count_col_dyn}{row_num}', cum_count_formula, data_format)
 
-                    # --- FIX: Allow RUN DURATION and TIME BUCKET on first row ---
-                    # RUN DURATION
                     if i == 0:
-                        run_dur_formula = f'=IF({stop_event_col}{row_num}=1, 0, "")' # Special case for first row: duration is 0
+                        run_dur_formula = f'=IF({stop_event_col}{row_num}=1, 0, "")' 
                     else:
                         run_dur_formula = f'=IF({stop_event_col}{row_num}=1, {helper_col_letter}{prev_row}/86400, "")'
                     ws.write_formula(f'{run_dur_col_dyn}{row_num}', run_dur_formula, time_format)
 
-                    # TIME BUCKET
                     if i == 0:
-                         time_bucket_formula = f'=IF({stop_event_col}{row_num}=1, IFERROR(FLOOR(0/60/20, 1) + 1, ""), "")' # Special case for first row
+                         time_bucket_formula = f'=IF({stop_event_col}{row_num}=1, IFERROR(FLOOR(0/60/20, 1) + 1, ""), "")'
                     else:
                         time_bucket_formula = f'=IF({stop_event_col}{row_num}=1, IFERROR(FLOOR({helper_col_letter}{prev_row}/60/20, 1) + 1, ""), "")'
                     ws.write_formula(f'{bucket_col_dyn}{row_num}', time_bucket_formula, data_format)
-                    # --- END FIX ---
             else:
                 if cum_count_col_dyn:
                     ws.write(f'{cum_count_col_dyn}{start_row-1}', "Formula Error", error_format)
 
-
-            # Auto-fit columns
             for i, col_name in enumerate(df_run.columns):
                 try:
                     width = max(
@@ -961,98 +791,11 @@ def generate_excel_report(all_runs_data, tolerance):
                         df_run[col_name].astype(str).map(len).max()
                     )
                 except Exception:
-                    width = len(str(col_name)) # Fallback
+                    width = len(str(col_name))
                 
                 ws.set_column(i, i, width + 2 if width < 40 else 40)
 
     return output.getvalue()
-
-# --- NEW Wrapper Function to prepare data for the new Excel export ---
-def generate_run_based_excel_export(df_for_export, tolerance, run_interval_hours, tool_id_selection):
-    """
-    This function replicates the logic from the simple run_rate_app.py UI
-    to prepare the 'all_runs_data' dict needed by 'generate_excel_report'.
-    """
-    
-    # 1. Base calculation to get processed df using the Excel-specific calculator
-    try:
-        base_calc = ExcelReportCalculator(df_for_export, tolerance)
-        df_processed = base_calc.results.get("processed_df", pd.DataFrame())
-    except Exception as e:
-        st.error(f"Error in Excel base calculation: {e}")
-        return BytesIO().getvalue()
-        
-    if df_processed.empty:
-        st.error("Could not process data for Excel export. 'ACTUAL CT' may be missing.")
-        return BytesIO().getvalue()
-        
-    # 2. Split into runs based on the interval threshold
-    split_col = 'logic_ct_diff' if 'logic_ct_diff' in df_processed.columns else 'time_diff_sec'
-    is_new_run = df_processed[split_col] > (run_interval_hours * 3600)
-    df_processed['run_id'] = is_new_run.cumsum()
-
-    all_runs_data = {}
-    desired_columns_base = [
-        'SUPPLIER NAME', 'tool_id', 'SESSION ID', 'SHOT ID', 'shot_time',
-        'APPROVED CT', 'ACTUAL CT', 
-        'time_diff_sec', 'stop_flag', 'stop_event', 'run_group'
-    ]
-    formula_columns = ['CUMULATIVE COUNT', 'RUN DURATION', 'TIME BUCKET']
-
-    # 3. Loop through each run and calculate its specific metrics
-    for run_id, df_run_raw in df_processed.groupby('run_id'):
-        try:
-            run_calculator = ExcelReportCalculator(df_run_raw.copy(), tolerance)
-            run_results = run_calculator.results
-            
-            if not run_results:
-                continue
-
-            run_results['equipment_code'] = df_run_raw['tool_id'].iloc[0] if 'tool_id' in df_run_raw.columns else tool_id_selection
-            run_results['start_time'] = df_run_raw['shot_time'].min()
-            run_results['end_time'] = df_run_raw['shot_time'].max()
-
-            export_df = run_results['processed_df'].copy()
-            
-            for col in formula_columns:
-                if col not in export_df:
-                    export_df[col] = ''
-            
-            columns_to_export = [col for col in desired_columns_base if col in export_df.columns]
-            columns_to_export.extend(formula_columns)
-            
-            final_export_df = export_df[columns_to_export].rename(columns={
-                'tool_id': 'EQUIPMENT CODE', 'shot_time': 'SHOT TIME',
-                'time_diff_sec': 'TIME DIFF SEC', 'stop_flag': 'STOP', 'stop_event': 'STOP EVENT'
-            })
-            
-            final_desired_renamed = [
-                'SUPPLIER NAME', 'EQUIPMENT CODE', 'SESSION ID', 'SHOT ID', 'SHOT TIME',
-                'APPROVED CT', 'ACTUAL CT', 
-                'TIME DIFF SEC', 'STOP', 'STOP EVENT', 'run_group',
-                'CUMULATIVE COUNT', 'RUN DURATION', 'TIME BUCKET'
-            ]
-            
-            # Add any missing columns as blank
-            for col in final_desired_renamed:
-                if col not in final_export_df.columns:
-                    final_export_df[col] = ''
-            
-            # Ensure correct column order
-            final_export_df = final_export_df[[col for col in final_desired_renamed if col in final_export_df.columns]]
-
-            run_results['processed_df'] = final_export_df
-            all_runs_data[run_id] = run_results
-        
-        except Exception as e:
-            st.warning(f"Could not process Run ID {run_id} for Excel export: {e}")
-
-    if not all_runs_data:
-        st.error("No valid runs were processed for the Excel export.")
-        return BytesIO().getvalue()
-    
-    # 4. Generate the Excel file using the new function
-    return generate_excel_report(all_runs_data, tolerance)
 
 
 def render_dashboard(df_tool, tool_id_selection):
@@ -1090,19 +833,20 @@ def render_dashboard(df_tool, tool_id_selection):
     run_interval_hours = st.sidebar.slider("Run Interval Threshold (hours)", 1, 24, 8, 1, help="Defines the max hours between shots before a new Production Run is identified.")
     
     @st.cache_data(show_spinner="Performing initial data processing...")
-    def get_processed_data(df, interval_hours):
-        base_calc = RunRateCalculator(df, 0.01, 2.0)
+    def get_processed_data(df, interval_hours, tol, gap_tol):
+        # Pass all params to the calculator
+        base_calc = RunRateCalculator(df, tol, gap_tol)
         df_processed = base_calc.results.get("processed_df", pd.DataFrame())
         if not df_processed.empty:
             df_processed['week'] = df_processed['shot_time'].dt.isocalendar().week
             df_processed['date'] = df_processed['shot_time'].dt.date
             df_processed['month'] = df_processed['shot_time'].dt.to_period('M')
-            # Only create the base run identifier here
             is_new_run = df_processed['time_diff_sec'] > (interval_hours * 3600)
             df_processed['run_id'] = is_new_run.cumsum()
         return df_processed
 
-    df_processed = get_processed_data(df_tool, run_interval_hours)
+    # Pass all sliders to get_processed_data
+    df_processed = get_processed_data(df_tool, run_interval_hours, tolerance, downtime_gap_tolerance)
     
     min_shots_filter = 1 
     if 'by Run' in analysis_level:
@@ -1175,7 +919,6 @@ def render_dashboard(df_tool, tool_id_selection):
     if not df_view.empty:
         df_view = df_view.copy()
         if 'run_id' in df_view.columns:
-            # Create a consistent integer-based index for runs within the current view
             df_view['run_id_local'] = df_view.groupby('run_id').ngroup()
             unique_run_ids = df_view.sort_values('shot_time')['run_id_local'].unique()
             run_label_map = {run_id: f"Run {i+1:03d}" for i, run_id in enumerate(unique_run_ids)}
@@ -1242,18 +985,113 @@ def render_dashboard(df_tool, tool_id_selection):
             calc = RunRateCalculator(df_view.copy(), tolerance, downtime_gap_tolerance, analysis_mode=mode)
             results = calc.results
             summary_metrics = results
-
+        
+        # --- [MODIFIED] Block for Excel Export Button ---
         col1, col2 = st.columns([3, 1])
         with col1:
             st.subheader(sub_header)
+
+        all_runs_data = {}
+        desired_columns_base = [
+            'SUPPLIER NAME', 'tool_id', 'SESSION ID', 'SHOT ID', 'shot_time',
+            'APPROVED CT', 'ACTUAL CT', 
+            'time_diff_sec', 'stop_flag', 'stop_event', 'run_group'
+        ]
+        formula_columns = ['CUMULATIVE COUNT', 'RUN DURATION', 'TIME BUCKET']
+        
+        rename_map = {
+            'tool_id': 'EQUIPMENT CODE', 'shot_time': 'SHOT TIME',
+            'time_diff_sec': 'TIME DIFF SEC', 'stop_flag': 'STOP', 'stop_event': 'STOP EVENT'
+        }
+        
+        final_desired_renamed = [
+            'SUPPLIER NAME', 'EQUIPMENT CODE', 'SESSION ID', 'SHOT ID', 'SHOT TIME',
+            'APPROVED CT', 'ACTUAL CT', 
+            'TIME DIFF SEC', 'STOP', 'STOP EVENT', 'run_group',
+            'CUMULATIVE COUNT', 'RUN DURATION', 'TIME BUCKET'
+        ]
+
+        if 'by Run' in analysis_level:
+            if not df_view.empty:
+                for run_id, df_run_raw in df_view.groupby('run_id'):
+                    run_calculator = RunRateCalculator(df_run_raw.copy(), tolerance, downtime_gap_tolerance, analysis_mode='aggregate')
+                    run_results = run_calculator.results.copy()
+                    
+                    if not run_results:
+                        st.warning(f"Could not process Run ID {run_id} for export. Skipping.")
+                        continue
+                        
+                    run_results['equipment_code'] = df_run_raw['tool_id'].iloc[0]
+                    run_results['start_time'] = df_run_raw['shot_time'].min()
+                    run_results['end_time'] = df_run_raw['shot_time'].max()
+
+                    export_df = run_results['processed_df'].copy()
+                    
+                    # Add original columns from this run's df (df_run_raw)
+                    for col in ['SUPPLIER NAME', 'SESSION ID', 'SHOT ID', 'APPROVED CT', 'CT MIN']:
+                        if col in df_run_raw.columns and col not in export_df.columns:
+                            # Use merge to align on index
+                            export_df = export_df.merge(df_run_raw[col], left_index=True, right_index=True, how='left')
+
+                    for col in formula_columns:
+                        export_df[col] = ''
+                    
+                    columns_to_export = [col for col in desired_columns_base if col in export_df.columns]
+                    columns_to_export.extend(formula_columns)
+                    
+                    final_export_df = export_df.rename(columns=rename_map)
+                    
+                    for col in final_desired_renamed:
+                        if col not in final_export_df.columns:
+                            final_export_df[col] = ''
+                    
+                    final_export_df = final_export_df[[col for col in final_desired_renamed if col in final_export_df.columns]]
+                    
+                    run_results['processed_df'] = final_export_df
+                    all_runs_data[run_id] = run_results
+        else:
+            run_results = results.copy()
+            
+            run_results['equipment_code'] = tool_id_selection
+            run_results['start_time'] = df_view['shot_time'].min()
+            run_results['end_time'] = df_view['shot_time'].max()
+            
+            export_df = run_results['processed_df'].copy()
+
+            for col in ['SUPPLIER NAME', 'SESSION ID', 'SHOT ID', 'APPROVED CT', 'CT MIN']:
+                if col in df_view.columns and col not in export_df.columns:
+                    export_df = export_df.merge(df_view[col], left_index=True, right_index=True, how='left')
+            
+            for col in formula_columns:
+                export_df[col] = ''
+            
+            columns_to_export = [col for col in desired_columns_base if col in export_df.columns]
+            columns_to_export.extend(formula_columns)
+
+            final_export_df = export_df.rename(columns=rename_map)
+            
+            for col in final_desired_renamed:
+                if col not in final_export_df.columns:
+                    final_export_df[col] = ''
+            
+            final_export_df = final_export_df[[col for col in final_desired_renamed if col in final_export_df.columns]]
+            
+            run_results['processed_df'] = final_export_df
+            all_runs_data[1] = run_results
+
+        # Generate the Excel data
+        excel_data_bytes = generate_excel_report(all_runs_data, tolerance)
+        
         with col2:
             st.download_button(
-                label="📥 Export Run-Based Report",
-                data=generate_run_based_excel_export(df_view.copy(), tolerance, run_interval_hours, tool_id_selection),
-                file_name=f"Run_Based_Report_{tool_id_selection.replace(' / ', '_').replace(' ', '_')}_{analysis_level.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                label="📥 Export Detailed Report",
+                data=excel_data_bytes,
+                file_name=f"Run_Based_Report_{tool_id_selection.replace(' / ', '_').replace(' ', '_')}_{analysis_level.replace(' ', '_')}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
+        # --- End of [MODIFIED] Block ---
+        
         trend_summary_df = None
         if analysis_level == "Weekly":
             trend_summary_df = calculate_daily_summaries_for_week(df_view, tolerance, downtime_gap_tolerance, mode)
@@ -1268,12 +1106,13 @@ def render_dashboard(df_tool, tool_id_selection):
         
         with st.container(border=True):
             col1, col2, col3, col4, col5 = st.columns(5)
+            # Use 'total_runtime_sec' which is (prod + down)
             total_d = summary_metrics.get('total_runtime_sec', 0); prod_t = summary_metrics.get('production_time_sec', 0); down_t = summary_metrics.get('downtime_sec', 0)
             prod_p = (prod_t / total_d * 100) if total_d > 0 else 0
             down_p = (down_t / total_d * 100) if total_d > 0 else 0
             with col1: st.metric("MTTR", f"{summary_metrics.get('mttr_min', 0):.1f} min")
             with col2: st.metric("MTBF", f"{summary_metrics.get('mtbf_min', 0):.1f} min")
-            with col3: st.metric("Total Run Duration", format_duration(total_d))
+            with col3: st.metric("Total Run Duration", format_duration(total_d)) # This is now Uptime + Downtime
             with col4:
                 st.metric("Production Time", f"{format_duration(prod_t)}")
                 st.markdown(f'<span style="background-color: {PASTEL_COLORS["green"]}; color: #0E1117; padding: 3px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: bold;">{prod_p:.1f}%</span>', unsafe_allow_html=True)
@@ -1544,17 +1383,16 @@ def render_dashboard(df_tool, tool_id_selection):
                         st.markdown(generate_mttr_mtbf_analysis(analysis_df, analysis_level), unsafe_allow_html=True)
 
 @st.cache_data(show_spinner="Analyzing tool performance for Risk Tower...")
-def calculate_risk_scores(df_all_tools):
+def calculate_risk_scores(df_all_tools, tol, gap_tol):
     """Analyzes data for all tools, each within its own last 4-week window."""
     id_col = "tool_id"
     initial_metrics = []
 
-    # First pass: Calculate metrics for each tool based on its own 4-week window
     for tool_id, df_tool in df_all_tools.groupby(id_col):
         if df_tool.empty or len(df_tool) < 10:
             continue
 
-        calc_prepare = RunRateCalculator(df_tool, 0.05, 2.0)
+        calc_prepare = RunRateCalculator(df_tool, tol, gap_tol)
         df_prepared = calc_prepare.results.get("processed_df")
         if df_prepared is None or df_prepared.empty:
             continue
@@ -1566,12 +1404,12 @@ def calculate_risk_scores(df_all_tools):
         if df_period.empty or len(df_period) < 10:
             continue
 
-        calc = RunRateCalculator(df_period.copy(), 0.05, 2.0)
+        calc = RunRateCalculator(df_period.copy(), tol, gap_tol)
         res = calc.results
         
         df_period['week'] = df_period['shot_time'].dt.isocalendar().week
         weekly_stabilities = [
-            RunRateCalculator(df_week, 0.05, 2.0).results.get('stability_index', 0)
+            RunRateCalculator(df_week, tol, gap_tol).results.get('stability_index', 0)
             for _, df_week in df_period.groupby('week') if not df_week.empty
         ]
         
@@ -1592,7 +1430,6 @@ def calculate_risk_scores(df_all_tools):
     if not initial_metrics:
         return pd.DataFrame()
 
-    # Second pass: Determine risk factors by comparing against the averages
     metrics_df = pd.DataFrame(initial_metrics)
     overall_mttr_mean = metrics_df['MTTR'].mean()
     overall_mtbf_mean = metrics_df['MTBF'].mean()
@@ -1639,20 +1476,22 @@ def render_risk_tower(df_all_tools):
 
         - **Analysis Period**: Shows the exact 4-week date range used for each tool's analysis, based on its latest available data.
         - **Risk Score**: A performance indicator from 0-100.
-          - It starts with the tool's overall **Stability Index (%)** for the period.
-          - A **20-point penalty** is applied if the stability shows a declining trend from the first week to the last week of its analysis period.
+            - It starts with the tool's overall **Stability Index (%)** for the period.
+            - A **20-point penalty** is applied if the stability shows a declining trend from the first week to the last week of its analysis period.
         - **Primary Risk Factor**: Identifies the main issue affecting performance, prioritized as follows:
-          1.  **Declining Trend**: If stability is worsening over time.
-          2.  **High MTTR**: If the average stop duration is significantly longer than the average of all tools.
-          3.  **Frequent Stops**: If the time between stops (MTBF) is significantly shorter than the average.
-          4.  **Low Stability**: If none of the above are true, but overall stability is low.
+            1.  **Declining Trend**: If stability is worsening over time.
+            2.  **High MTTR**: If the average stop duration is significantly longer than the average of all tools.
+            3.  **Frequent Stops**: If the time between stops (MTBF) is significantly shorter than the average.
+            4.  **Low Stability**: If none of the above are true, but overall stability is low.
         - **Color Coding**: Rows are colored based on the Risk Score:
-          - <span style='background-color:#ff6961; color: black; padding: 2px 5px; border-radius: 5px;'>Red (0-50)</span>: High Risk
-          - <span style='background-color:#ffb347; color: black; padding: 2px 5px; border-radius: 5px;'>Orange (51-70)</span>: Medium Risk
-          - <span style='background-color:#77dd77; color: black; padding: 2px 5px; border-radius: 5px;'>Green (>70)</span>: Low Risk
+            - <span style='background-color:#ff6961; color: black; padding: 2px 5px; border-radius: 5px;'>Red (0-50)</span>: High Risk
+            - <span style='background-color:#ffb347; color: black; padding: 2px 5px; border-radius: 5px;'>Orange (51-70)</span>: Medium Risk
+            - <span style='background-color:#77dd77; color: black; padding: 2px 5px; border-radius: 5px;'>Green (>70)</span>: Low Risk
         """, unsafe_allow_html=True)
-
-    risk_df = calculate_risk_scores(df_all_tools)
+    
+    # --- [MODIFIED] Pass default tolerance values to risk calculator ---
+    # These could be hardcoded or tied to sidebar sliders if you prefer
+    risk_df = calculate_risk_scores(df_all_tools, tol=0.05, gap_tol=2.0)
 
     if risk_df.empty:
         st.warning("Not enough data across multiple tools in the last 4 weeks to generate a risk tower.")
@@ -1682,20 +1521,17 @@ def load_all_data(files):
         try:
             df = pd.read_excel(file)
             
-            # Standardize the tool ID column name
             if "TOOLING ID" in df.columns:
                 df.rename(columns={"TOOLING ID": "tool_id"}, inplace=True)
             elif "EQUIPMENT CODE" in df.columns:
                 df.rename(columns={"EQUIPMENT CODE": "tool_id"}, inplace=True)
 
-            # Ensure 'shot_time' is parsed correctly across all files
             if {"YEAR", "MONTH", "DAY", "TIME"}.issubset(df.columns):
                 datetime_str = df["YEAR"].astype(str) + "-" + df["MONTH"].astype(str) + "-" + df["DAY"].astype(str) + " " + df['TIME'].astype(str)
                 df["shot_time"] = pd.to_datetime(datetime_str, errors="coerce")
             elif "SHOT TIME" in df.columns:
                 df["shot_time"] = pd.to_datetime(df["SHOT TIME"], errors="coerce")
             
-            # Only append dataframes that have the standardized tool_id column
             if "tool_id" in df.columns:
                 df_list.append(df)
         except Exception as e:
@@ -1708,28 +1544,23 @@ def load_all_data(files):
 
 df_all_tools = load_all_data(uploaded_files)
 
-# The column is now standardized to 'tool_id'
 id_col = "tool_id"
 if id_col not in df_all_tools.columns:
     st.error(f"None of the uploaded files contain a 'TOOLING ID' or 'EQUIPMENT CODE' column.")
     st.stop()
 
-# Data cleaning
 df_all_tools.dropna(subset=[id_col], inplace=True)
 df_all_tools[id_col] = df_all_tools[id_col].astype(str)
 
-# Add a selectbox for Tool ID for the main dashboard
 tool_ids = ["All Tools (Risk Tower)"] + sorted(df_all_tools[id_col].unique().tolist())
-# Map "All Tools (Risk Tower)" to a specific tool for the dashboard view, e.g., the first one
 dashboard_tool_id_selection = st.sidebar.selectbox("Select Tool ID for Dashboard Analysis", tool_ids)
 
 if dashboard_tool_id_selection == "All Tools (Risk Tower)":
-    # Default to showing the first tool in the list for the dashboard if 'All' is selected
     if len(tool_ids) > 1:
         first_tool = tool_ids[1]
         df_for_dashboard = df_all_tools[df_all_tools[id_col] == first_tool]
         tool_id_for_dashboard_display = first_tool
-    else: # Handle case where there are no tools
+    else:
         df_for_dashboard = pd.DataFrame()
         tool_id_for_dashboard_display = "No Tool Selected"
 else:
@@ -1747,4 +1578,3 @@ with tab2:
         render_dashboard(df_for_dashboard, tool_id_for_dashboard_display)
     else:
         st.info("Select a specific Tool ID from the sidebar to view its dashboard.")
-
