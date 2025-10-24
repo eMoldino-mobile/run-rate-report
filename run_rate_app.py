@@ -776,13 +776,18 @@ def generate_excel_report(all_runs_data, tolerance):
                     prev_row = row_num - 1 # Previous Excel row number
                     current_row_zero_idx = start_row + i - 1 # 0-based index for write_formula
 
-                    # Helper Column Formula (Corrected Logic)
-                    if i == 0: # First data row
+                    # --- REVISED Helper Column Formula v2 (Cumulative Uptime Seconds) ---
+                    if i == 0: # First data row (Excel row 19)
+                        # Uptime starts with this shot's duration IF it's not a stop
                         helper_formula = f'=IF({stop_col}{row_num}=0, {time_diff_col_dyn}{row_num}, 0)'
                     else: # Subsequent rows
-                        helper_formula = f'=IF({stop_event_col}{row_num}=1, 0, IF({stop_col}{row_num}=0, {helper_col_letter}{prev_row} + {time_diff_col_dyn}{row_num}, {helper_col_letter}{prev_row}))'
-                    # Write helper formula to its column (index data_cols_count)
-                    ws.write_formula(current_row_zero_idx, data_cols_count, helper_formula)
+                        # If the CURRENT row is the START of a STOP EVENT (K=1), the cumulative uptime for THIS run ends HERE, so reset to 0.
+                        # If the CURRENT row is NOT a stop (J=0), ADD its duration (I) to the PREVIOUS row's cumulative uptime (H).
+                        # If the CURRENT row IS a stop (J=1) but NOT the start (K=0), carry forward the PREVIOUS row's cumulative uptime (H) without adding the current duration.
+                        helper_formula = f'=IF({stop_event_col}{row_num}=1, 0, IF({stop_col}{row_num}=0, {helper_col_letter}{prev_row}+{time_diff_col_dyn}{row_num}, {helper_col_letter}{prev_row}))'
+
+                    ws.write_formula(current_row_zero_idx, data_cols_count, helper_formula) # Write to Helper column H
+                    # --- END REVISED Helper Formula v2 ---
 
                     # Time Diff Sec Formula
                     if i == 0: # First data row needs special handling (use pre-calculated value or 0)
