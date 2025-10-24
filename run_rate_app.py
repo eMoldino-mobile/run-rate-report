@@ -815,13 +815,19 @@ def generate_excel_report(all_runs_data, tolerance):
                     ws.write_formula(current_row_zero_idx, data_cols_count, helper_formula)
 
                     # Time Diff Sec Formula
-                    if i == 0: # First data row needs special handling (use pre-calculated value or 0)
-                         # Use the value already calculated and stored in the 'data' dictionary for this run
-                         first_diff_val = data.get('first_shot_time_diff', 0) # Get pre-calc value
-                         ws.write_number(current_row_zero_idx, time_diff_col_idx, first_diff_val, secs_format)
-                    else: # Subsequent data rows
-                         formula = f'=IFERROR(({shot_time_col_dyn}{row_num}-{shot_time_col_dyn}{prev_row})*86400, 0)'
-                         ws.write_formula(current_row_zero_idx, time_diff_col_idx, formula, secs_format)
+                    # --- REVISED Helper Column Formula v3 ---
+                    if i == 0: # First data row (Excel row 19)
+                        # Uptime starts with this shot's duration IF it's not a stop
+                        helper_formula = f'=IF({stop_col}{row_num}=0, {time_diff_col_dyn}{row_num}, 0)'
+                    else: # Subsequent rows
+                        # If Stop Event (K=1) starts NOW, reset uptime accumulation to 0 for the *next* step.
+                        # If Normal Shot (J=0), ADD current time diff (I) to PREVIOUS helper value.
+                        # If Stop but not Event (J=1, K=0), just carry forward PREVIOUS helper value.
+                        helper_formula = f'=IF({stop_event_col}{row_num}=1, 0, IF({stop_col}{row_num}=0, {helper_col_letter}{prev_row}+{time_diff_col_dyn}{row_num}, {helper_col_letter}{prev_row}))'
+
+                    # Write helper formula to its column (index data_cols_count)
+                    ws.write_formula(current_row_zero_idx, data_cols_count, helper_formula)
+                    # --- END REVISED Helper Formula v3 ---
 
                     # Cumulative Count / Run Duration String Formula
                     cum_count_formula = f'=COUNTIF(${stop_event_col}${start_row}:${stop_event_col}{row_num},TRUE)&"/"&IF({stop_event_col}{row_num}=TRUE,"0 sec",TEXT({helper_col_letter}{row_num}/86400,"[h]:mm:ss"))'
