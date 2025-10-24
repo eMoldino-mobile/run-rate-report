@@ -127,10 +127,16 @@ class RunRateCalculator:
             reds, blues, greens = px.colors.sequential.Reds[3:7], px.colors.sequential.Blues[3:8], px.colors.sequential.Greens[3:8]
             red_labels, blue_labels, green_labels = [], [], []
             for label in labels:
-                try: lower_bound = int(label.split('-')[0].replace('+', ''));
-                if lower_bound < 60: red_labels.append(label)
-                elif 60 <= lower_bound < 160: blue_labels.append(label)
-                else: green_labels.append(label)
+                try:
+                    # Attempt to parse the lower bound from the bucket label
+                    lower_bound = int(label.split('-')[0].replace('+', ''))
+                    # Assign to color groups based on the lower bound
+                    if lower_bound < 60: red_labels.append(label)
+                    elif 60 <= lower_bound < 160: blue_labels.append(label)
+                    else: green_labels.append(label)
+                except (ValueError, IndexError):
+                    # If parsing fails (e.g., unexpected label format), skip this label
+                    continue
                 except: continue
             for i, label in enumerate(red_labels): bucket_color_map[label] = reds[i % len(reds)]
             for i, label in enumerate(blue_labels): bucket_color_map[label] = blues[i % len(blues)]
