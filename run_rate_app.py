@@ -946,17 +946,15 @@ def prepare_and_generate_run_based_excel(df_for_export, tolerance, downtime_gap_
                     if col not in export_df.columns:
                         export_df[col] = ''
 
-                # Select and rename columns for the final sheet structure
-                cols_to_keep = [col for col in desired_columns_base if col in export_df.columns]
-                # Ensure formula columns are included for ordering
-                cols_to_keep_final = cols_to_keep + [col for col in formula_columns if col in export_df.columns]
-
-
-                final_export_df = export_df[list(dict.fromkeys(cols_to_keep_final))].rename(columns={ # Use dict.fromkeys to keep order and remove duplicates
-                    'tool_id': 'EQUIPMENT CODE', 'shot_time': 'SHOT TIME',
-                    'time_diff_sec': 'TIME DIFF SEC',
-                    'stop_flag': 'STOP', 'stop_event': 'STOP EVENT'
-                })
+                # --- Prepare the DataFrame specific for this Excel sheet ---
+                # Select base columns that exist in the original raw data for this run
+                cols_to_keep = [col for col in desired_columns_base if col in df_run_raw.columns]
+                # --- START MODIFICATION ---
+                # Ensure 'SHOT ID' is definitely selected if it exists in the raw data
+                if 'SHOT ID' in df_run_raw.columns and 'SHOT ID' not in cols_to_keep:
+                     cols_to_keep.append('SHOT ID')
+                # --- END MODIFICATION ---
+                final_export_df = df_run_raw[cols_to_keep].copy()
 
 
                 # Define the final exact column order for the Excel sheet
