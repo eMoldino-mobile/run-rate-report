@@ -604,55 +604,241 @@ def generate_mttr_mtbf_analysis(analysis_df, analysis_level):
         example_insight = (f"As an example, <strong>{period_label}</strong> experienced prolonged downtimes with an average repair time of <strong>{highest_mttr_period_row['mttr']:.1f} minutes</strong>, highlighting the impact of long stops.")
     return f"<div style='line-height: 1.6;'><p>{corr_insight}</p><p>{example_insight}</p></div>"
 
-def create_excel_export(df_view, results, tolerance, run_interval_hours, analysis_level, tool_id_selection):
-    output_buffer = BytesIO()
-    with xlsxwriter.Workbook(output_buffer, {'in_memory': True, 'nan_inf_to_errors': True}) as workbook:
-        header_format = workbook.add_format({'bold': True, 'bg_color': '#4F81BD', 'font_color': 'white', 'align': 'center', 'valign': 'vcenter', 'border': 1})
-        label_format = workbook.add_format({'bold': True, 'align': 'right'})
-        output_format = workbook.add_format({'bold': True, 'bg_color': '#C5D9F1', 'border': 1})
-        percent_format = workbook.add_format({'num_format': '0.0%', 'bg_color': '#C5D9F1', 'border': 1})
-        decimal_format = workbook.add_format({'num_format': '0.00', 'bg_color': '#C5D9F1', 'border': 1})
-        dhm_format = workbook.add_format({'num_format': '[h]"h" mm"m"', 'bg_color': '#C5D9F1', 'border': 1})
-        ws_dash = workbook.add_worksheet('Dashboard')
-        ws_dash.set_column('B:C', 25)
-        ws_dash.merge_range('B2:C2', f'Overall Performance Metrics: {tool_id_selection}', header_format)
-        metrics = {
-            'Total Shots:': results.get('total_shots', 0), 'Normal Shots:': results.get('normal_shots', 0),
-            'Stop Events:': results.get('stop_events', 0), 'Efficiency:': results.get('efficiency', 0),
-            'Total Duration:': results.get('total_runtime_sec', 0) / 86400, 'Total Production Time:': results.get('production_time_sec', 0) / 86400,
-            'Total Downtime:': results.get('downtime_sec', 0) / 86400, 'Stability Index:': results.get('stability_index', 0) / 100,
-            'MTTR (min):': results.get('mttr_min', 0), 'MTBF (min):': results.get('mtbf_min', 0),
-        }
-        row = 3
-        for label, value in metrics.items():
-            ws_dash.write(f'B{row}', label, label_format)
-            fmt = output_format
-            if '%' in label or 'Efficiency' in label or 'Stability' in label: fmt = percent_format
-            elif '(min)' in label: fmt = decimal_format
-            elif 'Duration' in label or 'Time' in label: fmt = dhm_format
-            ws_dash.write(f'C{row}', value, fmt)
-            row += 1
-        ws_raw = workbook.add_worksheet('Exported_Raw_Data')
-        df_to_export = df_view.copy()
-        if 'month' in df_to_export.columns:
-            df_to_export['month'] = df_to_export['month'].astype(str)
-        df_to_export.replace([np.inf, -np.inf], np.nan, inplace=True)
-        df_to_export = df_to_export.fillna('')
-        for col_num, value in enumerate(df_to_export.columns.values):
-            ws_raw.write(0, col_num, value, header_format)
-        for row_num, row_data in enumerate(df_to_export.itertuples(index=False), 1):
-            ws_raw.write_row(row_num, 0, row_data)
-        ws_calc = workbook.add_worksheet('Calculations_Data')
-        calc_df = results.get('processed_df', pd.DataFrame()).copy()
-        if 'month' in calc_df.columns:
-            calc_df['month'] = calc_df['month'].astype(str)
-        calc_df.replace([np.inf, -np.inf], np.nan, inplace=True)
-        calc_df = calc_df.fillna('')
-        for col_num, value in enumerate(calc_df.columns.values):
-            ws_calc.write(0, col_num, value, header_format)
-        for row_num, row_data in enumerate(calc_df.itertuples(index=False), 1):
-            ws_calc.write_row(row_num, 0, row_data)
-    return output_buffer.getvalue()
+# --- Add these two new functions ---
+
+# --- Excel Generation Function ---
+def generate_excel_report(all_runs_data, tolerance):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        workbook = writer.book
+        header_format=workbook.add_format({'bold':True,'bg_color':'#002060','font_color':'white','align':'center','valign':'vcenter','border':1});sub_header_format=workbook.add_format({'bold':True,'bg_color':'#C5D9F1','border':1});label_format=workbook.add_format({'bold':True,'align':'left'});percent_format=workbook.add_format({'num_format':'0.0%','border':1});time_format=workbook.add_format({'num_format':'[h]:mm:ss','border':1});mins_format=workbook.add_format({'num_format':'0.00 "min"','border':1});secs_format=workbook.add_format({'num_format':'0.00 "sec"','border':1});data_format=workbook.add_format({'border':1});datetime_format=workbook.add_format({'num_format':'yyyy-mm-dd hh:mm:ss','border':1});error_format=workbook.add_format({'bold':True,'font_color':'red'})
+        for run_id,data in all_runs_data.items():
+            ws=workbook.add_worksheet(f"Run_{run_id:03d}");df_run=data['processed_df'].copy();start_row=19
+            col_map={name:chr(ord('A')+i)for i,name in enumerate(df_run.columns)};shot_time_col_dyn=col_map.get('SHOT TIME');stop_col=col_map.get('STOP');stop_event_col=col_map.get('STOP EVENT');time_bucket_col=col_map.get('TIME BUCKET');first_col_for_count=shot_time_col_dyn if shot_time_col_dyn else'A';cum_count_col_dyn=col_map.get('CUMULATIVE COUNT');run_dur_col_dyn=col_map.get('RUN DURATION');bucket_col_dyn=col_map.get('TIME BUCKET');time_diff_col_dyn=col_map.get('TIME DIFF SEC')
+            data_cols_count=len(df_run.columns);helper_col_letter=chr(ord('A')+data_cols_count);ws.set_column(f'{helper_col_letter}:{helper_col_letter}',None,None,{'hidden':True});analysis_start_col_idx=data_cols_count+2;analysis_col_1=chr(ord('A')+analysis_start_col_idx);analysis_col_2=chr(ord('A')+analysis_start_col_idx+1);analysis_col_3=chr(ord('A')+analysis_start_col_idx+2)
+            missing_cols=[col for col,letter in[('STOP',stop_col),('STOP EVENT',stop_event_col),('TIME BUCKET',time_bucket_col),('TIME DIFF SEC',time_diff_col_dyn),('CUMULATIVE COUNT',cum_count_col_dyn),('RUN DURATION',run_dur_col_dyn),('SHOT TIME',shot_time_col_dyn)]if letter is None]
+            if missing_cols:ws.write('A5',f"Error: Missing columns: {', '.join(missing_cols)}",error_format)
+            table_formulas_ok=not missing_cols
+            ws.merge_range('A1:B1',data['equipment_code'],header_format);ws.write('A2','Date',label_format);ws.write('B2',f"{data['start_time']:%Y-%m-%d} to {data['end_time']:%Y-%m-%d}");ws.write('A3','Method',label_format);ws.write('B3','Every Shot');ws.write('E1','Mode CT',sub_header_format);mode_ct_val=data.get('mode_ct',0);ws.write('E2',mode_ct_val if isinstance(mode_ct_val,(int,float))else 0,secs_format);ws.write('F1','Outside L1',sub_header_format);ws.write('G1','Outside L2',sub_header_format);ws.write('H1','IDLE',sub_header_format);ws.write('F2','Lower Limit',label_format);ws.write('G2','Upper Limit',label_format);ws.write('H2','Stops',label_format)
+            lower_limit_val=data.get('lower_limit');upper_limit_val=data.get('upper_limit');ws.write('F3',lower_limit_val if lower_limit_val is not None else'N/A',secs_format);ws.write('G3',upper_limit_val if upper_limit_val is not None else'N/A',secs_format)
+            if stop_col:ws.write_formula('H3',f"=SUM({stop_col}{start_row}:{stop_col}{start_row+len(df_run)-1})",sub_header_format)
+            else:ws.write('H3','N/A',sub_header_format)
+            ws.write('K1','Total Shot Count',label_format);ws.write('L1','Normal Shot Count',label_format);ws.write_formula('K2',f"=COUNTA({first_col_for_count}{start_row}:{first_col_for_count}{start_row+len(df_run)-1})",sub_header_format);ws.write_formula('L2',f"=K2-H3",sub_header_format);ws.write('K4','Efficiency',label_format);ws.write('L4','Stop Events',label_format);ws.write_formula('K5',f"=L2/K2",percent_format)
+            if stop_event_col:ws.write_formula('L5',f"=SUM({stop_event_col}{start_row}:{stop_event_col}{start_row+len(df_run)-1})",sub_header_format)
+            else:ws.write('L5','N/A',sub_header_format)
+            ws.write('F5','Tot Run Time (Calc)',label_format);ws.write('G5','Tot Down Time',label_format);ws.write('H5','Tot Prod Time',label_format)
+            ws.write('F6',data.get('total_runtime_sec',0)/86400,time_format);ws.write('G6',data.get('tot_down_time_sec',0)/86400,time_format);ws.write('H6',data.get('production_time_sec',0)/86400,time_format)
+            ws.write_formula('F7',f"=IFERROR(H6/F6, 0)",percent_format); ws.write_formula('G7',f"=IFERROR(G6/F6, 0)",percent_format); ws.write('H7','',data_format) # Added IFERROR
+            ws.merge_range('K8:L8','Reliability Metrics',header_format);ws.write('K9','MTTR (Avg)',label_format);ws.write('L9',data.get('mttr_min',0),mins_format);ws.write('K10','MTBF (Avg)',label_format);ws.write('L10',data.get('mtbf_min',0),mins_format);ws.write('K11','Time to First DT',label_format);ws.write('L11',data.get('time_to_first_dt_min',0),mins_format);ws.write('K12','Avg Cycle Time',label_format);ws.write('L12',data.get('avg_cycle_time_sec',0),secs_format)
+            ws.merge_range(f'{analysis_col_1}14:{analysis_col_3}14','Time Bucket Analysis',header_format);ws.write(f'{analysis_col_1}15','Bucket',sub_header_format);ws.write(f'{analysis_col_2}15','Duration Range',sub_header_format);ws.write(f'{analysis_col_3}15','Events Count',sub_header_format);max_bucket=20
+            for i in range(1,max_bucket+1):
+                ws.write(f'{analysis_col_1}{15+i}',i,sub_header_format);ws.write(f'{analysis_col_2}{15+i}',f"{(i-1)*20} - {i*20} min",sub_header_format)
+                # --- EXCEL FORMULA FIX for Time Bucket Count ---
+                # Check if time_bucket_col exists before writing formula
+                if time_bucket_col:
+                    # Correct COUNTIF: Compare numeric bucket index (i) with the TIME BUCKET column
+                    ws.write_formula(f'{analysis_col_3}{15+i}',f'=COUNTIF({bucket_col_dyn}{start_row}:{bucket_col_dyn}{start_row + len(df_run) - 1},{i})',sub_header_format)
+                else:
+                    ws.write(f'{analysis_col_3}{15+i}','N/A',sub_header_format)
+            ws.write(f'{analysis_col_2}{16+max_bucket}','Grand Total',sub_header_format);ws.write_formula(f'{analysis_col_3}{16+max_bucket}',f"=SUM({analysis_col_3}16:{analysis_col_3}{15+max_bucket})",sub_header_format)
+            ws.write_row('A18',df_run.columns,header_format)
+            if'SHOT TIME'in df_run.columns:df_run['SHOT TIME']=pd.to_datetime(df_run['SHOT TIME'],errors='coerce').dt.tz_localize(None)
+            df_run.fillna('',inplace=True)
+            for i,row_values in enumerate(df_run.to_numpy()):
+                current_row_excel_idx=start_row+i
+                for c_idx,value in enumerate(row_values):
+                    col_name=df_run.columns[c_idx]
+                    # --- Skip writing raw values for formula columns in Excel ---
+                    if col_name in['CUMULATIVE COUNT','RUN DURATION','TIME BUCKET','TIME DIFF SEC']:continue
+                    cell_format=data_format
+                    if isinstance(value,pd.Timestamp):
+                        if pd.notna(value):ws.write_datetime(current_row_excel_idx-1,c_idx,value,datetime_format)
+                        else:ws.write_string(current_row_excel_idx-1,c_idx,'',data_format)
+                    elif isinstance(value,(bool,np.bool_)):ws.write_number(current_row_excel_idx-1,c_idx,int(value),data_format)
+                    elif isinstance(value,(int,float,np.number)):
+                        if col_name in['ACTUAL CT','adj_ct_sec']:cell_format=secs_format
+                        if np.isfinite(value): ws.write_number(current_row_excel_idx-1,c_idx,value,cell_format)
+                        else: ws.write_string(current_row_excel_idx-1, c_idx, '', data_format) # Handle NaN/Inf
+                    else:ws.write(current_row_excel_idx-1,c_idx,value,data_format) # Write strings, etc.
+
+            if table_formulas_ok:
+                # --- Get column indices safely ---
+                time_diff_col_idx = df_run.columns.get_loc('TIME DIFF SEC') if 'TIME DIFF SEC' in df_run.columns else -1
+                cum_count_col_idx = df_run.columns.get_loc('CUMULATIVE COUNT') if 'CUMULATIVE COUNT' in df_run.columns else -1
+                run_dur_col_idx = df_run.columns.get_loc('RUN DURATION') if 'RUN DURATION' in df_run.columns else -1
+                bucket_col_idx = df_run.columns.get_loc('TIME BUCKET') if 'TIME BUCKET' in df_run.columns else -1
+
+                # --- Check if all necessary indices were found ---
+                if -1 in [time_diff_col_idx, cum_count_col_idx, run_dur_col_idx, bucket_col_idx]:
+                    ws.write('A6', "Error: Could not find all columns needed for formulas.", error_format)
+                else:
+                    for i in range(len(df_run)):
+                        row_num=start_row+i;prev_row=row_num-1
+
+                        # Helper column formula (calculates cumulative time within a run)
+                        if i==0:helper_formula=f'=IF({stop_col}{row_num}=0,{time_diff_col_dyn}{row_num},0)'
+                        else:helper_formula=f'=IF({stop_event_col}{row_num}=1,0,IF({stop_col}{row_num}=0,{time_diff_col_dyn}{row_num},{helper_col_letter}{prev_row}))' # Corrected helper logic
+                        ws.write_formula(f'{helper_col_letter}{row_num}',helper_formula) # Write helper formula for current row
+
+                        # Time Diff Sec (Excel calculation)
+                        if i==0:
+                            # Use the pre-calculated value for the first row (or 0 if not available)
+                            first_diff = data['processed_df_original']['time_diff_sec'].iloc[0] if 'processed_df_original' in data and not data['processed_df_original'].empty else 0
+                            ws.write_number(row_num-1, time_diff_col_idx, first_diff, secs_format)
+                        else:
+                            formula=f'=IFERROR(({shot_time_col_dyn}{row_num}-{shot_time_col_dyn}{prev_row})*86400, 0)'; # Calculate diff, default to 0 on error
+                            ws.write_formula(row_num-1,time_diff_col_idx,formula,secs_format)
+
+                        # Cumulative Count / Run Duration String
+                        cum_count_formula=f'=COUNTIF(${stop_event_col}${start_row}:${stop_event_col}{row_num},TRUE)&"/"&IF({stop_event_col}{row_num}=TRUE,"0 sec",TEXT({helper_col_letter}{row_num}/86400,"[h]:mm:ss"))'
+                        ws.write_formula(row_num-1,cum_count_col_idx,cum_count_formula,data_format)
+
+                        # Run Duration (Numeric, formatted as time)
+                        # This should show the duration of the *completed* run ending *before* the current stop event
+                        run_dur_formula = f'=IF({stop_event_col}{row_num}=TRUE, IF({row_num}>{start_row}, {helper_col_letter}{prev_row}/86400, 0), "")'
+                        ws.write_formula(row_num-1,run_dur_col_idx,run_dur_formula,time_format)
+
+                        # Time Bucket (Numeric index of the bucket)
+                        time_bucket_formula = f'=IF({stop_event_col}{row_num}=TRUE, IF({row_num}>{start_row}, IFERROR(FLOOR({helper_col_letter}{prev_row}/60/20,1)+1, ""), ""), "")'
+                        ws.write_formula(row_num-1,bucket_col_idx,time_bucket_formula,data_format) # Write as number, format later if needed
+
+            else: # If essential columns for formulas were missing
+                if cum_count_col_dyn: ws.write(f'{cum_count_col_dyn}{start_row}',"Formula Error",error_format)
+                if time_diff_col_dyn: ws.write(f'{time_diff_col_dyn}{start_row}',"Formula Error",error_format)
+                if run_dur_col_dyn: ws.write(f'{run_dur_col_dyn}{start_row}', "Formula Error", error_format)
+                if bucket_col_dyn: ws.write(f'{bucket_col_dyn}{start_row}', "Formula Error", error_format)
+
+            # Auto-adjust column widths
+            for i,col_name in enumerate(df_run.columns):
+                # Calculate max width needed for header and data
+                try:
+                    # Convert potential numeric/datetime data to string for length check, handle NaN safely
+                    max_len_data = df_run[col_name].astype(str).map(len).max()
+                    # Ensure max_len_data is a number, default to 0 if NaN
+                    max_len_data = 0 if pd.isna(max_len_data) else max_len_data
+                    # Compare with header length
+                    width = max(len(str(col_name)), int(max_len_data))
+                except Exception: # Fallback if error during length calculation
+                    width=len(str(col_name))
+                # Apply width limit and padding
+                ws.set_column(i,i,min(width + 2, 40)) # Limit max width to 40
+
+    return output.getvalue()
+
+
+# --- Wrapper Function (Uses UNIFIED RunRateCalculator) ---
+def generate_run_based_excel_export(df_for_export, tolerance, downtime_gap_tolerance, run_interval_hours, tool_id_selection):
+    try:
+        # Use main calculator for base processing AND run splitting
+        base_calc = RunRateCalculator(df_for_export, tolerance, downtime_gap_tolerance, analysis_mode='aggregate') # Use aggregate initially
+        df_processed = base_calc.results.get("processed_df", pd.DataFrame())
+
+        if df_processed.empty:
+            st.error("Could not process data for Excel export. Check input data.")
+            return BytesIO().getvalue()
+
+        # --- Split into runs using time_diff_sec ---
+        split_col = 'time_diff_sec'
+        if split_col not in df_processed.columns:
+            st.error(f"'{split_col}' column not found after initial processing. Cannot split into runs.")
+            return BytesIO().getvalue()
+
+        is_new_run = df_processed[split_col] > (run_interval_hours * 3600)
+        # Ensure run_id starts from 1 correctly, handle potential empty is_new_run Series
+        if not is_new_run.empty:
+            # cumsum() creates groups, add 1 to start from 1.
+            df_processed['run_id'] = is_new_run.cumsum() + 1
+        else: # Handle case with only one row or no time differences
+            df_processed['run_id'] = 1
+
+    except Exception as e:
+        st.error(f"Error during initial data processing or run splitting for Excel: {e}")
+        st.text(traceback.format_exc())
+        return BytesIO().getvalue()
+
+
+    all_runs_data = {}
+    # Define base columns + formula placeholders
+    # Ensure 'tool_id' is included if available in the original data
+    desired_columns_base = ['SUPPLIER NAME', 'tool_id', 'SESSION ID', 'SHOT ID', 'shot_time','APPROVED CT', 'ACTUAL CT']
+    # Columns calculated by RunRateCalculator (will be present after recalculation)
+    calculated_cols = ['time_diff_sec', 'stop_flag', 'stop_event', 'run_group', 'adj_ct_sec'] # adj_ct_sec needed for metrics
+    formula_columns = ['CUMULATIVE COUNT', 'RUN DURATION', 'TIME BUCKET'] # Placeholders for Excel formulas
+
+    # Final columns in desired Excel order (match generate_excel_report function)
+    final_desired_renamed = ['SUPPLIER NAME', 'EQUIPMENT CODE', 'SESSION ID', 'SHOT ID', 'SHOT TIME','APPROVED CT', 'ACTUAL CT', 'TIME DIFF SEC', 'STOP', 'STOP EVENT', 'run_group','CUMULATIVE COUNT', 'RUN DURATION', 'TIME BUCKET']
+
+    # Loop through runs identified by run_id
+    for run_id, df_run_raw in df_processed.groupby('run_id'):
+        try:
+            # --- Recalculate THIS run using the SAME unified logic ---
+            # Use 'aggregate' mode here as each run is treated independently for its metrics/limits
+            run_calculator = RunRateCalculator(df_run_raw.copy(), tolerance, downtime_gap_tolerance, analysis_mode='aggregate')
+            run_results = run_calculator.results
+
+            if not run_results or 'processed_df' not in run_results or run_results['processed_df'].empty:
+                st.warning(f"Skipping empty/invalid Run ID {run_id} for Excel.")
+                continue
+
+            # This is the DataFrame with calculated cols (stop_flag, etc.) for *this run*
+            export_df = run_results['processed_df'].copy()
+            # Store original time_diff_sec for first row handling in Excel export
+            run_results['processed_df_original'] = df_run_raw[['time_diff_sec']].copy()
+
+
+            # --- Add general run info to the results dict (for Excel header) ---
+            run_results['equipment_code'] = df_run_raw['tool_id'].iloc[0] if 'tool_id' in df_run_raw.columns and not df_run_raw['tool_id'].empty else tool_id_selection
+            run_results['start_time'] = df_run_raw['shot_time'].min()
+            run_results['end_time'] = df_run_raw['shot_time'].max()
+            # Add scalar lower/upper limits calculated for this specific run
+            run_results['lower_limit'] = run_results.get('lower_limit', 0) # From recalculation
+            run_results['upper_limit'] = run_results.get('upper_limit', np.inf) # From recalculation
+
+            # --- Prepare the DataFrame specific for this Excel sheet ---
+            # Select base columns that exist in the original raw data for this run
+            cols_to_keep = [col for col in desired_columns_base if col in df_run_raw.columns]
+            final_export_df = df_run_raw[cols_to_keep].copy()
+
+            # Merge calculated columns from the re-processed run_results['processed_df']
+            calculated_cols_to_merge = [col for col in calculated_cols if col in export_df.columns]
+            final_export_df = final_export_df.merge(export_df[calculated_cols_to_merge], left_index=True, right_index=True, how='left')
+
+
+            # Add placeholders for formula columns
+            for col in formula_columns:
+                final_export_df[col] = '' # Initialize as empty string
+
+            # Rename columns for Excel
+            final_export_df.rename(columns={'tool_id': 'EQUIPMENT CODE', 'shot_time': 'SHOT TIME','time_diff_sec': 'TIME DIFF SEC', 'stop_flag': 'STOP', 'stop_event': 'STOP EVENT'}, inplace=True)
+
+            # Ensure all final desired columns exist, adding blanks if necessary, and reorder
+            for col in final_desired_renamed:
+                if col not in final_export_df.columns: final_export_df[col] = ''
+            final_export_df = final_export_df[[col for col in final_desired_renamed if col in final_export_df.columns]] # Reorder
+
+            # Store the prepared DataFrame back into the results dict for this run
+            run_results['processed_df'] = final_export_df
+            all_runs_data[run_id] = run_results # Add run results to the main dict
+
+        except Exception as e:
+            st.warning(f"Could not process Run ID {run_id} for Excel: {e}")
+            st.text(traceback.format_exc())
+            continue # Skip to the next run
+
+    if not all_runs_data:
+        st.error("No valid runs were processed for the Excel export.")
+        return BytesIO().getvalue()
+
+    # Generate the Excel file using the dedicated reporting function
+    try:
+        excel_data = generate_excel_report(all_runs_data, tolerance)
+        return excel_data
+    except Exception as e:
+        st.error(f"Error generating the final Excel file: {e}")
+        st.text(traceback.format_exc())
+        return BytesIO().getvalue()
+
+# --- End of functions to add ---
 
 def render_dashboard(df_tool, tool_id_selection):
     st.sidebar.title("Dashboard Controls ⚙️")
