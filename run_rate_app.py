@@ -924,11 +924,15 @@ def render_dashboard(df_tool, tool_id_selection):
             else: complete_runs=run_durations_period
 
             c1, c2 = st.columns(2)
-            with c1: # Bucket analysis always uses 'complete_runs' from the overall period
+            with c1:
                 st.subheader("Total Bucket Analysis (Across Runs/Period)")
-                if not complete_runs.empty and "time_bucket" in complete_runs.columns: b_counts=complete_runs["time_bucket"].value_counts().reindex(results["bucket_labels"],fill_value=0);fig_b=px.bar(b_counts,title="Total Time Bucket Analysis",labels={"index":"Duration(min)","value":"Occurrences"},text_auto=True,color=b_counts.index,color_discrete_map=results["bucket_color_map"]).update_layout(legend_title_text='Duration');st.plotly_chart(fig_b,use_container_width=True);
-                with st.expander("View Bucket Data"):st.dataframe(complete_runs)
-                else: st.info("No complete runs.")
+                if not complete_runs.empty and "time_bucket" in complete_runs.columns:
+                    # ... code for fig_b ...
+                    st.plotly_chart(fig_b, use_container_width=True)
+                    with st.expander("View Bucket Data"):
+                        st.dataframe(complete_runs)
+                else:
+                    st.info("No complete runs.")
 
             with c2: # Stability Trend
                 if trend_level == "Run": # Plot run stability
