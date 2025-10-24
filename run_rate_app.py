@@ -937,9 +937,12 @@ def render_dashboard(df_tool, tool_id_selection):
             with c2: # Stability Trend
                 if trend_level == "Run": # Plot run stability
                      st.subheader("Stability per Production Run")
-                     if run_summary_df is not None and not run_summary_df.empty: plot_trend_chart(run_summary_df,'RUN ID','STABILITY %',"Stability per Run","Run ID","Stability (%)",is_stability=True);
-                     with st.expander("View Stability Data"):st.dataframe(run_summary_df)
-                     else: st.info(f"No runs to analyze.")
+                     if run_summary_df is not None and not run_summary_df.empty:
+                     # ... code to plot trend chart ...
+                     with st.expander("View Stability Data"):
+                         st.dataframe(run_summary_df)
+                 else:
+                     st.info(f"No runs to analyze.") 
                 else: # Plot Daily/Weekly stability
                      st.subheader(f"{trend_level} Stability Trend")
                      if summary_df is not None and not summary_df.empty: x_col='date'if trend_level=="Daily"else'week';plot_trend_chart(summary_df,x_col,'stability_index',f"{trend_level} Stability Trend",trend_level,"Stability (%)",is_stability=True);
