@@ -341,7 +341,7 @@ def generate_detailed_analysis(analysis_df, overall_stability, overall_mttr, ove
 def generate_bucket_analysis(complete_runs, bucket_labels):
     # Default message if no data
     if complete_runs.empty or 'duration_min' not in complete_runs.columns:
-        return "No completed runs to analyze for long-run trends."
+    return "No completed runs to analyze for long-run trends."
 
     total_runs = len(complete_runs)
     long_buckets = [] # Initialize empty list
