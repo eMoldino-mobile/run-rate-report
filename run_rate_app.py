@@ -1089,7 +1089,7 @@ def render_dashboard(df_tool, tool_id_selection):
                  # --- FIX 1: Rename the original numeric 'Total Shots' ---
                 if 'Total Shots' in d_df.columns:
                      d_df.rename(columns={'Total Shots': 'Total Shots Numeric'}, inplace=True)
-                 else:
+                else:
                      # Handle case where 'Total Shots' might already be missing or named differently
                      # Add 'Total Shots Numeric' based on 'total_shots' if it exists
                      if 'total_shots' in d_df.columns:
