@@ -1027,7 +1027,7 @@ def render_dashboard(df_tool, tool_id_selection):
 
     analysis_level = st.sidebar.radio(
         "Select Analysis Level",
-        ["Daily", "Daily (by Run)", "Weekly", "Monthly", "Custom Period", "Weekly (by Run)", "Monthly (by Run)", "Custom Period (by Run)"]
+        options=["Daily", "Weekly (by Run)", "Monthly (by Run)", "Custom Period (by Run)"]
     )
 
     st.sidebar.markdown("---")
