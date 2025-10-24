@@ -798,50 +798,41 @@ def generate_excel_report(all_runs_data, tolerance):
                     prev_row = row_num - 1 # Previous Excel row number (e.g., 18, 19...)
                     current_row_zero_idx = start_row + i - 1 # 0-based index for write_formula
 
-                    # --- REVISED Helper Column Formula v3 (Simpler Logic) ---
-                    # If it's a STOP EVENT, reset to 0.
-                    # If it's NOT a stop, add current TIME DIFF to previous value.
-                    # If it IS a stop but NOT an event, just carry previous value forward.
-                    if i == 0: # First data row (Excel row 19)
-                         # If first shot is NOT a stop, uptime is its time_diff, else 0.
-                         helper_formula = f'=IF({stop_col}{row_num}=0, {time_diff_col_dyn}{row_num}, 0)'
-                    else: # Subsequent rows
-                         # If Stop Event (J=1), reset to 0.
-                         # Else if Normal Shot (I=0), add current time diff (H) to previous helper value.
-                         # Else (Stop but not Event, I=1, J=0), carry previous helper value.
-                         helper_formula = f'=IF({stop_event_col}{row_num}=1, 0, IF({stop_col}{row_num}=0, {helper_col_letter}{prev_row}+{time_diff_col_dyn}{row_num}, {helper_col_letter}{prev_row}))'
+                    # --- Time Diff Sec Formula (Restored) ---
+                    if i == 0: # First data row needs special handling
+                         # Use the pre-calculated value passed from the wrapper function
+                         first_diff_val = data.get('first_shot_time_diff', 0)
+                         ws.write_number(current_row_zero_idx, time_diff_col_idx, first_diff_val, secs_format)
+                    else: # Subsequent data rows - Write the formula
+                         formula = f'=IFERROR(({shot_time_col_dyn}{row_num}-{shot_time_col_dyn}{prev_row})*86400, 0)'
+                         ws.write_formula(current_row_zero_idx, time_diff_col_idx, formula, secs_format)
+                    # --- End Time Diff Sec ---
 
-                    # Write helper formula to its column (index data_cols_count)
-                    ws.write_formula(current_row_zero_idx, data_cols_count, helper_formula)
-
-                    # Time Diff Sec Formula
-                    # --- REVISED Helper Column Formula v3 ---
-                    if i == 0: # First data row (Excel row 19)
-                        # Uptime starts with this shot's duration IF it's not a stop
+                    # --- Helper Column Formula (Revised v3 Logic) ---
+                    if i == 0:
                         helper_formula = f'=IF({stop_col}{row_num}=0, {time_diff_col_dyn}{row_num}, 0)'
-                    else: # Subsequent rows
-                        # If Stop Event (K=1) starts NOW, reset uptime accumulation to 0 for the *next* step.
-                        # If Normal Shot (J=0), ADD current time diff (I) to PREVIOUS helper value.
-                        # If Stop but not Event (J=1, K=0), just carry forward PREVIOUS helper value.
+                    else:
                         helper_formula = f'=IF({stop_event_col}{row_num}=1, 0, IF({stop_col}{row_num}=0, {helper_col_letter}{prev_row}+{time_diff_col_dyn}{row_num}, {helper_col_letter}{prev_row}))'
-
                     # Write helper formula to its column (index data_cols_count)
                     ws.write_formula(current_row_zero_idx, data_cols_count, helper_formula)
-                    # --- END REVISED Helper Formula v3 ---
+                    # --- End Helper Formula ---
 
-                    # Cumulative Count / Run Duration String Formula
-                    cum_count_formula = f'=COUNTIF(${stop_event_col}${start_row}:${stop_event_col}{row_num},TRUE)&"/"&IF({stop_event_col}{row_num}=TRUE,"0 sec",TEXT({helper_col_letter}{row_num}/86400,"[h]:mm:ss"))'
+                    # --- Cumulative Count / Run Duration String Formula ---
+                    # Uses Helper Col from CURRENT row for display string
+                    cum_count_formula = f'=COUNTIF(${stop_event_col}${start_row}:${stop_event_col}{row_num},1)&"/"&IF({stop_event_col}{row_num}=1,"0 sec",TEXT({helper_col_letter}{row_num}/86400,"[h]:mm:ss"))'
                     ws.write_formula(current_row_zero_idx, cum_count_col_idx, cum_count_formula, data_format)
 
-                    # Run Duration Formula
-                    run_dur_formula = f'=IF({stop_event_col}{row_num}=TRUE, IF({row_num}>{start_row}, {helper_col_letter}{prev_row}/86400, 0), "")'
+                    # --- Run Duration Formula ---
+                    # Uses Helper Col value from PREVIOUS row
+                    run_dur_formula = f'=IF({stop_event_col}{row_num}=1, IF({row_num}>{start_row}, {helper_col_letter}{prev_row}/86400, 0), "")'
                     ws.write_formula(current_row_zero_idx, run_dur_col_idx, run_dur_formula, time_format)
 
-                    # Time Bucket Formula
-                    time_bucket_formula = f'=IF({stop_event_col}{row_num}=TRUE, IF({row_num}>{start_row}, IFERROR(FLOOR({helper_col_letter}{prev_row}/60/20,1)+1, ""), ""), "")'
+                    # --- Time Bucket Formula ---
+                    # Uses Helper Col value from PREVIOUS row
+                    time_bucket_formula = f'=IF({stop_event_col}{row_num}=1, IF({row_num}>{start_row}, IFERROR(FLOOR({helper_col_letter}{prev_row}/60/20,1)+1, ""), ""), "")'
                     ws.write_formula(current_row_zero_idx, bucket_col_idx, time_bucket_formula, data_format)
-            else:
-                 # Optionally write error messages in first data row if formulas can't be written
+
+            else: # If essential columns for formulas were missing
                  if cum_count_col_dyn: ws.write(f'{cum_count_col_dyn}{start_row}', "Formula Error", error_format)
                  if time_diff_col_dyn: ws.write(f'{time_diff_col_dyn}{start_row}', "Formula Error", error_format)
                  if run_dur_col_dyn: ws.write(f'{run_dur_col_dyn}{start_row}', "Formula Error", error_format)
