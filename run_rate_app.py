@@ -1034,8 +1034,8 @@ def render_dashboard(df_tool, tool_id_selection):
         with col2:
             st.download_button(
                 label="📥 Export to Excel",
-                data=create_excel_export(df_view, results, tolerance, run_interval_hours, analysis_level, tool_id_selection),
-                file_name=f"Run_Rate_Analysis_{tool_id_selection.replace(' / ', '_').replace(' ', '_')}_{analysis_level.replace(' ', '_')}.xlsx",
+                data=generate_run_based_excel_export(df_view.copy(), tolerance, downtime_gap_tolerance, run_interval_hours, tool_id_selection),
+                file_name=f"Run_Based_Report_{tool_id_selection.replace(' / ', '_').replace(' ', '_')}_{analysis_level.replace(' ', '_')}_{datetime.now():%Y%m%d}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
