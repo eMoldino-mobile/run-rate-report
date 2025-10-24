@@ -1057,23 +1057,27 @@ def render_dashboard(df_tool, tool_id_selection):
                     components.html(html_content, height=400, scrolling=True)
 
         # --- Breakdown Tables ---
-        # Show daily/weekly table *only* if trend_summary_df represents daily or weekly data
-        if trend_summary_df is not None and not trend_summary_df.empty and ('date' in trend_summary_df.columns or 'week' in trend_summary_df.columns):
-            table_title = "View Daily Breakdown Table" if 'date' in trend_summary_df.columns else "View Weekly Breakdown Table"
-            with st.expander(table_title, expanded=False):
-                d_df = trend_summary_df.copy()
-                if 'date' in d_df.columns:
-                    d_df['date'] = pd.to_datetime(d_df['date']).dt.strftime('%A, %b %d')
-                    d_df.rename(columns={'date': 'Day', 'stability_index': 'Stability (%)', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'stops': 'Stops', 'total_shots': 'Total Shots'}, inplace=True)
-                    cols_to_show = [col for col in ['Day', 'Stability (%)', 'MTTR (min)', 'MTBF (min)', 'Stops', 'Total Shots'] if col in d_df.columns]
-                elif 'week' in d_df.columns:
-                    d_df.rename(columns={'week': 'Week', 'stability_index': 'Stability (%)', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'stops': 'Stops', 'total_shots': 'Total Shots'}, inplace=True)
-                    cols_to_show = [col for col in ['Week', 'Stability (%)', 'MTTR (min)', 'MTBF (min)', 'Stops', 'Total Shots'] if col in d_df.columns]
-                else:
-                    cols_to_show = [] # Should not happen based on outer condition
-
-                if cols_to_show:
-                    st.dataframe(d_df[cols_to_show].style.format({'Stability (%)': '{:.1f}', 'MTTR (min)': '{:.1f}', 'MTBF (min)': '{:.1f}'}), use_container_width=True)
+            # --- Run Breakdown Table ---
+            # Show this table *whenever* a 'by Run' mode is selected and the run summary exists
+            with st.expander("View Run Breakdown Table", expanded=False):
+                d_df = run_summary_df_for_trends.copy() # Use the already calculated and renamed df
+                # Ensure start/end times are datetime objects before formatting
+                d_df['start_time'] = pd.to_datetime(d_df['start_time'], errors='coerce')
+                d_df['end_time'] = pd.to_datetime(d_df['end_time'], errors='coerce')
+                d_df = d_df.dropna(subset=['start_time', 'end_time'])
+    
+                if not d_df.empty:
+                     # --- FIX 1: Rename the original numeric 'Total Shots' ---
+                    if 'Total Shots' in d_df.columns:
+                         d_df.rename(columns={'Total Shots': 'Total Shots Numeric'}, inplace=True)
+                    else:
+                         # Handle case where 'Total Shots' might already be missing or named differently
+                         # Add 'Total Shots Numeric' based on 'total_shots' if it exists
+                         if 'total_shots' in d_df.columns:
+                              d_df['Total Shots Numeric'] = pd.to_numeric(d_df['total_shots'], errors='coerce').fillna(0).astype(int)
+                         else: # Add a placeholder if no shots column found
+                              d_df['Total Shots Numeric'] = 0
+                              st.warning("Could not find 'Total Shots' or 'total_shots' for Run Breakdown Table.")
 
 
                 # Safely convert 'Total Shots Numeric' (now guaranteed to exist)
