@@ -702,35 +702,6 @@ def generate_excel_report(all_runs_data, tolerance):
             ws.write('G5', 'Tot Down Time', label_format)
             ws.write('H5', 'Tot Prod Time', label_format)
 
-            debug_downtime_val = data.get('tot_down_time_sec', 'KEY_MISSING')
-            # print(f"Run ID {run_id}: Value for 'tot_down_time_sec': {debug_downtime_val}") # Keep for debugging if needed
-            downtime_to_write = debug_downtime_val if isinstance(debug_downtime_val, (int, float)) else 0
-
-            ws.write('F6', data.get('total_runtime_sec', 0) / 86400, time_format) # Use calculated total
-            ws.write('G6', downtime_to_write / 86400, time_format) # Use calculated downtime
-            ws.write('H6', data.get('production_time_sec', 0) / 86400, time_format) # Use calculated production time
-
-            # Add Labels for Percentages in Row 7
-            ws.write('F4', 'Prod %', label_format) # Label above F7
-            ws.write('G4', 'Down %', label_format) # Label above G7
-            ws.write('H4', '', label_format) # Keep H4 empty or add another label if desired
-
-            # Write Percentage Formulas in Row 7
-            ws.write_formula('F7', f"=IFERROR(H6/F6, 0)", percent_format) # Production Time %
-            ws.write_formula('G7', f"=IFERROR(G6/F6, 0)", percent_format) # Downtime %
-            ws.write('H7','', data_format) # Keep H7 blank
-            # --- End Corrected Summary Layout ---
-            # Use pre-calculated values passed in the 'data' dictionary for this run
-            # --- DEBUGGING for G6 ---
-            debug_downtime_val = data.get('tot_down_time_sec', 'KEY_MISSING')
-            print(f"Run ID {run_id}: Value for 'tot_down_time_sec': {debug_downtime_val}")
-            downtime_to_write = debug_downtime_val if isinstance(debug_downtime_val, (int, float)) else 0
-            # --- END DEBUGGING ---
-            ws.write('F6', data.get('total_runtime_sec', 0) / 86400, time_format) # Use calculated total
-            ws.write('G6', downtime_to_write / 86400, time_format) # Use calculated downtime
-            ws.write('H6', data.get('production_time_sec', 0) / 86400, time_format) # Use calculated production time
-            ws.write_formula('F7', f"=IFERROR(H6/F6, 0)", percent_format); ws.write_formula('G7', f"=IFERROR(G6/F6, 0)", percent_format); ws.write('H7','',data_format)
-
             ws.merge_range('K8:L8', 'Reliability Metrics', header_format)
             ws.write('K9', 'MTTR (Avg)', label_format); ws.write('L9', data.get('mttr_min', 0), mins_format)
             ws.write('K10', 'MTBF (Avg)', label_format); ws.write('L10', data.get('mtbf_min', 0), mins_format)
@@ -794,22 +765,25 @@ def generate_excel_report(all_runs_data, tolerance):
                 bucket_col_idx = df_run.columns.get_loc('TIME BUCKET')
 
                 for i in range(len(df_run)):
-                    row_num = start_row + i # Excel row number (1-based)
-                    prev_row = row_num - 1 # Previous Excel row number
+                    row_num = start_row + i # Excel row number (1-based, e.g., 19, 20...)
+                    prev_row = row_num - 1 # Previous Excel row number (e.g., 18, 19...)
                     current_row_zero_idx = start_row + i - 1 # 0-based index for write_formula
 
-                    # --- REVISED Helper Column Formula v2 (Cumulative Uptime Seconds) ---
+                    # --- REVISED Helper Column Formula v3 (Simpler Logic) ---
+                    # If it's a STOP EVENT, reset to 0.
+                    # If it's NOT a stop, add current TIME DIFF to previous value.
+                    # If it IS a stop but NOT an event, just carry previous value forward.
                     if i == 0: # First data row (Excel row 19)
-                        # Uptime starts with this shot's duration IF it's not a stop
-                        helper_formula = f'=IF({stop_col}{row_num}=0, {time_diff_col_dyn}{row_num}, 0)'
+                         # If first shot is NOT a stop, uptime is its time_diff, else 0.
+                         helper_formula = f'=IF({stop_col}{row_num}=0, {time_diff_col_dyn}{row_num}, 0)'
                     else: # Subsequent rows
-                        # If the CURRENT row is the START of a STOP EVENT (K=1), the cumulative uptime for THIS run ends HERE, so reset to 0.
-                        # If the CURRENT row is NOT a stop (J=0), ADD its duration (I) to the PREVIOUS row's cumulative uptime (H).
-                        # If the CURRENT row IS a stop (J=1) but NOT the start (K=0), carry forward the PREVIOUS row's cumulative uptime (H) without adding the current duration.
-                        helper_formula = f'=IF({stop_event_col}{row_num}=1, 0, IF({stop_col}{row_num}=0, {helper_col_letter}{prev_row}+{time_diff_col_dyn}{row_num}, {helper_col_letter}{prev_row}))'
+                         # If Stop Event (J=1), reset to 0.
+                         # Else if Normal Shot (I=0), add current time diff (H) to previous helper value.
+                         # Else (Stop but not Event, I=1, J=0), carry previous helper value.
+                         helper_formula = f'=IF({stop_event_col}{row_num}=1, 0, IF({stop_col}{row_num}=0, {helper_col_letter}{prev_row}+{time_diff_col_dyn}{row_num}, {helper_col_letter}{prev_row}))'
 
-                    ws.write_formula(current_row_zero_idx, data_cols_count, helper_formula) # Write to Helper column H
-                    # --- END REVISED Helper Formula v2 ---
+                    # Write helper formula to its column (index data_cols_count)
+                    ws.write_formula(current_row_zero_idx, data_cols_count, helper_formula)
 
                     # Time Diff Sec Formula
                     if i == 0: # First data row needs special handling (use pre-calculated value or 0)
