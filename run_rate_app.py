@@ -721,6 +721,15 @@ def generate_excel_report(all_runs_data, tolerance):
             ws.write('H7','', data_format) # Keep H7 blank
             # --- End Corrected Summary Layout ---
             # Use pre-calculated values passed in the 'data' dictionary for this run
+            # --- DEBUGGING for G6 ---
+            debug_downtime_val = data.get('tot_down_time_sec', 'KEY_MISSING')
+            print(f"Run ID {run_id}: Value for 'tot_down_time_sec': {debug_downtime_val}")
+            downtime_to_write = debug_downtime_val if isinstance(debug_downtime_val, (int, float)) else 0
+            # --- END DEBUGGING ---
+            ws.write('F6', data.get('total_runtime_sec', 0) / 86400, time_format) # Use calculated total
+            ws.write('G6', downtime_to_write / 86400, time_format) # Use calculated downtime
+            ws.write('H6', data.get('production_time_sec', 0) / 86400, time_format) # Use calculated production time
+            ws.write_formula('F7', f"=IFERROR(H6/F6, 0)", percent_format); ws.write_formula('G7', f"=IFERROR(G6/F6, 0)", percent_format); ws.write('H7','',data_format)
 
             ws.merge_range('K8:L8', 'Reliability Metrics', header_format)
             ws.write('K9', 'MTTR (Avg)', label_format); ws.write('L9', data.get('mttr_min', 0), mins_format)
