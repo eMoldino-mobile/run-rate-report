@@ -792,7 +792,10 @@ def render_dashboard(df_tool, tool_id_selection):
             else: # Aggregate Mode
                 mode_val = summary_metrics.get('mode_ct', 0); mode_disp = f"{mode_val:.2f}" if isinstance(mode_val, (int,float)) else mode_val
                 c1.metric("Lower Limit (sec)", f"{summary_metrics.get('lower_limit', 0):.2f}")
-                with c2: with st.container(border=True): st.metric("Mode CT (sec)", mode_disp)
+                with c2:
+                    # Corrected indentation for the nested 'with'
+                    with st.container(border=True):
+                        st.metric("Mode CT (sec)", mode_disp)
                 c3.metric("Upper Limit (sec)", f"{summary_metrics.get('upper_limit', 0):.2f}")
 
         # --- [MODIFIED] Detailed Analysis HTML Call ---
