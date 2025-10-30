@@ -1566,6 +1566,12 @@ def calculate_risk_scores(df_all_tools):
         df_period['week'] = df_period['shot_time'].dt.isocalendar().week
         
         for week_num, df_week in df_period.groupby('week'):
+            # The df_week passed here still needs its 'run_label' set for calculate_run_summaries to work properly
+            # Re-label runs within the week context
+            is_new_run_week = df_week['time_diff_sec'] > RUN_INTERVAL_SEC
+            df_week['run_id_week'] = is_new_run_week.cumsum()
+            df_week['run_label'] = df_week['run_id_week'].apply(lambda x: f'WeekRun_{x}')
+            
             weekly_run_summary = calculate_run_summaries(df_week, 0.05, 2.0)
             if not weekly_run_summary.empty:
                 w_tot_runtime = weekly_run_summary['total_runtime_sec'].sum()
