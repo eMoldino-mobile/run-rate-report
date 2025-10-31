@@ -1025,18 +1025,6 @@ def calculate_risk_scores(df_all_tools):
     RUN_INTERVAL_HOURS = 8
     RUN_INTERVAL_SEC = RUN_INTERVAL_HOURS * 3600
 
-    TOOL_CLASSES = {
-        'Fast': (0, 60),     # 0-60 sec
-        'Medium': (60, 300),  # 1-5 min
-        'Slow': (300, np.inf) # 5+ min
-    }
-
-    def get_tool_class(mode_ct):
-        for class_name, (lower, upper) in TOOL_CLASSES.items():
-            if lower <= mode_ct < upper:
-                return class_name
-        return 'Medium'
-
     # First pass: Calculate metrics for each tool
     for tool_id, df_tool in df_all_tools.groupby(id_col):
         if df_tool.empty or len(df_tool) < 10:
@@ -1047,11 +1035,6 @@ def calculate_risk_scores(df_all_tools):
         if df_prepared is None or df_prepared.empty:
             continue
             
-        tool_mode_ct = calc_prepare.results.get('mode_ct', 0)
-        if not isinstance(tool_mode_ct, (int, float)):
-             tool_mode_ct = df_prepared['ACTUAL CT'].value_counts().idxmax() if not df_prepared.empty else 0
-        tool_class = get_tool_class(tool_mode_ct)
-
         end_date = df_prepared['shot_time'].max()
         start_date = end_date - timedelta(weeks=4)
         df_period = df_prepared[(df_prepared['shot_time'] >= start_date) & (df_prepared['shot_time'] <= end_date)].copy() # Use .copy()
@@ -1113,17 +1096,16 @@ def calculate_risk_scores(df_all_tools):
             'Weekly Stability': ' → '.join([f'{s:.0f}%' for s in weekly_stabilities]),
             'Trend': trend,
             'Analysis Period': f"{start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}",
-            'Tool Class': tool_class
         })
 
     if not initial_metrics:
         return pd.DataFrame()
 
-    # --- Second pass: Determine risk factors by comparing against CLASS averages ---
+    # --- Second pass: Determine risk factors by comparing against GLOBAL averages ---
     metrics_df = pd.DataFrame(initial_metrics)
     
-    class_averages = metrics_df.groupby('Tool Class')[['MTTR', 'MTBF']].mean()
-    class_averages = class_averages.reindex(list(TOOL_CLASSES.keys())).fillna(0)
+    overall_mttr_mean = metrics_df['MTTR'].mean()
+    overall_mtbf_mean = metrics_df['MTBF'].mean()
 
     final_risk_data = []
     for _, row in metrics_df.iterrows():
@@ -1131,26 +1113,18 @@ def calculate_risk_scores(df_all_tools):
         if row['Trend'] == "Declining":
             risk_score -= 20
         
-        tool_class = row['Tool Class']
-        if tool_class in class_averages.index:
-            class_mttr_mean = class_averages.loc[tool_class]['MTTR']
-            class_mtbf_mean = class_averages.loc[tool_class]['MTBF']
-        else:
-            class_mttr_mean = 0
-            class_mtbf_mean = 0
-
         primary_factor = "Low Stability"
         details = f"Overall stability is {row['Stability']:.1f}%."
         
         if row['Trend'] == "Declining":
             primary_factor = "Declining Trend"
             details = "Stability shows a consistent downward trend."
-        elif row['Stability'] < 70 and class_mttr_mean > 0 and row['MTTR'] > (class_mttr_mean * 1.2):
+        elif row['Stability'] < 70 and overall_mttr_mean > 0 and row['MTTR'] > (overall_mttr_mean * 1.2):
             primary_factor = "High MTTR"
-            details = f"Avg stop duration (MTTR) of {row['MTTR']:.1f} min is high for its class (Avg: {class_mttr_mean:.1f} min)."
-        elif row['Stability'] < 70 and class_mtbf_mean > 0 and row['MTBF'] < (class_mtbf_mean * 0.8):
+            details = f"Avg stop duration (MTTR) of {row['MTTR']:.1f} min is high (Avg: {overall_mttr_mean:.1f} min)."
+        elif row['Stability'] < 70 and overall_mtbf_mean > 0 and row['MTBF'] < (overall_mtbf_mean * 0.8):
             primary_factor = "Frequent Stops"
-            details = f"Frequent stops (MTBF of {row['MTBF']:.1f} min) is low for its class (Avg: {class_mtbf_mean:.1f} min)."
+            details = f"Frequent stops (MTBF of {row['MTBF']:.1f} min) is low (Avg: {overall_mtbf_mean:.1f} min)."
 
         final_risk_data.append({
             'Tool ID': row['Tool ID'],
@@ -1158,7 +1132,6 @@ def calculate_risk_scores(df_all_tools):
             'Risk Score': max(0, risk_score),
             'Primary Risk Factor': primary_factor,
             'Weekly Stability': row['Weekly Stability'],
-            'Tool Class': tool_class,
             'Details': details
         })
 
@@ -1177,14 +1150,13 @@ def render_risk_tower(df_all_tools):
         The Risk Tower evaluates each tool based on its performance over its own most recent 4-week period of operation. Here’s how the metrics are calculated:
 
         - **Analysis Period**: Shows the exact 4-week date range used for each tool's analysis, based on its latest available data.
-        - **Tool Class**: Tools are stratified by their Mode Cycle Time (Fast, Medium, Slow) so MTTR/MTBF comparisons are made against similar tools.
         - **Risk Score**: A performance indicator from 0-100.
             - It starts with the tool's overall **Stability Index (%)** for the period.
             - A **20-point penalty** is applied if the stability shows a declining trend.
         - **Primary Risk Factor**: Identifies the main issue affecting performance, prioritized as follows:
             1.  **Declining Trend**: If stability is worsening over time.
-            2.  **High MTTR**: If the average stop duration is significantly longer than the average *for its class*.
-            3.  **Frequent Stops**: If the time between stops (MTBF) is significantly shorter than the average *for its class*.
+            2.  **High MTTR**: If the average stop duration is significantly longer than the average of all tools.
+            3.  **Frequent Stops**: If the time between stops (MTBF) is significantly shorter than the average of all tools.
             4.  **Low Stability**: If none of the above are true, but overall stability is low.
         - **Color Coding**: Rows are colored based on the Risk Score:
             - <span style='background-color:#ff6961; color: black; padding: 2px 5px; border-radius: 5px;'>Red (0-50)</span>: High Risk
@@ -1205,7 +1177,7 @@ def render_risk_tower(df_all_tools):
         else: color = PASTEL_COLORS['red']
         return [f'background-color: {color}' for _ in row]
     
-    cols_order = ['Tool ID', 'Analysis Period', 'Tool Class', 'Risk Score', 'Primary Risk Factor', 'Weekly Stability', 'Details']
+    cols_order = ['Tool ID', 'Analysis Period', 'Risk Score', 'Primary Risk Factor', 'Weekly Stability', 'Details']
     display_df = risk_df[[col for col in cols_order if col in risk_df.columns]]
 
     st.dataframe(display_df.style.apply(style_risk, axis=1).format({'Risk Score': '{:.0f}'}), use_container_width=True, hide_index=True)
@@ -1342,7 +1314,9 @@ def render_dashboard(df_tool, tool_id_selection):
     # --- Run Filtering and Labeling ---
     if not df_view.empty:
         df_view = df_view.copy()
-        if 'run_id' in df_view.columns:
+        # Only add run_label if in a 'by Run' mode
+        if 'run_id' in df_view.columns and 'by Run' in analysis_level:
+            # Create a consistent integer-based index for runs within the current view
             df_view['run_id_local'] = df_view.groupby('run_id').ngroup()
             unique_run_ids = df_view.sort_values('shot_time')['run_id_local'].unique()
             run_label_map = {run_id: f"Run {i+1:03d}" for i, run_id in enumerate(unique_run_ids)}
@@ -1547,12 +1521,22 @@ def render_dashboard(df_tool, tool_id_selection):
         plot_shot_bar_chart(results['processed_df'], results.get('lower_limit'), results.get('upper_limit'), results.get('mode_ct'), time_agg=time_agg)
         
         with st.expander("View Shot Data Table", expanded=False):
-            df_shot_data = results['processed_df'][['shot_time', 'run_label', 'ACTUAL CT', 'time_diff_sec', 'stop_flag', 'stop_event']].copy()
-            df_shot_data.rename(columns={
-                'shot_time': 'Date / Time', 'run_label': 'Run ID',
+            # Conditionally select columns based on mode
+            cols_to_show = ['shot_time', 'ACTUAL CT', 'time_diff_sec', 'stop_flag', 'stop_event']
+            rename_map = {
+                'shot_time': 'Date / Time',
                 'time_diff_sec': 'Time Difference (sec)',
-                'stop_flag': 'Stop Flag', 'stop_event': 'Stop Event'
-            }, inplace=True)
+                'stop_flag': 'Stop Flag',
+                'stop_event': 'Stop Event'
+            }
+            
+            # Add run_label only if it exists (which it now only will in 'by Run' modes)
+            if 'run_label' in results['processed_df'].columns:
+                cols_to_show.append('run_label')
+                rename_map['run_label'] = 'Run ID'
+                
+            df_shot_data = results['processed_df'][cols_to_show].copy()
+            df_shot_data.rename(columns=rename_map, inplace=True)
             st.dataframe(df_shot_data)
         
         st.markdown("---")
