@@ -66,8 +66,8 @@ def get_renamed_summary_df(df_in):
         'STOPS': 'Stops',
         'total_shots': 'Total Shots',
         'Total Shots': 'Total Shots',
-        'total_downtime_sec': 'Total Downtime (sec)',
-        'uptime_min': 'Uptime (min)',
+        # 'total_downtime_sec': 'Total Downtime (sec)', # Removed - too granular
+        # 'uptime_min': 'Uptime (min)',              # Removed - too granular
         'mttr_min': 'MTTR (min)',
         'MTTR (min)': 'MTTR (min)',
         'mtbf_min': 'MTBF (min)',
@@ -87,7 +87,7 @@ def get_renamed_summary_df(df_in):
     # NEW: Re-order columns to a logical display order
     display_order = [
         'Hour', 'Date', 'Week', 'RUN ID', 'Stops', 'Total Shots',
-        'Uptime (min)', 'Total Downtime (sec)',
+        # 'Uptime (min)', 'Total Downtime (sec)', # Removed
         'Stability Index (%)', 'MTTR (min)', 'MTBF (min)'
     ]
     
@@ -1857,4 +1857,5 @@ with tab2:
         render_dashboard(df_for_dashboard, tool_id_for_dashboard_display)
     else:
         st.info("Select a specific Tool ID from the sidebar to view its dashboard.")
+
 
