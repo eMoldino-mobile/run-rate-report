@@ -91,7 +91,11 @@ class RunRateCalculator:
              hourly_summary['stability_index']
         )
         
-        return hourly_summary.fillna(0)
+        # NEW: Fillna(0) on all columns *except* 'stability_index'
+        cols_to_fill = [col for col in hourly_summary.columns if col != 'stability_index']
+        hourly_summary[cols_to_fill] = hourly_summary[cols_to_fill].fillna(0)
+        
+        return hourly_summary
 
     def _calculate_stop_durations(self, df):
         stop_durations = []
