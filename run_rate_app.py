@@ -47,7 +47,10 @@ def format_duration(seconds):
     return format_minutes_to_dhm(seconds / 60)
 
 def get_renamed_summary_df(df_in):
-    """Helper function to rename summary tables consistently."""
+    """
+    Helper function to rename summary tables consistently
+    AND select only the columns intended for display.
+    """
     if df_in is None or df_in.empty:
         return pd.DataFrame()
     
@@ -56,12 +59,13 @@ def get_renamed_summary_df(df_in):
     # Define all possible columns and their new names
     rename_map = {
         'hour': 'Hour',
-        'date': 'Date', # For weekly view
-        'week': 'Week', # For monthly view
-        'RUN ID': 'RUN ID', # For 'by Run' view
+        'date': 'Date',
+        'week': 'Week',
+        'RUN ID': 'RUN ID',
         'stops': 'Stops',
         'STOPS': 'Stops',
         'total_shots': 'Total Shots',
+        'Total Shots': 'Total Shots',
         'total_downtime_sec': 'Total Downtime (sec)',
         'uptime_min': 'Uptime (min)',
         'mttr_min': 'MTTR (min)',
@@ -72,11 +76,30 @@ def get_renamed_summary_df(df_in):
         'STABILITY %': 'Stability Index (%)'
     }
     
-    # Rename only columns that exist in the dataframe
-    cols_to_rename = {k: v for k, v in rename_map.items() if k in df.columns}
-    df.rename(columns=cols_to_rename, inplace=True)
+    # NEW: Filter df to only include columns that are keys in the map
+    cols_to_keep = [col for col in df.columns if col in rename_map]
+    df_filtered = df[cols_to_keep]
     
-    return df
+    # Rename only columns that exist in the dataframe
+    cols_to_rename = {k: v for k, v in rename_map.items() if k in df_filtered.columns}
+    df_renamed = df_filtered.rename(columns=cols_to_rename)
+    
+    # NEW: Re-order columns to a logical display order
+    display_order = [
+        'Hour', 'Date', 'Week', 'RUN ID', 'Stops', 'Total Shots',
+        'Uptime (min)', 'Total Downtime (sec)',
+        'Stability Index (%)', 'MTTR (min)', 'MTBF (min)'
+    ]
+    
+    # Get the intersection of columns we have and the desired order
+    final_cols = [col for col in display_order if col in df_renamed.columns]
+    
+    # Add any columns that were renamed but not in the display_order list (as a fallback)
+    for col in df_renamed.columns:
+        if col not in final_cols:
+            final_cols.append(col)
+            
+    return df_renamed[final_cols]
 
 # ==============================================================================
 # --- 2. CORE CALCULATION ENGINE ---
@@ -1827,4 +1850,5 @@ with tab2:
         render_dashboard(df_for_dashboard, tool_id_for_dashboard_display)
     else:
         st.info("Select a specific Tool ID from the sidebar to view its dashboard.")
+
 
