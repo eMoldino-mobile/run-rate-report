@@ -91,6 +91,8 @@ class RunRateCalculator:
              hourly_summary['stability_index']
         )
         
+        # OLD: return hourly_summary.fillna(0)
+        
         # NEW: Fillna(0) on all columns *except* 'stability_index'
         cols_to_fill = [col for col in hourly_summary.columns if col != 'stability_index']
         hourly_summary[cols_to_fill] = hourly_summary[cols_to_fill].fillna(0)
@@ -215,7 +217,7 @@ class RunRateCalculator:
         for i, label in enumerate(red_labels): bucket_color_map[label] = reds[i % len(reds)]
         for i, label in enumerate(blue_labels): bucket_color_map[label] = blues[i % len(blues)]
         for i, label in enumerate(green_labels): bucket_color_map[label] = greens[i % len(greens)]
-            
+                
         # --- Calcs needed specifically for the Excel Exporter ---
         avg_cycle_time_sec = production_time_sec / normal_shots if normal_shots > 0 else 0
         
@@ -366,7 +368,7 @@ def plot_trend_chart(df, x_col, y_col, title, x_title, y_title, y_range=[0, 101]
     plot_df = df.dropna(subset=[y_col])
     
     fig.add_trace(go.Scatter(x=plot_df[x_col], y=plot_df[y_col], mode="lines+markers", name=y_title,
-                                line=dict(color="black" if is_stability else "royalblue", width=2), marker=marker_config))
+                           line=dict(color="black" if is_stability else "royalblue", width=2), marker=marker_config))
     if is_stability:
         for y0, y1, c in [(0, 50, PASTEL_COLORS['red']), (50, 70, PASTEL_COLORS['orange']), (70, 100, PASTEL_COLORS['green'])]:
             fig.add_shape(type="rect", xref="paper", x0=0, x1=1, y0=y0, y1=y1, fillcolor=c, opacity=0.2, line_width=0, layer="below")
@@ -468,9 +470,9 @@ def calculate_daily_summaries_for_week(df_week, tolerance, downtime_gap_toleranc
             calc = RunRateCalculator(df_day.copy(), tolerance, downtime_gap_tolerance, analysis_mode=analysis_mode)
             res = calc.results
             summary = {'date': date, 'stability_index': res.get('stability_index', np.nan),
-                        'mttr_min': res.get('mttr_min', np.nan), 'mtbf_min': res.get('mtbf_min', np.nan),
-                        'stops': res.get('stop_events', 0), 'total_shots': res.get('total_shots', 0),
-                        'total_downtime_sec': res.get('downtime_sec', 0), 'uptime_min': res.get('production_time_sec', 0) / 60}
+                           'mttr_min': res.get('mttr_min', np.nan), 'mtbf_min': res.get('mtbf_min', np.nan),
+                           'stops': res.get('stop_events', 0), 'total_shots': res.get('total_shots', 0),
+                           'total_downtime_sec': res.get('downtime_sec', 0), 'uptime_min': res.get('production_time_sec', 0) / 60}
             daily_results_list.append(summary)
     return pd.DataFrame(daily_results_list) if daily_results_list else pd.DataFrame()
 
@@ -482,9 +484,9 @@ def calculate_weekly_summaries_for_month(df_month, tolerance, downtime_gap_toler
             calc = RunRateCalculator(df_week.copy(), tolerance, downtime_gap_tolerance, analysis_mode=analysis_mode)
             res = calc.results
             summary = {'week': week, 'stability_index': res.get('stability_index', np.nan),
-                        'mttr_min': res.get('mttr_min', np.nan), 'mtbf_min': res.get('mtbf_min', np.nan),
-                        'stops': res.get('stop_events', 0), 'total_shots': res.get('total_shots', 0),
-                        'total_downtime_sec': res.get('downtime_sec', 0), 'uptime_min': res.get('production_time_sec', 0) / 60}
+                           'mttr_min': res.get('mttr_min', np.nan), 'mtbf_min': res.get('mtbf_min', np.nan),
+                           'stops': res.get('stop_events', 0), 'total_shots': res.get('total_shots', 0),
+                           'total_downtime_sec': res.get('downtime_sec', 0), 'uptime_min': res.get('production_time_sec', 0) / 60}
             weekly_results_list.append(summary)
     return pd.DataFrame(weekly_results_list) if weekly_results_list else pd.DataFrame()
 
@@ -570,10 +572,10 @@ def generate_detailed_analysis(analysis_df, overall_stability, overall_mttr, ove
         best_period_label = format_period(best_performer['period'], analysis_level)
         worst_period_label = format_period(worst_performer['period'], analysis_level)
 
-        best_worst_analysis = (f"The best performance was during D<strong>{best_period_label}</strong> (Stability: {best_performer['stability']:.1f}%), "
-                                f"while the worst was during <strong>{worst_period_label}</strong> (Stability: {worst_performer['stability']:.1f}%). "
-                                f"The key difference was the impact of stoppages: the worst period had {int(worst_performer['stops'])} stops with an average duration of {worst_performer.get('mttr', 0):.1f} min, "
-                                f"compared to {int(best_performer['stops'])} stops during the best period.")
+        best_worst_analysis = (f"The best performance was during <strong>{best_period_label}</strong> (Stability: {best_performer['stability']:.1f}%), "
+                               f"while the worst was during <strong>{worst_period_label}</strong> (Stability: {worst_performer['stability']:.1f}%). "
+                               f"The key difference was the impact of stoppages: the worst period had {int(worst_performer['stops'])} stops with an average duration of {worst_performer.get('mttr', 0):.1f} min, "
+                               f"compared to {int(best_performer['stops'])} stops during the best period.")
 
     pattern_insight = ""
     if not analysis_df.empty and analysis_df['stops'].sum() > 0:
@@ -890,10 +892,10 @@ def generate_excel_report(all_runs_data, tolerance):
                     ws.write_formula(current_row_zero_idx, bucket_col_idx, time_bucket_formula, data_format)
 
             else: # If essential columns for formulas were missing
-                 if cum_count_col_dyn: ws.write(f'{cum_count_col_dyn}{start_row}', "Formula Error", error_format)
-                 if time_diff_col_dyn: ws.write(f'{time_diff_col_dyn}{start_row}', "Formula Error", error_format)
-                 if run_dur_col_dyn: ws.write(f'{run_dur_col_dyn}{start_row}', "Formula Error", error_format)
-                 if bucket_col_dyn: ws.write(f'{bucket_col_dyn}{start_row}', "Formula Error", error_format)
+                if cum_count_col_dyn: ws.write(f'{cum_count_col_dyn}{start_row}', "Formula Error", error_format)
+                if time_diff_col_dyn: ws.write(f'{time_diff_col_dyn}{start_row}', "Formula Error", error_format)
+                if run_dur_col_dyn: ws.write(f'{run_dur_col_dyn}{start_row}', "Formula Error", error_format)
+                if bucket_col_dyn: ws.write(f'{bucket_col_dyn}{start_row}', "Formula Error", error_format)
 
             # --- Auto-adjust column widths ---
             for i, col_name in enumerate(df_run.columns):
@@ -1622,7 +1624,8 @@ def render_dashboard(df_tool, tool_id_selection):
             with c2:
                 st.subheader("Stability per Production Run")
                 if run_summary_df is not None and not run_summary_df.empty:
-                    plot_trend_chart(run_summary_df, 'RUN ID', 'Stability Index (%)', "Stability per Run", "Run ID", "Stability (%)", is_stability=True)
+                    # FIX 1: Use 'STABILITY %' which is the correct renamed column
+                    plot_trend_chart(run_summary_df, 'RUN ID', 'STABILITY %', "Stability per Run", "Run ID", "Stability (%)", is_stability=True)
                     with st.expander("View Stability Data", expanded=False): 
                         # FIX 4: Rename columns
                         st.dataframe(get_renamed_summary_df(run_summary_df))
@@ -1683,7 +1686,7 @@ def calculate_risk_scores(df_all_tools):
     # --- FIX: Define Tool Classes for Stratification ---
     # Define Mode CT thresholds for tool classes (in seconds)
     TOOL_CLASSES = {
-        'Fast': (0, 60),      # 0-60 sec
+        'Fast': (0, 60),     # 0-60 sec
         'Medium': (60, 300),  # 1-5 min
         'Slow': (300, np.inf) # 5+ min
     }
@@ -1738,7 +1741,7 @@ def calculate_risk_scores(df_all_tools):
         
         if run_summary_df.empty:
             continue
-            
+                
         # 3. Aggregate metrics for the whole 4-week period (for overall risk score)
         total_runtime_sec = run_summary_df['total_runtime_sec'].sum()
         production_time_sec = run_summary_df['production_time_sec'].sum()
@@ -1848,7 +1851,7 @@ def calculate_risk_scores(df_all_tools):
 
     if not final_risk_data:
         return pd.DataFrame()
-        
+            
     return pd.DataFrame(final_risk_data).sort_values('Risk Score', ascending=True).reset_index(drop=True)
 
 def render_risk_tower(df_all_tools):
@@ -1973,3 +1976,4 @@ with tab2:
         render_dashboard(df_for_dashboard, tool_id_for_dashboard_display)
     else:
         st.info("Select a specific Tool ID from the sidebar to view its dashboard.")
+
