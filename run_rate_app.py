@@ -473,6 +473,7 @@ def plot_trend_chart(df, x_col, y_col, title, x_title, y_title, y_range=[0, 101]
     # Filter out NaN values from the plot
     plot_df = df.dropna(subset=[y_col])
     if plot_df.empty: # Don't plot if no valid data
+        st.info(f"No valid data to plot for {title}.")
         return
 
     if is_stability:
@@ -1266,7 +1267,11 @@ def render_dashboard(df_tool, tool_id_selection):
     min_shots_filter = 1 
     if 'by Run' in analysis_level:
         st.sidebar.markdown("---")
-        if not df_processed.empty:
+        
+        # Add the toggle
+        enable_run_filter = st.sidebar.toggle("Filter Small Production Runs", value=False, help="Turn this on to show the slider for filtering out runs with few shots.")
+        
+        if enable_run_filter and not df_processed.empty:
             run_shot_counts = df_processed.groupby('run_id').size()
             if not run_shot_counts.empty:
                 max_shots = int(run_shot_counts.max()) if not run_shot_counts.empty else 1
@@ -1279,6 +1284,8 @@ def render_dashboard(df_tool, tool_id_selection):
                     step=1,
                     help="Filters out smaller production runs to focus on more significant ones."
                 )
+        elif not enable_run_filter:
+            min_shots_filter = 1 # Explicitly set to 1 if filter is off
     
     st.sidebar.markdown("---")
     detailed_view = st.sidebar.toggle("Show Detailed Analysis", value=True)
@@ -1850,5 +1857,4 @@ with tab2:
         render_dashboard(df_for_dashboard, tool_id_for_dashboard_display)
     else:
         st.info("Select a specific Tool ID from the sidebar to view its dashboard.")
-
 
