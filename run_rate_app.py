@@ -222,7 +222,28 @@ class RunRateCalculator:
         
         downtime_sec = df.loc[df['stop_flag'] == 1, 'adj_ct_sec'].sum()
         production_time_sec = df.loc[df['stop_flag'] == 0, 'ACTUAL CT'].sum()
-        total_runtime_sec = production_time_sec + downtime_sec
+        
+        # --- START: Modified Total Run Duration Logic ---
+        # This logic replaces: total_runtime_sec = production_time_sec + downtime_sec
+        # We rely on df being sorted by 'shot_time' from the _prepare_data step
+        
+        if total_shots > 1:
+            first_shot_time = df['shot_time'].iloc[0]   # First shot's time
+            last_shot_time = df['shot_time'].iloc[-1]  # Last shot's time
+            last_shot_ct = df['ACTUAL CT'].iloc[-1]   # Last shot's CT
+            
+            time_span_sec = (last_shot_time - first_shot_time).total_seconds()
+            
+            # New, more precise total duration
+            total_runtime_sec = time_span_sec + last_shot_ct
+            
+        elif total_shots == 1:
+            # If only one shot, duration is just its own cycle time
+            total_runtime_sec = df['ACTUAL CT'].iloc[0]
+        else:
+            total_runtime_sec = 0 # No shots, no runtime
+        
+        # --- END: Modified Total Run Duration Logic ---
 
         mttr_min = (downtime_sec / 60 / stop_events) if stop_events > 0 else 0
         mtbf_min = (production_time_sec / 60 / stop_events) if stop_events > 0 else (production_time_sec / 60)
@@ -275,6 +296,10 @@ class RunRateCalculator:
         else:
              time_to_first_dt_sec = df.loc[:first_stop_event_index - 1, 'adj_ct_sec'].sum()
         
+        # Note: 'production_run_sec' is the wall-clock time, which is different
+        # from the 'total_runtime_sec' we just calculated.
+        # We will keep this separate. The 'total_runtime_sec' is the one
+        # used for Stability Index.
         production_run_sec = (df["shot_time"].max() - df["shot_time"].min()).total_seconds() if total_shots > 1 else 0
         
         # --- 6. Final Hourly Summary ---
@@ -286,10 +311,12 @@ class RunRateCalculator:
             "stop_events": stop_events, "normal_shots": normal_shots, "mttr_min": mttr_min,
             "mtbf_min": mtbf_min, "stability_index": stability_index, "run_durations": run_durations,
             "bucket_labels": labels, "bucket_color_map": bucket_color_map, "hourly_summary": hourly_summary,
-            "total_runtime_sec": total_runtime_sec, "production_time_sec": production_time_sec, "downtime_sec": downtime_sec,
+            "total_runtime_sec": total_runtime_sec, # This now uses the new calculation
+            "production_time_sec": production_time_sec, 
+            "downtime_sec": downtime_sec,
             "avg_cycle_time_sec": avg_cycle_time_sec,
             "time_to_first_dt_min": time_to_first_dt_sec / 60,
-            "production_run_sec": production_run_sec,
+            "production_run_sec": production_run_sec, # This is wall-clock span, kept for reference
             "tot_down_time_sec": downtime_sec
         }
         
@@ -349,7 +376,7 @@ def calculate_run_summaries(df_period, tolerance, downtime_gap_tolerance):
             total_shots = res.get('total_shots', 0)
             normal_shots = res.get('normal_shots', 0)
             stopped_shots = total_shots - normal_shots
-            total_runtime_sec = res.get('total_runtime_sec', 0)
+            total_runtime_sec = res.get('total_runtime_sec', 0) # This now uses the new calculation
             production_time_sec = res.get('production_time_sec', 0)
             downtime_sec = res.get('downtime_sec', 0)
             
@@ -794,6 +821,7 @@ def generate_excel_report(all_runs_data, tolerance):
             if not isinstance(downtime_to_write, (int, float)):
                 downtime_to_write = 0
 
+            # Write the total_runtime_sec (which now uses the new calc)
             ws.write('F6', data.get('total_runtime_sec', 0) / 86400, time_format)
             ws.write('G6', downtime_to_write / 86400, time_format)
             ws.write('H6', data.get('production_time_sec', 0) / 86400, time_format)
@@ -947,7 +975,11 @@ def prepare_and_generate_run_based_excel(df_for_export, tolerance, downtime_gap_
                 run_results['mode_ct'] = run_results.get('mode_ct', 0)
                 run_results['lower_limit'] = run_results.get('lower_limit', 0)
                 run_results['upper_limit'] = run_results.get('upper_limit', np.inf)
+                
+                # This 'production_run_sec' is just wall-clock time, but the 'total_runtime_sec'
+                # from the results dict now contains the *correct* calculation
                 run_results['production_run_sec'] = (run_results['end_time'] - run_results['start_time']).total_seconds() if run_id > 0 else run_results.get('total_runtime_sec', 0)
+                
                 run_results['tot_down_time_sec'] = run_results.get('downtime_sec', 0)
                 run_results['mttr_min'] = run_results.get('mttr_min', 0)
                 run_results['mtbf_min'] = run_results.get('mtbf_min', 0)
@@ -1051,7 +1083,7 @@ def calculate_risk_scores(df_all_tools):
         if run_summary_df.empty:
             continue
                 
-        total_runtime_sec = run_summary_df['total_runtime_sec'].sum()
+        total_runtime_sec = run_summary_df['total_runtime_sec'].sum() # This now uses the new calculation
         production_time_sec = run_summary_df['production_time_sec'].sum()
         downtime_sec = run_summary_df['downtime_sec'].sum()
         stop_events = run_summary_df['stops'].sum()
@@ -1072,7 +1104,7 @@ def calculate_risk_scores(df_all_tools):
             weekly_run_summary = calculate_run_summaries(df_week, 0.05, 2.0)
             
             if not weekly_run_summary.empty:
-                w_tot_runtime = weekly_run_summary['total_runtime_sec'].sum()
+                w_tot_runtime = weekly_run_summary['total_runtime_sec'].sum() # This now uses the new calculation
                 w_prod_time = weekly_run_summary['production_time_sec'].sum()
                 w_stability = (w_prod_time / w_tot_runtime * 100) if w_tot_runtime > 0 else 100.0
                 weekly_stats.append({'week': week_num, 'stability': w_stability})
@@ -1398,15 +1430,23 @@ def render_dashboard(df_tool, tool_id_selection):
             
         # --- Create Trend Summary DataFrame ---
         trend_summary_df = None
+        trend_level = "" # Define trend_level
         if analysis_level == "Weekly":
+            trend_level = "Daily"
             trend_summary_df = calculate_daily_summaries_for_week(df_view, tolerance, downtime_gap_tolerance, mode)
         elif analysis_level == "Monthly":
+            trend_level = "Weekly"
             trend_summary_df = calculate_weekly_summaries_for_month(df_view, tolerance, downtime_gap_tolerance, mode)
+        elif "Custom Period" in analysis_level:
+             trend_level = "Daily" # Default to daily for custom
+             trend_summary_df = calculate_daily_summaries_for_week(df_view, tolerance, downtime_gap_tolerance, mode)
         elif "by Run" in analysis_level:
+            trend_level = "Run"
             trend_summary_df = calculate_run_summaries(df_view, tolerance, downtime_gap_tolerance)
             if not trend_summary_df.empty:
                 trend_summary_df.rename(columns={'run_label': 'RUN ID', 'stability_index': 'STABILITY %', 'stops': 'STOPS', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'total_shots': 'Total Shots'}, inplace=True)
         elif "Daily" in analysis_level:
+            trend_level = "Hourly"
             trend_summary_df = results.get('hourly_summary', pd.DataFrame())
         
         # --- KPI Metrics Display ---
@@ -1417,7 +1457,7 @@ def render_dashboard(df_tool, tool_id_selection):
             down_p = (down_t / total_d * 100) if total_d > 0 else 0
             with col1: st.metric("Run Rate MTTR", f"{summary_metrics.get('mttr_min', 0):.1f} min")
             with col2: st.metric("Run Rate MTBF", f"{summary_metrics.get('mtbf_min', 0):.1f} min")
-            with col3: st.metric("Total Run Duration", format_duration(total_d))
+            with col3: st.metric("Total Run Duration", format_duration(total_d)) # This now uses the new calculation
             with col4:
                 st.metric("Production Time", f"{format_duration(prod_t)}")
                 st.markdown(f'<span style="background-color: {PASTEL_COLORS["green"]}; color: #0E1117; padding: 3px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: bold;">{prod_p:.1f}%</span>', unsafe_allow_html=True)
@@ -1485,7 +1525,7 @@ def render_dashboard(df_tool, tool_id_selection):
                     st.components.v1.html(f"""<div style="border:1px solid #333;border-radius:0.5rem;padding:1.5rem;margin-top:1rem;font-family:sans-serif;line-height:1.6;background-color:#0E1117;"><h4 style="margin-top:0;color:#FAFAFA;">Automated Analysis Summary</h4><p style="color:#FAFAFA;"><strong>Overall Assessment:</strong> {insights['overall']}</p><p style="color:#FAFAFA;"><strong>Predictive Trend:</strong> {insights['predictive']}</p><p style="color:#FAFAFA;"><strong>Performance Variance:</strong> {insights['best_worst']}</p> {'<p style="color:#FAFAFA;"><strong>Identified Patterns:</strong> ' + insights['patterns'] + '</p>' if insights['patterns'] else ''}<p style="margin-top:1rem;color:#FAFAFA;background-color:#262730;padding:1rem;border-radius:0.5rem;"><strong>Key Recommendation:</strong> {insights['recommendation']}</p></div>""", height=400, scrolling=True)
 
         # --- Breakdown Table Expander ---
-        if analysis_level in ["Weekly", "Monthly", "Custom Period"]:
+        if analysis_level in ["Weekly", "Monthly", "Custom Period"] and "by Run" not in analysis_level:
             with st.expander(f"View {trend_level.title()} Breakdown Table", expanded=False):
                 if trend_summary_df is not None and not trend_summary_df.empty:
                     d_df = trend_summary_df.copy()
@@ -1841,5 +1881,3 @@ with tab2:
         render_dashboard(df_for_dashboard, tool_id_for_dashboard_display)
     else:
         st.info("Select a specific Tool ID from the sidebar to view its dashboard.")
-
-
