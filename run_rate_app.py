@@ -28,9 +28,14 @@ PASTEL_COLORS = {
 # --- Utility Functions ---
 
 def format_minutes_to_dhm(total_minutes):
-    """Converts total minutes into a 'Xd Yh Zm' string."""
+    """Converts total minutes into a 'Xd Yh Zm' or 'Xs' string."""
     if pd.isna(total_minutes) or total_minutes < 0: return "N/A"
-    total_minutes = int(total_minutes)
+    
+    # NEW: Handle small values (less than 1 minute)
+    if total_minutes < 1.0:
+        return f"{total_minutes * 60:.1f}s" # Show seconds
+
+    total_minutes = int(total_minutes) # Now we can truncate for minutes/hours/days
     days = total_minutes // (60 * 24)
     remaining_minutes = total_minutes % (60 * 24)
     hours = remaining_minutes // 60
