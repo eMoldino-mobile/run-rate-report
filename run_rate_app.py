@@ -214,7 +214,9 @@ class RunRateCalculator:
         if not df.empty:
             df.loc[0, "stop_flag"] = 0
         df["stop_event"] = (df["stop_flag"] == 1) & (df["stop_flag"].shift(1, fill_value=0) == 0)
-        df["adj_ct_sec"] = np.where(df["stop_flag"] == 1, df["time_diff_sec"], df["ACTUAL CT"])
+        # Use time_diff_sec as the bar height ONLY if it's a downtime gap.
+        # Otherwise, the bar height is always the ACTUAL CT.
+        df["adj_ct_sec"] = np.where(is_downtime_gap, df["time_diff_sec"], df["ACTUAL CT"])
 
         # --- 3. Core Metric Calculations ---
         total_shots = len(df)
@@ -429,27 +431,52 @@ def plot_shot_bar_chart(df, lower_limit, upper_limit, mode_ct, time_agg='hourly'
     df = df.copy()
     df['color'] = np.where(df['stop_flag'] == 1, PASTEL_COLORS['red'], '#3498DB')
     
-    df['plot_time'] = df['shot_time']
+    # --- Start: Plot Time Jitter & Shift Logic ---
     
-    # OLD LOGIC:
-    # stop_indices = df[df['stop_flag'] == 1].index
-    # if not stop_indices.empty:
-    #     valid_stop_indices = stop_indices[stop_indices > 0]
-    #     df.loc[valid_stop_indices, 'plot_time'] = df['shot_time'].shift(1).loc[valid_stop_indices]
-    
-    # NEW LOGIC:
-    # Only shift the plot_time for bars that represent a DOWNTIME GAP
-    # (i.e., where adj_ct_sec was set to time_diff_sec).
-    # We identify these as shots where adj_ct_sec != ACTUAL CT.
+    # 1. Identify true downtime gaps (where bar height is time_diff_sec, not ACTUAL CT)
+    #    These are the only bars we want to shift to the *previous* shot's timestamp.
     downtime_gap_indices = df[df['adj_ct_sec'] != df['ACTUAL CT']].index
+    valid_downtime_gap_indices = downtime_gap_indices[downtime_gap_indices > 0]
     
-    if not downtime_gap_indices.empty:
-        valid_downtime_gap_indices = downtime_gap_indices[downtime_gap_indices > 0]
-        if not valid_downtime_gap_indices.empty:
-            # Get the timestamp from the *previous* shot and assign it as the plot_time
-            prev_shot_timestamps = df['shot_time'].shift(1).loc[valid_downtime_gap_indices]
-            df.loc[valid_downtime_gap_indices, 'plot_time'] = prev_shot_timestamps
+    # 2. Identify all other "normal" shots (including abnormal CT shots).
+    #    These are the ones that might overlap and need "jitter".
+    normal_shot_indices = df.index.difference(valid_downtime_gap_indices)
 
+    # 3. Apply jitter to "normal" shots
+    if not normal_shot_indices.empty:
+        # Calculate an index for each shot within its given second (0, 1, 2...)
+        shot_index_in_second = df.loc[normal_shot_indices].groupby('shot_time').cumcount()
+        
+        # Calculate the time offset (e.g., 0s, 0.2s, 0.4s)
+        # We use a small fraction of a second (0.2s) to separate them.
+        time_offset = pd.to_timedelta(shot_index_in_second * 0.2, unit='s')
+        
+        # Apply the jittered time as the plot_time
+        df.loc[normal_shot_indices, 'plot_time'] = df.loc[normal_shot_indices, 'shot_time'] + time_offset
+    
+    # 4. Apply time-shift to the true downtime gaps
+    if not valid_downtime_gap_indices.empty:
+        # Get the timestamp from the *previous* shot
+        prev_shot_timestamps = df['shot_time'].shift(1).loc[valid_downtime_gap_indices]
+        
+        # Assign this previous timestamp as the plot_time.
+        # We DON'T jitter these, as they represent a time *span*.
+        df.loc[valid_downtime_gap_indices, 'plot_time'] = prev_shot_timestamps
+
+    # 5. Handle the very first shot (index 0)
+    #    It must be a "normal shot" (no previous shot to gap from)
+    if 0 in normal_shot_indices:
+         df.loc[0, 'plot_time'] = df.loc[0, 'shot_time']
+    elif 0 in valid_downtime_gap_indices:
+         # This case should be rare, but if the first shot is somehow a gap, just plot it
+         df.loc[0, 'plot_time'] = df.loc[0, 'shot_time']
+    else:
+        # Fallback for index 0 if it's not in either (e.g., empty dataframe, though we checked)
+        if 0 in df.index:
+            df.loc[0, 'plot_time'] = df.loc[0, 'shot_time']
+         
+    # --- End: Plot Time Jitter & Shift Logic ---
+    
     fig = go.Figure()
     fig.add_trace(go.Bar(x=df['plot_time'], y=df['adj_ct_sec'], marker_color=df['color'], name='Cycle Time', showlegend=False))
     fig.add_trace(go.Bar(x=[None], y=[None], name="Normal Shot", marker_color='#3498DB', showlegend=True))
