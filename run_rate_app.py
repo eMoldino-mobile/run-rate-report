@@ -207,21 +207,34 @@ class RunRateCalculator:
             mode_ct_display = mode_ct
 
         # --- 2. Stop Detection Logic ---
-        # NEW: Identify 999.9 (or similar) as a "hard stop" code
+        # (This section replaces the previous fix)
+
         is_hard_stop_code = df["ACTUAL CT"] >= 999.9
-        
         is_abnormal_cycle = ((df["ACTUAL CT"] < lower_limit) | (df["ACTUAL CT"] > upper_limit)) & ~is_hard_stop_code
         prev_actual_ct = df["ACTUAL CT"].shift(1)
-        # NEW: Add the hard_stop_code to the downtime gap logic
-        is_downtime_gap = (df["time_diff_sec"] > (prev_actual_ct + self.downtime_gap_tolerance)) | is_hard_stop_code.fillna(False)
-        
-        df["stop_flag"] = np.where(is_abnormal_cycle | is_downtime_gap.fillna(False), 1, 0)
+        # This is the "pure" time gap, ignoring the hard stop code for now
+        is_time_gap = df["time_diff_sec"] > (prev_actual_ct + self.downtime_gap_tolerance)
+
+        # Flag all three types of stops
+        df["stop_flag"] = np.where(is_abnormal_cycle | is_time_gap | is_hard_stop_code, 1, 0)
         if not df.empty:
             df.loc[0, "stop_flag"] = 0
+        
         df["stop_event"] = (df["stop_flag"] == 1) & (df["stop_flag"].shift(1, fill_value=0) == 0)
-        # Use time_diff_sec as the bar height ONLY if it's a downtime gap.
-        # Otherwise, the bar height is always the ACTUAL CT.
-        df["adj_ct_sec"] = np.where(is_downtime_gap, df["time_diff_sec"], df["ACTUAL CT"])
+
+        # --- NEW LOGIC for adj_ct_sec ---
+        # This determines the value to be summed for downtime and plotted.
+        
+        # By default, the value is just the cycle time
+        df['adj_ct_sec'] = df['ACTUAL CT']
+        
+        # If it's a "pure" time gap, the value *is* that gap's duration
+        df.loc[is_time_gap, 'adj_ct_sec'] = df['time_diff_sec']
+        
+        # If it's a "hard stop" marker (999.9), its *own* value must be 0
+        # because the time_diff_sec of the *next* shot will capture the full duration.
+        df.loc[is_hard_stop_code, 'adj_ct_sec'] = 0
+
 
         # --- 3. Core Metric Calculations ---
         total_shots = len(df)
