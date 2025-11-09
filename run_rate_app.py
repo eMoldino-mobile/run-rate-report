@@ -207,9 +207,14 @@ class RunRateCalculator:
             mode_ct_display = mode_ct
 
         # --- 2. Stop Detection Logic ---
-        is_abnormal_cycle = (df["ACTUAL CT"] < lower_limit) | (df["ACTUAL CT"] > upper_limit)
+        # NEW: Identify 999.9 (or similar) as a "hard stop" code
+        is_hard_stop_code = df["ACTUAL CT"] >= 999.9
+        
+        is_abnormal_cycle = ((df["ACTUAL CT"] < lower_limit) | (df["ACTUAL CT"] > upper_limit)) & ~is_hard_stop_code
         prev_actual_ct = df["ACTUAL CT"].shift(1)
-        is_downtime_gap = df["time_diff_sec"] > (prev_actual_ct + self.downtime_gap_tolerance)
+        # NEW: Add the hard_stop_code to the downtime gap logic
+        is_downtime_gap = (df["time_diff_sec"] > (prev_actual_ct + self.downtime_gap_tolerance)) | is_hard_stop_code.fillna(False)
+        
         df["stop_flag"] = np.where(is_abnormal_cycle | is_downtime_gap.fillna(False), 1, 0)
         if not df.empty:
             df.loc[0, "stop_flag"] = 0
