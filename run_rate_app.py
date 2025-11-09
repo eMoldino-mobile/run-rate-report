@@ -430,11 +430,26 @@ def plot_shot_bar_chart(df, lower_limit, upper_limit, mode_ct, time_agg='hourly'
     df['color'] = np.where(df['stop_flag'] == 1, PASTEL_COLORS['red'], '#3498DB')
     
     df['plot_time'] = df['shot_time']
-    stop_indices = df[df['stop_flag'] == 1].index
-    if not stop_indices.empty:
-        valid_stop_indices = stop_indices[stop_indices > 0]
-        df.loc[valid_stop_indices, 'plot_time'] = df['shot_time'].shift(1).loc[valid_stop_indices]
     
+    # OLD LOGIC:
+    # stop_indices = df[df['stop_flag'] == 1].index
+    # if not stop_indices.empty:
+    #     valid_stop_indices = stop_indices[stop_indices > 0]
+    #     df.loc[valid_stop_indices, 'plot_time'] = df['shot_time'].shift(1).loc[valid_stop_indices]
+    
+    # NEW LOGIC:
+    # Only shift the plot_time for bars that represent a DOWNTIME GAP
+    # (i.e., where adj_ct_sec was set to time_diff_sec).
+    # We identify these as shots where adj_ct_sec != ACTUAL CT.
+    downtime_gap_indices = df[df['adj_ct_sec'] != df['ACTUAL CT']].index
+    
+    if not downtime_gap_indices.empty:
+        valid_downtime_gap_indices = downtime_gap_indices[downtime_gap_indices > 0]
+        if not valid_downtime_gap_indices.empty:
+            # Get the timestamp from the *previous* shot and assign it as the plot_time
+            prev_shot_timestamps = df['shot_time'].shift(1).loc[valid_downtime_gap_indices]
+            df.loc[valid_downtime_gap_indices, 'plot_time'] = prev_shot_timestamps
+
     fig = go.Figure()
     fig.add_trace(go.Bar(x=df['plot_time'], y=df['adj_ct_sec'], marker_color=df['color'], name='Cycle Time', showlegend=False))
     fig.add_trace(go.Bar(x=[None], y=[None], name="Normal Shot", marker_color='#3498DB', showlegend=True))
