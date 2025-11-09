@@ -1520,8 +1520,18 @@ def render_dashboard(df_tool, tool_id_selection):
             total_d = summary_metrics.get('total_runtime_sec', 0); prod_t = summary_metrics.get('production_time_sec', 0); down_t = summary_metrics.get('downtime_sec', 0)
             prod_p = (prod_t / total_d * 100) if total_d > 0 else 0
             down_p = (down_t / total_d * 100) if total_d > 0 else 0
-            with col1: st.metric("Run Rate MTTR", f"{summary_metrics.get('mttr_min', 0):.1f} min")
-            with col2: st.metric("Run Rate MTBF", f"{summary_metrics.get('mtbf_min', 0):.1f} min")
+            
+            # --- NEW: Use the smart formatting function for MTTR/MTBF ---
+            mttr_val_min = summary_metrics.get('mttr_min', 0)
+            mtbf_val_min = summary_metrics.get('mtbf_min', 0)
+            
+            mttr_display = format_minutes_to_dhm(mttr_val_min)
+            mtbf_display = format_minutes_to_dhm(mtbf_val_min)
+
+            with col1: st.metric("Run Rate MTTR", mttr_display)
+            with col2: st.metric("Run Rate MTBF", mtbf_display)
+            # --- END OF CHANGE ---
+
             with col3: st.metric("Total Run Duration", format_duration(total_d)) # This now uses the new calculation
             with col4:
                 st.metric("Production Time", f"{format_duration(prod_t)}")
