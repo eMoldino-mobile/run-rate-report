@@ -563,6 +563,13 @@ def plot_trend_chart(df, x_col, y_col, title, x_title, y_title, y_range=[0, 101]
     marker_config = {}
     
     # Filter out NaN values from the plot
+    # ---
+    # FIX: Check if y_col exists before trying to dropna with it.
+    # This prevents the KeyError if the df is valid but un-renamed.
+    if y_col not in df.columns:
+        st.error(f"Error: Column '{y_col}' not found for plot: '{title}'. Check analysis logic.")
+        return
+    # ---
     plot_df = df.dropna(subset=[y_col])
     if plot_df.empty: # Don't plot if no valid data
         st.info(f"No valid data to plot for {title}.")
@@ -588,6 +595,14 @@ def plot_mttr_mtbf_chart(df, x_col, mttr_col, mtbf_col, shots_col, title):
     """Creates the dual-axis MTTR/MTBF chart."""
     if df is None or df.empty or df[shots_col].sum() == 0:
         return 
+    
+    # ---
+    # FIX: Add check for all required columns
+    required_cols = [x_col, mttr_col, mtbf_col, shots_col]
+    if not all(col in df.columns for col in required_cols):
+        st.error(f"Error: Missing columns for MTTR/MTBF plot: '{title}'. Check analysis logic.")
+        return
+    # ---
 
     mttr = df[mttr_col]
     mtbf = df[mtbf_col]
@@ -1496,24 +1511,41 @@ def render_dashboard(df_tool, tool_id_selection):
         # --- Create Trend Summary DataFrame ---
         trend_summary_df = None
         trend_level = "" # Define trend_level
-        if analysis_level == "Weekly":
-            trend_level = "Daily"
-            trend_summary_df = calculate_daily_summaries_for_week(df_view, tolerance, downtime_gap_tolerance, mode)
-        elif analysis_level == "Monthly":
-            trend_level = "Weekly"
-            trend_summary_df = calculate_weekly_summaries_for_month(df_view, tolerance, downtime_gap_tolerance, mode)
-        elif "Custom Period" in analysis_level:
-             trend_level = "Daily" # Default to daily for custom
-             trend_summary_df = calculate_daily_summaries_for_week(df_view, tolerance, downtime_gap_tolerance, mode)
-        elif "by Run" in analysis_level:
-            trend_level = "Run"
-            trend_summary_df = calculate_run_summaries(df_view, tolerance, downtime_gap_tolerance)
-            if not trend_summary_df.empty:
-                trend_summary_df.rename(columns={'run_label': 'RUN ID', 'stability_index': 'STABILITY %', 'stops': 'STOPS', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'total_shots': 'Total Shots'}, inplace=True)
-        elif "Daily" in analysis_level:
+
+        # ---
+        # FIX: Re-ordered this logic block.
+        # We check for "by Run" FIRST, because "Weekly (by Run)" would
+        # also match "Weekly". This ensures the correct logic block is
+        # executed for the "by Run" analysis levels.
+        # ---
+        
+        if "Daily" in analysis_level:
             trend_level = "Hourly"
             trend_summary_df = results.get('hourly_summary', pd.DataFrame())
         
+        elif "by Run" in analysis_level: # <-- MOVED THIS BLOCK UP
+            trend_level = "Run"
+            trend_summary_df = calculate_run_summaries(df_view, tolerance, downtime_gap_tolerance)
+            # Add a check for None and empty before renaming
+            if trend_summary_df is not None and not trend_summary_df.empty:
+                trend_summary_df.rename(columns={'run_label': 'RUN ID', 'stability_index': 'STABILITY %', 'stops': 'STOPS', 'mttr_min': 'MTTR (min)', 'mtbf_min': 'MTBF (min)', 'total_shots': 'Total Shots'}, inplace=True)
+        
+        elif "Weekly" in analysis_level:
+            trend_level = "Daily"
+            trend_summary_df = calculate_daily_summaries_for_week(df_view, tolerance, downtime_gap_tolerance, mode)
+        
+        elif "Monthly" in analysis_level:
+            trend_level = "Weekly"
+            trend_summary_df = calculate_weekly_summaries_for_month(df_view, tolerance, downtime_gap_tolerance, mode)
+        
+        elif "Custom Period" in analysis_level:
+             trend_level = "Daily" # Default to daily for custom
+             trend_summary_df = calculate_daily_summaries_for_week(df_view, tolerance, downtime_gap_tolerance, mode)
+        
+        # ---
+        # END OF FIX
+        # ---
+
         # --- KPI Metrics Display ---
         with st.container(border=True):
             col1, col2, col3, col4, col5 = st.columns(5)
@@ -1806,7 +1838,7 @@ def render_dashboard(df_tool, tool_id_selection):
         
         elif "by Run" in analysis_level:
             st.header(f"Run-Based Analysis")
-            run_summary_df = trend_summary_df 
+            run_summary_df = trend_summary_df # This now holds the RENAMED data thanks to the fix
             run_durations = results.get("run_durations", pd.DataFrame())
             processed_df = results.get('processed_df', pd.DataFrame())
             stop_events_df = processed_df.loc[processed_df['stop_event']].copy()
@@ -1839,6 +1871,7 @@ def render_dashboard(df_tool, tool_id_selection):
             with c2:
                 st.subheader("Stability per Production Run")
                 if run_summary_df is not None and not run_summary_df.empty:
+                    # This call will now succeed because run_summary_df has 'STABILITY %'
                     plot_trend_chart(run_summary_df, 'RUN ID', 'STABILITY %', "Stability per Run", "Run ID", "Stability (%)", is_stability=True)
                     with st.expander("View Stability Data", expanded=False): 
                         st.dataframe(get_renamed_summary_df(run_summary_df))
