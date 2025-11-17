@@ -153,7 +153,10 @@ class RunRateCalculator:
         
         hourly_groups = df.groupby('hour')
         stops = hourly_groups['stop_event'].sum()
-        total_downtime_sec = hourly_groups.apply(lambda x: x[x['stop_flag'] == 1]['adj_ct_sec'].sum())
+        
+        # We still need adj_ct_sec for this part, but it's not the final KPI
+        hourly_total_downtime_sec = hourly_groups.apply(lambda x: x[x['stop_flag'] == 1]['adj_ct_sec'].sum())
+        
         uptime_min = df[df['stop_flag'] == 0].groupby('hour')['ACTUAL CT'].sum() / 60
         shots = hourly_groups.size().rename('total_shots')
 
@@ -161,7 +164,7 @@ class RunRateCalculator:
         hourly_summary['hour'] = hourly_summary.index
         
         hourly_summary = hourly_summary.join(stops.rename('stops')).join(shots).join(uptime_min.rename('uptime_min')).fillna(0)
-        hourly_summary = hourly_summary.join(total_downtime_sec.rename('total_downtime_sec')).fillna(0)
+        hourly_summary = hourly_summary.join(hourly_total_downtime_sec.rename('total_downtime_sec')).fillna(0)
         
         hourly_summary['mttr_min'] = (hourly_summary['total_downtime_sec'] / 60) / hourly_summary['stops'].replace(0, np.nan)
         hourly_summary['mtbf_min'] = hourly_summary['uptime_min'] / hourly_summary['stops'].replace(0, np.nan)
@@ -212,12 +215,9 @@ class RunRateCalculator:
             mode_ct_display = mode_ct
 
         # --- 2. Stop Detection Logic ---
-        # (This section replaces the previous fix)
-
         is_hard_stop_code = df["ACTUAL CT"] >= 999.9
         is_abnormal_cycle = ((df["ACTUAL CT"] < lower_limit) | (df["ACTUAL CT"] > upper_limit)) & ~is_hard_stop_code
         prev_actual_ct = df["ACTUAL CT"].shift(1)
-        # This is the "pure" time gap, ignoring the hard stop code for now
         is_time_gap = df["time_diff_sec"] > (prev_actual_ct + self.downtime_gap_tolerance)
 
         # Flag all three types of stops
@@ -227,52 +227,38 @@ class RunRateCalculator:
         
         df["stop_event"] = (df["stop_flag"] == 1) & (df["stop_flag"].shift(1, fill_value=0) == 0)
 
-        # --- NEW LOGIC for adj_ct_sec ---
-        # This determines the value to be summed for downtime and plotted.
-        
-        # By default, the value is just the cycle time
+        # --- adj_ct_sec LOGIC (Still needed for plots/hourly) ---
         df['adj_ct_sec'] = df['ACTUAL CT']
-        
-        # --- FINAL FIX: Delete the line that zeroes out 999.9 stops ---
-        # 1. Set 0 for 999.9 stops first.
-        # df.loc[is_hard_stop_code, 'adj_ct_sec'] = 0 <-- DELETE THIS LINE
-        
-        # 2. Overwrite with the real gap time. This ensures 'Time Gap'
-        #    takes priority over 'Hard Stop' and captures the full downtime.
         df.loc[is_time_gap, 'adj_ct_sec'] = df['time_diff_sec']
-        # --- End Fix ---
+        # --- End adj_ct_sec Logic ---
 
 
-        # --- 3. Core Metric Calculations ---
+        # --- 3. Core Metric Calculations (RE-ORDERED TO FIX NameError) ---
         total_shots = len(df)
         stop_events = df["stop_event"].sum()
         
-        # --- FINAL FIX: Delete this "Bottom-Up" calculation ---
-        # downtime_sec = df.loc[df['stop_flag'] == 1, 'adj_ct_sec'].sum()
+        # --- "Bottom-Up" Production Time ---
         production_time_sec = df.loc[df['stop_flag'] == 0, 'ACTUAL CT'].sum()
         
-        # --- START: Modified Total Run Duration Logic ---
-        # This logic replaces: total_runtime_sec = production_time_sec + downtime_sec
-        # We rely on df being sorted by 'shot_time' from the _prepare_data step
-        
+        # --- "Top-Down" Total Run Time ---
         if total_shots > 1:
             first_shot_time = df['shot_time'].iloc[0]   # First shot's time
             last_shot_time = df['shot_time'].iloc[-1]  # Last shot's time
             last_shot_ct = df['ACTUAL CT'].iloc[-1]   # Last shot's CT
             
             time_span_sec = (last_shot_time - first_shot_time).total_seconds()
-            
-            # New, more precise total duration
             total_runtime_sec = time_span_sec + last_shot_ct
             
         elif total_shots == 1:
-            # If only one shot, duration is just its own cycle time
             total_runtime_sec = df['ACTUAL CT'].iloc[0]
         else:
             total_runtime_sec = 0 # No shots, no runtime
         
-        # --- END: Modified Total Run Duration Logic ---
+        # --- FINAL FIX: Make Downtime (sec) the plug figure ---
+        downtime_sec = total_runtime_sec - production_time_sec
+        # --- END FIX ---
 
+        # --- Now we can calculate metrics that depend on downtime_sec ---
         mttr_min = (downtime_sec / 60 / stop_events) if stop_events > 0 else 0
         mtbf_min = (production_time_sec / 60 / stop_events) if stop_events > 0 else (production_time_sec / 60)
         stability_index = (production_time_sec / total_runtime_sec * 100) if total_runtime_sec > 0 else (100.0 if stop_events == 0 else 0.0)
@@ -324,10 +310,6 @@ class RunRateCalculator:
         else:
              time_to_first_dt_sec = df.loc[:first_stop_event_index - 1, 'adj_ct_sec'].sum()
         
-        # Note: 'production_run_sec' is the wall-clock time, which is different
-        # from the 'total_runtime_sec' we just calculated.
-        # We will keep this separate. The 'total_runtime_sec' is the one
-        # used for Stability Index.
         production_run_sec = (df["shot_time"].max() - df["shot_time"].min()).total_seconds() if total_shots > 1 else 0
         
         # --- 6. Final Hourly Summary ---
@@ -339,13 +321,13 @@ class RunRateCalculator:
             "stop_events": stop_events, "normal_shots": normal_shots, "mttr_min": mttr_min,
             "mtbf_min": mtbf_min, "stability_index": stability_index, "run_durations": run_durations,
             "bucket_labels": labels, "bucket_color_map": bucket_color_map, "hourly_summary": hourly_summary,
-            "total_runtime_sec": total_runtime_sec, # This now uses the new calculation
+            "total_runtime_sec": total_runtime_sec,
             "production_time_sec": production_time_sec, 
             "downtime_sec": downtime_sec,
             "avg_cycle_time_sec": avg_cycle_time_sec,
             "time_to_first_dt_min": time_to_first_dt_sec / 60,
-            "production_run_sec": production_run_sec, # This is wall-clock span, kept for reference
-            "tot_down_time_sec": downtime_sec
+            "production_run_sec": production_run_sec,
+            "tot_down_time_sec": downtime_sec # Use the reconciled value for exports too
         }
         
         if self.analysis_mode == 'by_run' and isinstance(lower_limit, pd.Series) and not df.empty:
@@ -406,7 +388,7 @@ def calculate_run_summaries(df_period, tolerance, downtime_gap_tolerance):
             stopped_shots = total_shots - normal_shots
             total_runtime_sec = res.get('total_runtime_sec', 0) # This now uses the new calculation
             production_time_sec = res.get('production_time_sec', 0)
-            downtime_sec = res.get('downtime_sec', 0)
+            downtime_sec = res.get('downtime_sec', 0) # This is now the reconciled value
             
             summary = {
                 'run_label': run_label,
