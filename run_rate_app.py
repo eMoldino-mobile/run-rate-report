@@ -233,12 +233,13 @@ class RunRateCalculator:
         # By default, the value is just the cycle time
         df['adj_ct_sec'] = df['ACTUAL CT']
         
-        # If it's a "pure" time gap, the value *is* that gap's duration
-        df.loc[is_time_gap, 'adj_ct_sec'] = df['time_diff_sec']
-        
-        # If it's a "hard stop" marker (999.9), its *own* value must be 0
-        # because the time_diff_sec of the *next* shot will capture the full duration.
+        # --- FIX: Re-ordered these two lines ---
+        # 1. Set 0 for 999.9 stops first.
         df.loc[is_hard_stop_code, 'adj_ct_sec'] = 0
+        # 2. Overwrite with the real gap time. This ensures 'Time Gap'
+        #    takes priority over 'Hard Stop' and captures the full downtime.
+        df.loc[is_time_gap, 'adj_ct_sec'] = df['time_diff_sec']
+        # --- End Fix ---
 
 
         # --- 3. Core Metric Calculations ---
