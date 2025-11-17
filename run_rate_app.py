@@ -233,9 +233,10 @@ class RunRateCalculator:
         # By default, the value is just the cycle time
         df['adj_ct_sec'] = df['ACTUAL CT']
         
-        # --- FIX: Re-ordered these two lines ---
+        # --- FINAL FIX: Delete the line that zeroes out 999.9 stops ---
         # 1. Set 0 for 999.9 stops first.
-        df.loc[is_hard_stop_code, 'adj_ct_sec'] = 0
+        # df.loc[is_hard_stop_code, 'adj_ct_sec'] = 0 <-- DELETE THIS LINE
+        
         # 2. Overwrite with the real gap time. This ensures 'Time Gap'
         #    takes priority over 'Hard Stop' and captures the full downtime.
         df.loc[is_time_gap, 'adj_ct_sec'] = df['time_diff_sec']
@@ -246,7 +247,8 @@ class RunRateCalculator:
         total_shots = len(df)
         stop_events = df["stop_event"].sum()
         
-        downtime_sec = df.loc[df['stop_flag'] == 1, 'adj_ct_sec'].sum()
+        # --- FINAL FIX: Delete this "Bottom-Up" calculation ---
+        # downtime_sec = df.loc[df['stop_flag'] == 1, 'adj_ct_sec'].sum()
         production_time_sec = df.loc[df['stop_flag'] == 0, 'ACTUAL CT'].sum()
         
         # --- START: Modified Total Run Duration Logic ---
