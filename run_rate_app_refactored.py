@@ -400,6 +400,7 @@ def render_dashboard(df_tool, tool_id_selection):
             with c3:
                 st.metric("Stop Events", f"{summary_metrics.get('stop_events', 0)}",
                           help="The count of *new* stoppage incidents. A 'Stop Event' is the first shot in a sequence of one or more 'Stopped Shots'.\n\nLogic: Counts shots where 'stop_flag' = 1 AND the previous shot's 'stop_flag' = 0.")
+                st.markdown(f'<span style="background-color: {rr_utils.PASTEL_COLORS["red"]}; color: #0E1117; padding: 3px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: bold;">{s_p:.1f}% Stopped Shots</span>', unsafe_allow_html=True)
         # --- END OF EDITS ---
 
         with st.container(border=True):
