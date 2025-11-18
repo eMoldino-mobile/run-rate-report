@@ -338,39 +338,49 @@ def render_dashboard(df_tool, tool_id_selection):
 
         # --- UPDATED: Metric Definitions Expander (as requested) ---
         with st.expander("ℹ️ What do these metrics mean?"):
-            st.markdown(f"""
-            - **Run Rate Efficiency (%)**: The percentage of shots that were 'Normal' (i.e., `stop_flag` = 0).
-              - *Formula: Normal Shots / Total Shots*
+            st.markdown("""
+            **Run Rate Efficiency (%)**
+            > The percentage of shots that were 'Normal' (i.e., `stop_flag` = 0).
+            > - *Formula: `Normal Shots / Total Shots`*
 
-            - **Run Rate Stability Index (%)**: The percentage of total run time that was spent in a 'Normal' production state.
-              - *Formula: Total Production Time / Total Run Duration*
-              - *Conditional Logic: If Total Run Duration is 0, returns 100% if no stops occurred, 0% otherwise.*
+            **Run Rate Stability Index (%)**
+            > The percentage of total run time that was spent in a 'Normal' production state.
+            > - *Formula: `Total Production Time / Total Run Duration`*
+            > - *Conditional Logic: If Total Run Duration is 0, returns 100% if no stops occurred, 0% otherwise.*
             
-            - **Run Rate MTTR (min)**: Mean Time To Repair. The average duration of a single stop event.
-              - *Formula: Total Downtime / Stop Events*
-              - *Conditional Logic: If Stop Events = 0, MTTR = 0.*
+            **Run Rate MTTR (min)**
+            > Mean Time To Repair. The average duration of a single stop event.
+            > - *Formula: `Total Downtime / Stop Events`*
+            > - *Conditional Logic: If Stop Events = 0, MTTR = 0.*
             
-            - **Run Rate MTBF (min)**: Mean Time Between Failures. The average duration of stable operation *between* stop events.
-              - *Formula: Total Production Time / Stop Events*
-              - *Conditional Logic: If Stop Events = 0, MTBF = Total Production Time (as there were no failures).*
+            **Run Rate MTBF (min)**
+            > Mean Time Between Failures. The average duration of stable operation *between* stop events.
+            > - *Formula: `Total Production Time / Stop Events`*
+            > - *Conditional Logic: If Stop Events = 0, MTBF = Total Production Time (as there were no failures).*
             
-            - **Total Run Duration (sec)**: The total wall-clock time from the *start* of the first shot to the *end* of the last shot.
-              - *Formula: (Time of Last Shot - Time of First Shot) + (Actual CT of Last Shot)*
+            **Total Run Duration (sec)**
+            > The total wall-clock time from the *start* of the first shot to the *end* of the last shot.
+            > - *Formula: `(Time of Last Shot - Time of First Shot) + (Actual CT of Last Shot)`*
             
-            - **Production Time (sec)**: The sum of the 'Actual CT' for all shots that were *not* flagged as stops.
-              - *Formula: Sum(Actual CT of all shots where stop_flag = 0)*
+            **Production Time (sec)**
+            > The sum of the 'Actual CT' for all shots that were *not* flagged as stops.
+            > - *Formula: `Sum(Actual CT of all shots where stop_flag = 0)`*
             
-            - **Downtime (sec)**: The 'plug figure' to balance the time. It is the total time not spent in production.
-              - *Formula: Total Run Duration - Total Production Time*
+            **Downtime (sec)**
+            > The 'plug figure' to balance the time. It is the total time not spent in production.
+            > - *Formula: `Total Run Duration - Total Production Time`*
             
-            - **Total Shots**: The total number of shots (rows) in the selected period.
+            **Total Shots**
+            > The total number of shots (rows) in the selected period.
             
-            - **Normal Shots**: The count of all shots that were *not* flagged as stops.
-              - *Formula: Total Shots - (Sum of all shots where stop_flag = 1)*
+            **Normal Shots**
+            > The count of all shots that were *not* flagged as stops.
+            > - *Formula: `Total Shots - (Sum of all shots where stop_flag = 1)`*
             
-            - **Stop Events**: The count of *new* stoppage incidents. This is *not* the total number of stopped shots. A 'Stop Event' is the first shot in a sequence of one or more 'Stopped Shots'.
-              - *Logic: Counts rows where `stop_flag` = 1 AND the *previous* shot's `stop_flag` = 0.*
-            """, unsafe_allow_html=True)
+            **Stop Events**
+            > The count of *new* stoppage incidents. This is *not* the total number of stopped shots. A 'Stop Event' is the first shot in a sequence of one or more 'Stopped Shots'.
+            > - *Logic: Counts rows where `stop_flag` = 1 AND the *previous* shot's `stop_flag` = 0.*
+            """)
         # --- END OF UPDATED SECTION ---
         
         with st.container(border=True):
