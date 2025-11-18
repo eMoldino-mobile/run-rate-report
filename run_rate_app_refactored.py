@@ -317,15 +317,13 @@ def render_dashboard(df_tool, tool_id_selection):
             
             with col3: 
                 st.metric("Total Run Duration", rr_utils.format_duration(total_d),
-                          help="The total wall-clock time from the *start* of the first shot to the *end* of the last shot in the period.\n\nFormula: (Time of Last Shot - Time of First Shot) + (Actual CT of Last Shot)")
+                          help="The total time the machine was running. This is the SUM of the durations of all individual production runs. Gaps between runs (e.g., weekends) defined by the 'Run Interval Threshold' are excluded.\n\nFormula (per run): (Time of Last Shot - Time of First Shot) + (Actual CT of Last Shot)")
             with col4:
                 st.metric("Production Time", f"{rr_utils.format_duration(prod_t)}",
-                          help="The total time spent producing parts. This is the sum of the 'Actual CT' for all 'Normal' (non-stop) shots.\n\nFormula: Sum(Actual CT of all Normal Shots)")
-                st.markdown(f'<span style="background-color: {rr_utils.PASTEL_COLORS["green"]}; color: #0E1117; padding: 3px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: bold;">{prod_p:.1f}%</span>', unsafe_allow_html=True)
+                          help="The total time spent producing parts. This is the sum of the 'Actual CT' for all 'Normal' (non-stop) shots across all runs.\n\nFormula: Sum(Actual CT of all Normal Shots)")
             with col5:
                 st.metric("Downtime", f"{rr_utils.format_duration(down_t)}",
-                          help="The total time the machine was stopped. This is the 'plug figure' that balances the calculation.\n\nFormula: Total Run Duration - Total Production Time")
-                st.markdown(f'<span style="background-color: {rr_utils.PASTEL_COLORS["red"]}; color: #0E1117; padding: 3px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: bold;">{down_p:.1f}%</span>', unsafe_allow_html=True)
+                          help="The total time the machine was stopped within the calculated 'Total Run Duration'. This is the 'plug figure' calculated from the script's logic.\n\nFormula: Total Run Duration - Total Production Time")
         
         with st.container(border=True):
             c1, c2 = st.columns(2)
@@ -344,9 +342,10 @@ def render_dashboard(df_tool, tool_id_selection):
             > - *Formula: `Normal Shots / Total Shots`*
 
             **Run Rate Stability Index (%)**
-            > The percentage of total run time that was spent in a 'Normal' production state.
-            > - *Formula: `Total Production Time / Total Run Duration`*
-            > - *Conditional Logic: If Total Run Duration is 0, returns 100% if no stops occurred, 0% otherwise.*
+            > The percentage of total run time that was spent in a 'Normal' production state. Also known as 'Availability'.
+            > - *Formula: `MTBF / (MTBF + MTTR)`*
+            > - *Script Logic: `Total Production Time / Total Run Duration`*
+            > - *Conditional Logic: If Total Run Duration is 0, returns 100% if production occurred but no stops occurred, 0% otherwise.*
             
             **Run Rate MTTR (min)**
             > Mean Time To Repair. The average duration of a single stop event.
@@ -359,11 +358,11 @@ def render_dashboard(df_tool, tool_id_selection):
             > - *Conditional Logic: If Stop Events = 0, MTBF = Total Production Time (as there were no failures).*
             
             **Total Run Duration (sec)**
-            > The total wall-clock time from the *start* of the first shot to the *end* of the last shot.
-            > - *Formula: `(Time of Last Shot - Time of First Shot) + (Actual CT of Last Shot)`*
+            > The total time the machine was running, excluding large gaps (like weekends) defined by the 'Run Interval Threshold'.
+            > - *Calculation:* The app identifies all individual production runs. The duration of each run is calculated as `(Time of Last Shot - Time of First Shot) + (Actual CT of Last Shot)`. The metric you see is the **SUM** of all these individual run durations.
             
             **Production Time (sec)**
-            > The sum of the 'Actual CT' for all shots that were *not* flagged as stops.
+            > The sum of the 'Actual CT' for all shots that were *not* flagged as stops, across all included runs.
             > - *Formula: `Sum(Actual CT of all shots where stop_flag = 0)`*
             
             **Downtime (sec)**
