@@ -8,6 +8,12 @@ from datetime import datetime
 # Import all logic functions from the new utils file
 import run_rate_utils as rr_utils
 
+# --- FIX: Add missing Plotly imports ---
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+# --- End of Fix ---
+
 # ==============================================================================
 # --- 1. UI RENDERING FUNCTIONS ---
 # (These functions render the UI but call rr_utils for logic)
@@ -261,9 +267,6 @@ def render_dashboard(df_tool, tool_id_selection):
             # Call logic function
             trend_summary_df = rr_utils.calculate_run_summaries(df_view, tolerance, downtime_gap_tolerance)
             
-            # ##################################
-            # ### START OF FIX ###
-            # ##################################
             if trend_summary_df is not None and not trend_summary_df.empty:
                 # Re-assign the variable instead of using inplace=True
                 trend_summary_df = trend_summary_df.rename(columns={
@@ -274,9 +277,6 @@ def render_dashboard(df_tool, tool_id_selection):
                     'mtbf_min': 'MTBF (min)', 
                     'total_shots': 'Total Shots'
                 })
-            # ##################################
-            # ### END OF FIX ###
-            # ##################################
 
         elif "Weekly" in analysis_level:
             trend_level = "Daily"
