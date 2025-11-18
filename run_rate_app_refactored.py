@@ -515,3 +515,16 @@ def run_run_rate_ui():
             render_dashboard(df_for_dashboard, tool_id_for_dashboard_display)
         else:
             st.info("Select a specific Tool ID from the sidebar to view its dashboard.")
+
+# --- Add this block at the very end ---
+# This allows the file to be run standalone for testing
+if __name__ == "__main__":
+    # --- Page Config (Copied from combined_report.py) ---
+    st.set_page_config(
+        page_title="Run Rate Analysis (Standalone)",
+        layout="wide"
+    )
+    warnings.filterwarnings("ignore", category=FutureWarning)
+    
+    # This is the main function we defined above
+    run_run_rate_ui()
