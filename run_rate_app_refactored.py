@@ -307,7 +307,7 @@ def render_dashboard(df_tool, tool_id_selection):
             mttr_display = rr_utils.format_minutes_to_dhm(mttr_val_min)
             mtbf_display = rr_utils.format_minutes_to_dhm(mtbf_val_min)
 
-            # --- START OF EDITS ---
+            # --- START OF EDITS: Added help tooltips to all metrics ---
             with col1: 
                 st.metric("Run Rate MTTR", mttr_display,
                           help="Mean Time To Repair. The average time spent on a stop event.\n\nFormula: Total Downtime / Total Stop Events")
@@ -329,30 +329,44 @@ def render_dashboard(df_tool, tool_id_selection):
         
         with st.container(border=True):
             c1, c2 = st.columns(2)
-            # Replaced Gauges with Metrics to add tooltips
+            # Restored Gauges, removed markdown tooltips from headers
             with c1:
-                st.metric(
-                    label="Run Rate Efficiency (%)",
-                    value=f"{summary_metrics.get('efficiency', 0) * 100:.1f}%",
-                    help="The percentage of shots that were 'Normal' (within tolerance).\n\nFormula: Normal Shots / Total Shots"
-                )
+                c1.plotly_chart(rr_utils.create_gauge(summary_metrics.get('efficiency', 0) * 100, "Run Rate Efficiency (%)"), use_container_width=True)
             with c2:
-                stability_val = summary_metrics.get('stability_index', 0)
-                st.metric(
-                    label="Run Rate Stability Index (%)",
-                    value=f"{stability_val:.1f}%",
-                    help="The percentage of total run time that was spent in a 'Normal' production state.\n\nFormula: Total Production Time / Total Run Duration"
-                )
-                # Custom progress bar to replace the gauge's color steps
-                if stability_val > 70: color = rr_utils.PASTEL_COLORS['green']
-                elif stability_val > 50: color = rr_utils.PASTEL_COLORS['orange']
-                else: color = rr_utils.PASTEL_COLORS['red']
-                st.markdown(f"""
-                <div style="background: linear-gradient(to right, {rr_utils.PASTEL_COLORS['red']}, {rr_utils.PASTEL_COLORS['orange']}, {rr_utils.PASTEL_COLORS['green']}); height: 10px; border-radius: 5px; margin-top: 5px; position: relative; overflow: hidden;">
-                    <div style="position: absolute; left: {stability_val}%; width: 4px; height: 16px; background: black; border-radius: 2px; top: -3px; z-index: 10;"></div>
-                    <div style="position: absolute; left: 0; top: 0; height: 100%; width: {stability_val}%; background-color: {color};"></div>
-                </div>
-                """, unsafe_allow_html=True)
+                steps = [{'range': [0, 50], 'color': rr_utils.PASTEL_COLORS['red']}, {'range': [50, 70], 'color': rr_utils.PASTEL_COLORS['orange']},{'range': [70, 100], 'color': rr_utils.PASTEL_COLORS['green']}]
+                c2.plotly_chart(rr_utils.create_gauge(summary_metrics.get('stability_index', 0), "Run Rate Stability Index (%)", steps=steps), use_container_width=True)
+
+        # --- NEW: Add Metric Definitions Expander (as requested) ---
+        with st.expander("ℹ️ What do these metrics mean?"):
+            st.markdown("""
+            - **Run Rate Efficiency (%)**: The percentage of shots that were 'Normal' (within the Mode CT tolerance).
+              - *Formula: Normal Shots / Total Shots*
+
+            - **Run Rate Stability Index (%)**: The percentage of total run time that was spent in a 'Normal' production state (i.e., not stopped).
+              - *Formula: Total Production Time / Total Run Duration*
+            
+            - **Run Rate MTTR (min)**: Mean Time To Repair. The average time spent on a single stop event.
+              - *Formula: Total Downtime / Total Stop Events*
+            
+            - **Run Rate MTBF (min)**: Mean Time Between Failures. The average duration of stable operation *between* stop events.
+              - *Formula: Total Production Time / Total Stop Events*
+            
+            - **Total Run Duration**: The total wall-clock time from the first shot to the end of the last shot in the period.
+            
+            - **Production Time**: The total time spent producing parts (i.e., not in a stop state).
+              - *Formula: Total Run Duration - Total Downtime*
+            
+            - **Downtime**: The total time the machine was stopped (due to abnormal cycles or time gaps).
+              - *Formula: Total Run Duration - Total Production Time*
+            
+            - **Total Shots**: The total number of shots recorded in the selected period.
+            
+            - **Normal Shots**: The number of shots that were within the Mode CT tolerance and not part of a stop.
+              - *Formula: Total Shots - Stopped Shots*
+            
+            - **Stop Events**: The total number of times the machine entered a 'Stop' state.
+            """)
+        # --- END OF NEW SECTION ---
         
         with st.container(border=True):
             c1,c2,c3 = st.columns(3)
@@ -411,7 +425,7 @@ def render_dashboard(df_tool, tool_id_selection):
                 if "error" in insights: 
                     st.error(insights["error"])
                 else:
-                    components.html(f"""<div style="border:1px solid #333;border-radius:0.5rem;padding:1.5rem;margin-top:1rem;font-family:sans-serif;line-height:1.6;background-color:#0E1117;"><h4 style="margin-top:0;color:#FAFAFA;">Automated Analysis Summary</h4><p style="color:#FAFAFA;"><strong>Overall Assessment:</strong> {insights['overall']}</p><p style="color:#FAFAFA;"><strong>Predictive Trend:</strong> {insights['predictive']}</p><p style="color:#FAFAFA;"><strong>Performance Variance:</strong> {insights['best_worst']}</p> {'<p style="color:#FAFAFA;"><strong>Identified Patterns:</strong> ' + insights['patterns'] + '</p>' if insights['patterns'] else ''}<p style="margin-top:1rem;color:#FAFAFA;background-color:#262730;padding:1rem;border-radius:0.5rem;"><strong>Key Recommendation:</strong> {insights['recommendation']}</p></div>""", height=400, scrolling=True)
+                    components.html(f"""<div style="border:1px solid #333;border-radius:0.5rem;padding:1.5rem;margin-top:1rem;font-family:sans-serif;line-height:1.6;background-color:#0E1117;"><h4 style="margin-top:0;color:#FAFAFA;">Automated Analysis Summary</h4><p style="color:#FAFAFA;"><strong>Overall Assessment:</strong> {insights['overall']}</p><p style="color:#FAFAFA;"><strong>Predictive Trend:</strong> {insights['predictive']}</p><p style.color:#FAFAFA;><strong>Performance Variance:</strong> {insights['best_worst']}</p> {'<p style="color:#FAFAFA;"><strong>Identified Patterns:</strong> ' + insights['patterns'] + '</p>' if insights['patterns'] else ''}<p style="margin-top:1rem;color:#FAFAFA;background-color:#262730;padding:1rem;border-radius:0.5rem;"><strong>Key Recommendation:</strong> {insights['recommendation']}</p></div>""", height=400, scrolling=True)
 
         # --- Breakdown Table Expander ---
         if analysis_level in ["Weekly", "Monthly", "Custom Period"] and "by Run" not in analysis_level:
