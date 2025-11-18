@@ -307,66 +307,71 @@ def render_dashboard(df_tool, tool_id_selection):
             mttr_display = rr_utils.format_minutes_to_dhm(mttr_val_min)
             mtbf_display = rr_utils.format_minutes_to_dhm(mtbf_val_min)
 
-            # --- START OF EDITS: Added help tooltips to all metrics ---
+            # --- START OF EDITS: Updated help tooltips ---
             with col1: 
                 st.metric("Run Rate MTTR", mttr_display,
-                          help="Mean Time To Repair. The average time spent on a stop event.\n\nFormula: Total Downtime / Total Stop Events")
+                          help="Mean Time To Repair: The average duration of a single stop event.\n\nFormula: Total Downtime / Stop Events")
             with col2: 
                 st.metric("Run Rate MTBF", mtbf_display,
-                          help="Mean Time Between Failures. The average duration of stable operation between stop events.\n\nFormula: Total Production Time / Total Stop Events")
+                          help="Mean Time Between Failures: The average duration of stable operation *between* stop events.\n\nFormula: Total Production Time / Stop Events")
             
             with col3: 
                 st.metric("Total Run Duration", rr_utils.format_duration(total_d),
-                          help="The total wall-clock time from the first shot to the end of the last shot in the period.")
+                          help="The total wall-clock time from the *start* of the first shot to the *end* of the last shot in the period.\n\nFormula: (Time of Last Shot - Time of First Shot) + (Actual CT of Last Shot)")
             with col4:
                 st.metric("Production Time", f"{rr_utils.format_duration(prod_t)}",
-                          help="The total time spent producing parts (i.e., not in a stop state).\n\nFormula: Total Run Duration - Total Downtime")
+                          help="The total time spent producing parts. This is the sum of the 'Actual CT' for all 'Normal' (non-stop) shots.\n\nFormula: Sum(Actual CT of all Normal Shots)")
                 st.markdown(f'<span style="background-color: {rr_utils.PASTEL_COLORS["green"]}; color: #0E1117; padding: 3px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: bold;">{prod_p:.1f}%</span>', unsafe_allow_html=True)
             with col5:
                 st.metric("Downtime", f"{rr_utils.format_duration(down_t)}",
-                          help="The total time the machine was stopped.\n\nFormula: Total Run Duration - Total Production Time")
+                          help="The total time the machine was stopped. This is the 'plug figure' that balances the calculation.\n\nFormula: Total Run Duration - Total Production Time")
                 st.markdown(f'<span style="background-color: {rr_utils.PASTEL_COLORS["red"]}; color: #0E1117; padding: 3px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: bold;">{down_p:.1f}%</span>', unsafe_allow_html=True)
         
         with st.container(border=True):
             c1, c2 = st.columns(2)
-            # Restored Gauges, removed markdown tooltips from headers
+            # Restored Gauges
             with c1:
                 c1.plotly_chart(rr_utils.create_gauge(summary_metrics.get('efficiency', 0) * 100, "Run Rate Efficiency (%)"), use_container_width=True)
             with c2:
                 steps = [{'range': [0, 50], 'color': rr_utils.PASTEL_COLORS['red']}, {'range': [50, 70], 'color': rr_utils.PASTEL_COLORS['orange']},{'range': [70, 100], 'color': rr_utils.PASTEL_COLORS['green']}]
                 c2.plotly_chart(rr_utils.create_gauge(summary_metrics.get('stability_index', 0), "Run Rate Stability Index (%)", steps=steps), use_container_width=True)
 
-        # --- NEW: Add Metric Definitions Expander (as requested) ---
+        # --- UPDATED: Metric Definitions Expander (as requested) ---
         with st.expander("ℹ️ What do these metrics mean?"):
-            st.markdown("""
-            - **Run Rate Efficiency (%)**: The percentage of shots that were 'Normal' (within the Mode CT tolerance).
+            st.markdown(f"""
+            - **Run Rate Efficiency (%)**: The percentage of shots that were 'Normal' (i.e., `stop_flag` = 0).
               - *Formula: Normal Shots / Total Shots*
 
-            - **Run Rate Stability Index (%)**: The percentage of total run time that was spent in a 'Normal' production state (i.e., not stopped).
+            - **Run Rate Stability Index (%)**: The percentage of total run time that was spent in a 'Normal' production state.
               - *Formula: Total Production Time / Total Run Duration*
+              - *Conditional Logic: If Total Run Duration is 0, returns 100% if no stops occurred, 0% otherwise.*
             
-            - **Run Rate MTTR (min)**: Mean Time To Repair. The average time spent on a single stop event.
-              - *Formula: Total Downtime / Total Stop Events*
+            - **Run Rate MTTR (min)**: Mean Time To Repair. The average duration of a single stop event.
+              - *Formula: Total Downtime / Stop Events*
+              - *Conditional Logic: If Stop Events = 0, MTTR = 0.*
             
             - **Run Rate MTBF (min)**: Mean Time Between Failures. The average duration of stable operation *between* stop events.
-              - *Formula: Total Production Time / Total Stop Events*
+              - *Formula: Total Production Time / Stop Events*
+              - *Conditional Logic: If Stop Events = 0, MTBF = Total Production Time (as there were no failures).*
             
-            - **Total Run Duration**: The total wall-clock time from the first shot to the end of the last shot in the period.
+            - **Total Run Duration (sec)**: The total wall-clock time from the *start* of the first shot to the *end* of the last shot.
+              - *Formula: (Time of Last Shot - Time of First Shot) + (Actual CT of Last Shot)*
             
-            - **Production Time**: The total time spent producing parts (i.e., not in a stop state).
-              - *Formula: Total Run Duration - Total Downtime*
+            - **Production Time (sec)**: The sum of the 'Actual CT' for all shots that were *not* flagged as stops.
+              - *Formula: Sum(Actual CT of all shots where stop_flag = 0)*
             
-            - **Downtime**: The total time the machine was stopped (due to abnormal cycles or time gaps).
+            - **Downtime (sec)**: The 'plug figure' to balance the time. It is the total time not spent in production.
               - *Formula: Total Run Duration - Total Production Time*
             
-            - **Total Shots**: The total number of shots recorded in the selected period.
+            - **Total Shots**: The total number of shots (rows) in the selected period.
             
-            - **Normal Shots**: The number of shots that were within the Mode CT tolerance and not part of a stop.
-              - *Formula: Total Shots - Stopped Shots*
+            - **Normal Shots**: The count of all shots that were *not* flagged as stops.
+              - *Formula: Total Shots - (Sum of all shots where stop_flag = 1)*
             
-            - **Stop Events**: The total number of times the machine entered a 'Stop' state.
-            """)
-        # --- END OF NEW SECTION ---
+            - **Stop Events**: The count of *new* stoppage incidents. This is *not* the total number of stopped shots. A 'Stop Event' is the first shot in a sequence of one or more 'Stopped Shots'.
+              - *Logic: Counts rows where `stop_flag` = 1 AND the *previous* shot's `stop_flag` = 0.*
+            """, unsafe_allow_html=True)
+        # --- END OF UPDATED SECTION ---
         
         with st.container(border=True):
             c1,c2,c3 = st.columns(3)
@@ -376,15 +381,14 @@ def render_dashboard(df_tool, tool_id_selection):
             s_p = (s_s / t_s * 100) if t_s > 0 else 0
             with c1: 
                 st.metric("Total Shots", f"{t_s:,}",
-                          help="The total number of shots recorded in the selected period.")
+                          help="The total number of shots (rows) in the selected period.")
             with c2:
                 st.metric("Normal Shots", f"{n_s:,}",
-                          help="The number of shots that were within the Mode CT tolerance and not part of a stop.\n\nFormula: Total Shots - Stopped Shots")
+                          help="The count of all shots that were *not* flagged as stops.\n\nFormula: Total Shots - (Sum of all shots where stop_flag = 1)")
                 st.markdown(f'<span style="background-color: {rr_utils.PASTEL_COLORS["green"]}; color: #0E1117; padding: 3px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: bold;">{n_p:.1f}% of Total</span>', unsafe_allow_html=True)
             with c3:
                 st.metric("Stop Events", f"{summary_metrics.get('stop_events', 0)}",
-                          help="The total number of times the machine entered a 'Stop' state (either an abnormal cycle or a time gap).")
-                st.markdown(f'<span style="background-color: {rr_utils.PASTEL_COLORS["red"]}; color: #0E1117; padding: 3px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: bold;">{s_p:.1f}% Stopped Shots</span>', unsafe_allow_html=True)
+                          help="The count of *new* stoppage incidents. A 'Stop Event' is the first shot in a sequence of one or more 'Stopped Shots'.\n\nLogic: Counts shots where 'stop_flag' = 1 AND the previous shot's 'stop_flag' = 0.")
         # --- END OF EDITS ---
 
         with st.container(border=True):
@@ -425,7 +429,7 @@ def render_dashboard(df_tool, tool_id_selection):
                 if "error" in insights: 
                     st.error(insights["error"])
                 else:
-                    components.html(f"""<div style="border:1px solid #333;border-radius:0.5rem;padding:1.5rem;margin-top:1rem;font-family:sans-serif;line-height:1.6;background-color:#0E1117;"><h4 style="margin-top:0;color:#FAFAFA;">Automated Analysis Summary</h4><p style="color:#FAFAFA;"><strong>Overall Assessment:</strong> {insights['overall']}</p><p style="color:#FAFAFA;"><strong>Predictive Trend:</strong> {insights['predictive']}</p><p style.color:#FAFAFA;><strong>Performance Variance:</strong> {insights['best_worst']}</p> {'<p style="color:#FAFAFA;"><strong>Identified Patterns:</strong> ' + insights['patterns'] + '</p>' if insights['patterns'] else ''}<p style="margin-top:1rem;color:#FAFAFA;background-color:#262730;padding:1rem;border-radius:0.5rem;"><strong>Key Recommendation:</strong> {insights['recommendation']}</p></div>""", height=400, scrolling=True)
+                    components.html(f"""<div style="border:1px solid #333;border-radius:0.5rem;padding:1.5rem;margin-top:1rem;font-family:sans-serif;line-height:1.6;background-color:#0E1117;"><h4 style="margin-top:0;color:#FAFAFA;">Automated Analysis Summary</h4><p style="color:#FAFAFA;"><strong>Overall Assessment:</strong> {insights['overall']}</p><p style="color:#FAFAFA;"><strong>Predictive Trend:</strong> {insights['predictive']}</p><p style="color:#FAFAFA;"><strong>Performance Variance:</strong> {insights['best_worst']}</p> {'<p style="color:#FAFAFA;"><strong>Identified Patterns:</strong> ' + insights['patterns'] + '</p>' if insights['patterns'] else ''}<p style="margin-top:1rem;color:#FAFAFA;background-color:#262730;padding:1rem;border-radius:0.5rem;"><strong>Key Recommendation:</strong> {insights['recommendation']}</p></div>""", height=400, scrolling=True)
 
         # --- Breakdown Table Expander ---
         if analysis_level in ["Weekly", "Monthly", "Custom Period"] and "by Run" not in analysis_level:
