@@ -321,9 +321,11 @@ def render_dashboard(df_tool, tool_id_selection):
             with col4:
                 st.metric("Production Time", f"{rr_utils.format_duration(prod_t)}",
                           help="The total time spent producing parts. This is the sum of the 'Actual CT' for all 'Normal' (non-stop) shots across all runs.\n\nFormula: Sum(Actual CT of all Normal Shots)")
+                st.markdown(f'<span style="background-color: {rr_utils.PASTEL_COLORS["green"]}; color: #0E1117; padding: 3px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: bold;">{prod_p:.1f}%</span>', unsafe_allow_html=True)
             with col5:
                 st.metric("Downtime", f"{rr_utils.format_duration(down_t)}",
                           help="The total time the machine was stopped within the calculated 'Total Run Duration'. This is the 'plug figure' calculated from the script's logic.\n\nFormula: Total Run Duration - Total Production Time")
+                st.markdown(f'<span style="background-color: {rr_utils.PASTEL_COLORS["red"]}; color: #0E1117; padding: 3px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: bold;">{down_p:.1f}%</span>', unsafe_allow_html=True)
         
         with st.container(border=True):
             c1, c2 = st.columns(2)
