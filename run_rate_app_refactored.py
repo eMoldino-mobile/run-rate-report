@@ -307,40 +307,71 @@ def render_dashboard(df_tool, tool_id_selection):
             mttr_display = rr_utils.format_minutes_to_dhm(mttr_val_min)
             mtbf_display = rr_utils.format_minutes_to_dhm(mtbf_val_min)
 
-            with col1: st.metric("Run Rate MTTR", mttr_display)
-            with col2: st.metric("Run Rate MTBF", mtbf_display)
+            # --- START OF EDITS ---
+            with col1: 
+                st.metric("Run Rate MTTR", mttr_display,
+                          help="Mean Time To Repair. The average time spent on a stop event.\n\nFormula: Total Downtime / Total Stop Events")
+            with col2: 
+                st.metric("Run Rate MTBF", mtbf_display,
+                          help="Mean Time Between Failures. The average duration of stable operation between stop events.\n\nFormula: Total Production Time / Total Stop Events")
             
-            # Call logic function
-            with col3: st.metric("Total Run Duration", rr_utils.format_duration(total_d))
+            with col3: 
+                st.metric("Total Run Duration", rr_utils.format_duration(total_d),
+                          help="The total wall-clock time from the first shot to the end of the last shot in the period.")
             with col4:
-                st.metric("Production Time", f"{rr_utils.format_duration(prod_t)}")
+                st.metric("Production Time", f"{rr_utils.format_duration(prod_t)}",
+                          help="The total time spent producing parts (i.e., not in a stop state).\n\nFormula: Total Run Duration - Total Downtime")
                 st.markdown(f'<span style="background-color: {rr_utils.PASTEL_COLORS["green"]}; color: #0E1117; padding: 3px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: bold;">{prod_p:.1f}%</span>', unsafe_allow_html=True)
             with col5:
-                st.metric("Downtime", f"{rr_utils.format_duration(down_t)}")
+                st.metric("Downtime", f"{rr_utils.format_duration(down_t)}",
+                          help="The total time the machine was stopped.\n\nFormula: Total Run Duration - Total Production Time")
                 st.markdown(f'<span style="background-color: {rr_utils.PASTEL_COLORS["red"]}; color: #0E1117; padding: 3px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: bold;">{down_p:.1f}%</span>', unsafe_allow_html=True)
         
         with st.container(border=True):
             c1, c2 = st.columns(2)
-            # Call logic function
-            c1.plotly_chart(rr_utils.create_gauge(summary_metrics.get('efficiency', 0) * 100, "Run Rate Efficiency (%)"), use_container_width=True)
-            steps = [{'range': [0, 50], 'color': rr_utils.PASTEL_COLORS['red']}, {'range': [50, 70], 'color': rr_utils.PASTEL_COLORS['orange']},{'range': [70, 100], 'color': rr_utils.PASTEL_COLORS['green']}]
-            # Call logic function
-            c2.plotly_chart(rr_utils.create_gauge(summary_metrics.get('stability_index', 0), "Run Rate Stability Index (%)", steps=steps), use_container_width=True)
+            # Replaced Gauges with Metrics to add tooltips
+            with c1:
+                st.metric(
+                    label="Run Rate Efficiency (%)",
+                    value=f"{summary_metrics.get('efficiency', 0) * 100:.1f}%",
+                    help="The percentage of shots that were 'Normal' (within tolerance).\n\nFormula: Normal Shots / Total Shots"
+                )
+            with c2:
+                stability_val = summary_metrics.get('stability_index', 0)
+                st.metric(
+                    label="Run Rate Stability Index (%)",
+                    value=f"{stability_val:.1f}%",
+                    help="The percentage of total run time that was spent in a 'Normal' production state.\n\nFormula: Total Production Time / Total Run Duration"
+                )
+                # Custom progress bar to replace the gauge's color steps
+                if stability_val > 70: color = rr_utils.PASTEL_COLORS['green']
+                elif stability_val > 50: color = rr_utils.PASTEL_COLORS['orange']
+                else: color = rr_utils.PASTEL_COLORS['red']
+                st.markdown(f"""
+                <div style="background: linear-gradient(to right, {rr_utils.PASTEL_COLORS['red']}, {rr_utils.PASTEL_COLORS['orange']}, {rr_utils.PASTEL_COLORS['green']}); height: 10px; border-radius: 5px; margin-top: 5px; position: relative; overflow: hidden;">
+                    <div style="position: absolute; left: {stability_val}%; width: 4px; height: 16px; background: black; border-radius: 2px; top: -3px; z-index: 10;"></div>
+                    <div style="position: absolute; left: 0; top: 0; height: 100%; width: {stability_val}%; background-color: {color};"></div>
+                </div>
+                """, unsafe_allow_html=True)
         
-        # ... (rest of the KPI boxes) ...
         with st.container(border=True):
             c1,c2,c3 = st.columns(3)
             t_s = summary_metrics.get('total_shots', 0); n_s = summary_metrics.get('normal_shots', 0)
             s_s = t_s - n_s
             n_p = (n_s / t_s * 100) if t_s > 0 else 0
             s_p = (s_s / t_s * 100) if t_s > 0 else 0
-            with c1: st.metric("Total Shots", f"{t_s:,}")
+            with c1: 
+                st.metric("Total Shots", f"{t_s:,}",
+                          help="The total number of shots recorded in the selected period.")
             with c2:
-                st.metric("Normal Shots", f"{n_s:,}")
+                st.metric("Normal Shots", f"{n_s:,}",
+                          help="The number of shots that were within the Mode CT tolerance and not part of a stop.\n\nFormula: Total Shots - Stopped Shots")
                 st.markdown(f'<span style="background-color: {rr_utils.PASTEL_COLORS["green"]}; color: #0E1117; padding: 3px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: bold;">{n_p:.1f}% of Total</span>', unsafe_allow_html=True)
             with c3:
-                st.metric("Stop Events", f"{summary_metrics.get('stop_events', 0)}")
+                st.metric("Stop Events", f"{summary_metrics.get('stop_events', 0)}",
+                          help="The total number of times the machine entered a 'Stop' state (either an abnormal cycle or a time gap).")
                 st.markdown(f'<span style="background-color: {rr_utils.PASTEL_COLORS["red"]}; color: #0E1117; padding: 3px 8px; border-radius: 10px; font-size: 0.8rem; font-weight: bold;">{s_p:.1f}% Stopped Shots</span>', unsafe_allow_html=True)
+        # --- END OF EDITS ---
 
         with st.container(border=True):
             c1, c2, c3 = st.columns(3)
